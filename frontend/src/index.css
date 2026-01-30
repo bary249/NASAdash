@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --venn-black: #0a0a0a;
+    --venn-navy: #0f1419;
+    --venn-slate: #1a1f26;
+    --venn-charcoal: #2d333b;
+    --venn-amber: #d4a574;
+    --venn-copper: #c9956c;
+    --venn-gold: #e8b886;
+    --venn-orange: #e07a3d;
+    --venn-cream: #f5f0e8;
+    --venn-sand: #e8e2d9;
+    --venn-purple: #8b5cf6;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: #faf9f7;
+  }
+}
+
+@layer components {
+  /* Venn Card Styles - Warm refined look */
+  .venn-card {
+    @apply bg-white rounded-venn-lg shadow-venn-card border border-venn-sand/50 transition-all duration-300;
+  }
+
+  .venn-card:hover {
+    @apply shadow-venn border-venn-amber/20;
+  }
+
+  /* Venn Section - Clean container */
+  .venn-section {
+    @apply bg-white rounded-venn-lg shadow-venn-card border border-venn-sand/50 p-6;
+  }
+
+  /* Venn Button Primary - Warm amber accent */
+  .venn-btn-primary {
+    @apply px-5 py-2.5 bg-venn-amber text-venn-navy font-semibold rounded-xl 
+           hover:bg-venn-gold transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-venn-amber/50 focus:ring-offset-2
+           shadow-sm hover:shadow-md;
+  }
+
+  /* Venn Button Secondary - Dark elegant */
+  .venn-btn-secondary {
+    @apply px-5 py-2.5 bg-venn-navy text-white font-semibold rounded-xl 
+           hover:bg-venn-slate transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-venn-navy/50 focus:ring-offset-2
+           shadow-sm hover:shadow-md;
+  }
+
+  /* Venn Button Ghost - Subtle */
+  .venn-btn-ghost {
+    @apply px-4 py-2 text-venn-charcoal font-medium rounded-xl 
+           hover:bg-venn-cream transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-venn-amber/30;
+  }
+
+  /* Venn Metric Card - Sophisticated */
+  .venn-metric {
+    @apply bg-white rounded-venn-lg p-5 
+           border border-venn-sand/60 transition-all duration-300
+           hover:border-venn-amber/40 hover:shadow-venn;
+  }
+
+  /* Venn Badge - Refined pills */
+  .venn-badge {
+    @apply inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold tracking-wide;
+  }
+
+  .venn-badge-success {
+    @apply bg-emerald-50 text-emerald-700 border border-emerald-200/60;
+  }
+
+  .venn-badge-warning {
+    @apply bg-amber-50 text-amber-700 border border-amber-200/60;
+  }
+
+  .venn-badge-danger {
+    @apply bg-rose-50 text-rose-700 border border-rose-200/60;
+  }
+
+  .venn-badge-info {
+    @apply bg-sky-50 text-sky-700 border border-sky-200/60;
+  }
+
+  .venn-badge-neutral {
+    @apply bg-slate-100 text-slate-600 border border-slate-200/60;
+  }
+
+  /* Venn Badge Accent - Warm amber style */
+  .venn-badge-accent {
+    @apply bg-venn-amber/10 text-venn-copper border border-venn-amber/30;
+  }
+
+  /* Venn Table - Modern clean */
+  .venn-table {
+    @apply w-full text-sm;
+  }
+
+  .venn-table thead {
+    @apply bg-gradient-to-r from-slate-50 to-venn-cream/30 border-y border-venn-sand/40;
+  }
+
+  .venn-table th {
+    @apply px-5 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider;
+  }
+
+  .venn-table tbody tr {
+    @apply border-b border-venn-sand/30 hover:bg-venn-cream/30 transition-colors duration-150;
+  }
+
+  .venn-table td {
+    @apply px-5 py-4 text-slate-700;
+  }
+
+  /* Gradient backgrounds - Warm theme */
+  .venn-gradient-header {
+    background: linear-gradient(135deg, #0f1419 0%, #1a1f26 50%, #0f1419 100%);
+    position: relative;
+  }
+
+  .venn-gradient-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60%;
+    height: 100%;
+    background: radial-gradient(ellipse at top center, rgba(212, 165, 116, 0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .venn-gradient-accent {
+    @apply bg-gradient-to-r from-venn-amber to-venn-gold;
+  }
+
+  .venn-gradient-purple {
+    @apply bg-gradient-to-r from-venn-purple to-violet-500;
+  }
+
+  /* Glow effects */
+  .venn-glow {
+    box-shadow: 0 0 40px rgba(212, 165, 116, 0.15);
+  }
+
+  .venn-glow-sm {
+    box-shadow: 0 0 20px rgba(212, 165, 116, 0.1);
+  }
+
+  /* Icon containers */
+  .venn-icon-container {
+    @apply flex items-center justify-center rounded-xl bg-gradient-to-br from-venn-amber to-venn-copper shadow-md;
+  }
+
+  .venn-icon-container-dark {
+    @apply flex items-center justify-center rounded-xl bg-gradient-to-br from-venn-navy to-venn-slate shadow-md;
+  }
+
+  /* Input fields */
+  .venn-input {
+    @apply w-full px-4 py-3 border border-venn-sand rounded-xl text-sm
+           focus:outline-none focus:ring-2 focus:ring-venn-amber/30 focus:border-venn-amber
+           placeholder:text-slate-400 transition-all duration-200;
+  }
+
+  /* Scrollbar styling */
+  .venn-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .venn-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .venn-scrollbar::-webkit-scrollbar-thumb {
+    background: #d4a574;
+    border-radius: 3px;
+  }
+
+  .venn-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #c9956c;
+  }
+
+  /* Dotted grid pattern background (like venn.city) */
+  .venn-dotted-bg {
+    background-image: radial-gradient(circle, #d4a57420 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+}

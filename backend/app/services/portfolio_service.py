@@ -1,0 +1,445 @@
+"""
+Portfolio Service - Aggregates metrics across multiple properties.
+Supports two aggregation modes: weighted average and row metrics.
+
+READ-ONLY OPERATIONS ONLY.
+"""
+from typing import List, Dict, Optional
+from app.clients.pms_interface import PMSInterface, PMSType
+from app.clients.yardi_client import YardiClient
+from app.clients.realpage_client import RealPageClient
+from app.models.unified import (
+    AggregationMode,
+    PMSSource,
+    PMSConfig,
+    UnifiedUnit,
+    UnifiedResident,
+    UnifiedOccupancy,
+    UnifiedPricing,
+    PortfolioOccupancy,
+    PortfolioPricing,
+    PortfolioSummary,
+)
+
+
+class PortfolioService:
+    """
+    Aggregates metrics across multiple properties from different PMS systems.
+    
+    Supports two aggregation modes:
+    - WEIGHTED_AVERAGE: Calculate metrics per property, then weighted average
+    - ROW_METRICS: Combine all raw data, calculate metrics from combined dataset
+    """
+    
+    def __init__(self):
+        self._clients: Dict[str, PMSInterface] = {}
+    
+    def _get_client(self, config: PMSConfig) -> PMSInterface:
+        """Get or create a PMS client for the given configuration."""
+        cache_key = f"{config.pms_type}:{config.property_id}"
+        
+        if cache_key not in self._clients:
+            if config.pms_type == PMSSource.YARDI:
+                self._clients[cache_key] = YardiClient()
+            elif config.pms_type == PMSSource.REALPAGE:
+                self._clients[cache_key] = RealPageClient(
+                    pmcid=config.realpage_pmcid,
+                    siteid=config.realpage_siteid,
+                    licensekey=config.realpage_licensekey,
+                )
+            else:
+                raise ValueError(f"Unsupported PMS type: {config.pms_type}")
+        
+        return self._clients[cache_key]
+    
+    async def get_portfolio_occupancy(
+        self,
+        configs: List[PMSConfig],
+        mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
+    ) -> PortfolioOccupancy:
+        """
+        Aggregate occupancy metrics across multiple properties.
+        
+        Args:
+            configs: List of PMS configurations for each property
+            mode: Aggregation mode (weighted_avg or row_metrics)
+        
+        Returns:
+            PortfolioOccupancy with aggregated metrics
+        """
+        property_ids = [c.property_id for c in configs]
+        
+        if mode == AggregationMode.ROW_METRICS:
+            return await self._occupancy_row_metrics(configs)
+        else:
+            return await self._occupancy_weighted_average(configs)
+    
+    async def _occupancy_weighted_average(
+        self, 
+        configs: List[PMSConfig]
+    ) -> PortfolioOccupancy:
+        """Calculate occupancy using weighted average of per-property metrics."""
+        property_metrics: List[UnifiedOccupancy] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            metrics = await client.get_occupancy_metrics(config.property_id)
+            
+            property_metrics.append(UnifiedOccupancy(
+                property_id=config.property_id,
+                pms_source=PMSSource(config.pms_type),
+                total_units=metrics["total_units"],
+                occupied_units=metrics["occupied_units"],
+                vacant_units=metrics["vacant_units"],
+                leased_units=metrics["leased_units"],
+                preleased_vacant=metrics.get("preleased_vacant", 0),
+                available_units=metrics.get("available_units", 0),
+                vacant_ready=metrics.get("vacant_ready", 0),
+                vacant_not_ready=metrics.get("vacant_not_ready", 0),
+                physical_occupancy=metrics["physical_occupancy"],
+                leased_percentage=metrics["leased_percentage"],
+            ))
+        
+        # Calculate weighted averages
+        total_units = sum(m.total_units for m in property_metrics)
+        total_occupied = sum(m.occupied_units for m in property_metrics)
+        total_vacant = sum(m.vacant_units for m in property_metrics)
+        total_leased = sum(m.leased_units for m in property_metrics)
+        total_preleased = sum(m.preleased_vacant for m in property_metrics)
+        total_available = sum(m.available_units for m in property_metrics)
+        total_vacant_ready = sum(m.vacant_ready for m in property_metrics)
+        total_vacant_not_ready = sum(m.vacant_not_ready for m in property_metrics)
+        
+        # Weighted average for percentages
+        if total_units > 0:
+            weighted_occupancy = sum(
+                m.physical_occupancy * m.total_units for m in property_metrics
+            ) / total_units
+            weighted_leased = sum(
+                m.leased_percentage * m.total_units for m in property_metrics
+            ) / total_units
+        else:
+            weighted_occupancy = 0
+            weighted_leased = 0
+        
+        return PortfolioOccupancy(
+            property_ids=[c.property_id for c in configs],
+            aggregation_mode=AggregationMode.WEIGHTED_AVERAGE,
+            total_units=total_units,
+            occupied_units=total_occupied,
+            vacant_units=total_vacant,
+            leased_units=total_leased,
+            preleased_vacant=total_preleased,
+            available_units=total_available,
+            vacant_ready=total_vacant_ready,
+            vacant_not_ready=total_vacant_not_ready,
+            physical_occupancy=round(weighted_occupancy, 2),
+            leased_percentage=round(weighted_leased, 2),
+            property_breakdown=property_metrics,
+        )
+    
+    async def _occupancy_row_metrics(
+        self, 
+        configs: List[PMSConfig]
+    ) -> PortfolioOccupancy:
+        """Calculate occupancy from combined raw unit data."""
+        all_units: List[dict] = []
+        property_metrics: List[UnifiedOccupancy] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            units = await client.get_units(config.property_id)
+            
+            # Tag units with property info
+            for unit in units:
+                unit["_property_id"] = config.property_id
+                unit["_pms_source"] = config.pms_type
+            
+            all_units.extend(units)
+            
+            # Also store per-property for breakdown
+            metrics = await client.get_occupancy_metrics(config.property_id)
+            property_metrics.append(UnifiedOccupancy(
+                property_id=config.property_id,
+                pms_source=PMSSource(config.pms_type),
+                **metrics
+            ))
+        
+        # Calculate from combined raw data
+        total_units = len(all_units)
+        occupied_units = len([u for u in all_units if u.get("status") == "occupied"])
+        vacant_units = len([u for u in all_units if u.get("status") == "vacant"])
+        notice_units = len([u for u in all_units if u.get("status") == "notice"])
+        available_units = len([u for u in all_units if u.get("available", False)])
+        leased_units = occupied_units + notice_units
+        
+        # Vacant ready/not ready breakdown
+        vacant_ready = len([u for u in all_units 
+                          if u.get("status") == "vacant" 
+                          and u.get("ready_status") == "ready"])
+        vacant_not_ready = vacant_units - vacant_ready
+        
+        physical_occupancy = (occupied_units / total_units * 100) if total_units > 0 else 0
+        leased_percentage = (leased_units / total_units * 100) if total_units > 0 else 0
+        
+        return PortfolioOccupancy(
+            property_ids=[c.property_id for c in configs],
+            aggregation_mode=AggregationMode.ROW_METRICS,
+            total_units=total_units,
+            occupied_units=occupied_units,
+            vacant_units=vacant_units,
+            leased_units=leased_units,
+            preleased_vacant=0,
+            available_units=available_units,
+            vacant_ready=vacant_ready,
+            vacant_not_ready=vacant_not_ready,
+            physical_occupancy=round(physical_occupancy, 2),
+            leased_percentage=round(leased_percentage, 2),
+            property_breakdown=property_metrics,
+        )
+    
+    async def get_portfolio_pricing(
+        self,
+        configs: List[PMSConfig],
+        mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
+    ) -> PortfolioPricing:
+        """
+        Aggregate pricing metrics across multiple properties.
+        
+        Args:
+            configs: List of PMS configurations for each property
+            mode: Aggregation mode (weighted_avg or row_metrics)
+        
+        Returns:
+            PortfolioPricing with aggregated metrics
+        """
+        if mode == AggregationMode.ROW_METRICS:
+            return await self._pricing_row_metrics(configs)
+        else:
+            return await self._pricing_weighted_average(configs)
+    
+    async def _pricing_weighted_average(
+        self, 
+        configs: List[PMSConfig]
+    ) -> PortfolioPricing:
+        """Calculate pricing using weighted average."""
+        all_units: List[dict] = []
+        all_leases: List[dict] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            units = await client.get_units(config.property_id)
+            leases = await client.get_lease_data(config.property_id)
+            
+            for unit in units:
+                unit["_property_id"] = config.property_id
+            for lease in leases:
+                lease["_property_id"] = config.property_id
+            
+            all_units.extend(units)
+            all_leases.extend(leases)
+        
+        # Calculate portfolio-wide pricing
+        return self._calculate_pricing_metrics(
+            all_units, 
+            all_leases, 
+            [c.property_id for c in configs],
+            AggregationMode.WEIGHTED_AVERAGE
+        )
+    
+    async def _pricing_row_metrics(
+        self, 
+        configs: List[PMSConfig]
+    ) -> PortfolioPricing:
+        """Calculate pricing from combined raw data."""
+        all_units: List[dict] = []
+        all_leases: List[dict] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            units = await client.get_units(config.property_id)
+            leases = await client.get_lease_data(config.property_id)
+            
+            for unit in units:
+                unit["_property_id"] = config.property_id
+            for lease in leases:
+                lease["_property_id"] = config.property_id
+            
+            all_units.extend(units)
+            all_leases.extend(leases)
+        
+        return self._calculate_pricing_metrics(
+            all_units,
+            all_leases,
+            [c.property_id for c in configs],
+            AggregationMode.ROW_METRICS
+        )
+    
+    def _calculate_pricing_metrics(
+        self,
+        units: List[dict],
+        leases: List[dict],
+        property_ids: List[str],
+        mode: AggregationMode
+    ) -> PortfolioPricing:
+        """Calculate pricing metrics from unit and lease data."""
+        # Create lease lookup by unit
+        lease_by_unit = {l.get("unit_id"): l for l in leases}
+        
+        # Calculate totals
+        total_sf = sum(u.get("square_feet", 0) for u in units)
+        total_market_rent = sum(u.get("market_rent", 0) for u in units)
+        
+        # In-place rent from leases, fallback to occupied units' market rent
+        total_in_place = sum(l.get("rent_amount", 0) for l in leases)
+        occupied_units = [u for u in units if u.get("status") == "occupied"]
+        occupied_sf = sum(u.get("square_feet", 0) for u in occupied_units)
+        
+        # Fallback: if no lease rent data, use market rent from occupied units
+        if total_in_place == 0 and occupied_units:
+            total_in_place = sum(u.get("market_rent", 0) for u in occupied_units)
+        
+        # Calculate averages
+        unit_count = len(units)
+        occupied_count = len(occupied_units)
+        
+        avg_asking = total_market_rent / unit_count if unit_count > 0 else 0
+        avg_asking_sf = total_market_rent / total_sf if total_sf > 0 else 0
+        avg_in_place = total_in_place / occupied_count if occupied_count > 0 else 0
+        avg_in_place_sf = total_in_place / occupied_sf if occupied_sf > 0 else 0
+        
+        rent_growth = ((avg_asking / avg_in_place) - 1) * 100 if avg_in_place > 0 else 0
+        
+        return PortfolioPricing(
+            property_ids=property_ids,
+            aggregation_mode=mode,
+            total_in_place_rent=round(avg_in_place, 2),
+            total_in_place_per_sf=round(avg_in_place_sf, 2),
+            total_asking_rent=round(avg_asking, 2),
+            total_asking_per_sf=round(avg_asking_sf, 2),
+            total_rent_growth=round(rent_growth, 2),
+        )
+    
+    async def get_all_units(
+        self,
+        configs: List[PMSConfig]
+    ) -> List[UnifiedUnit]:
+        """
+        Get combined unit list from all properties (for drill-through).
+        """
+        all_units: List[UnifiedUnit] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            units = await client.get_units(config.property_id)
+            
+            for unit in units:
+                # Determine ready_status and available from unit data
+                status = unit.get("status", "unknown")
+                is_vacant = unit.get("occupancy_status") == "vacant" or status == "vacant"
+                ready_status = unit.get("ready_status")
+                if not ready_status:
+                    # Infer from status if not explicitly set
+                    ready_status = "ready" if is_vacant and "ready" in status.lower() else ("not_ready" if is_vacant else None)
+                is_available = unit.get("available", is_vacant and ready_status == "ready")
+                
+                all_units.append(UnifiedUnit(
+                    unit_id=unit.get("unit_id", ""),
+                    property_id=config.property_id,
+                    pms_source=PMSSource(config.pms_type),
+                    unit_number=unit.get("unit_number", ""),
+                    floorplan=unit.get("floorplan", ""),
+                    floorplan_name=unit.get("floorplan_name"),
+                    bedrooms=unit.get("bedrooms", 0),
+                    bathrooms=unit.get("bathrooms", 0),
+                    square_feet=unit.get("square_feet", 0),
+                    market_rent=unit.get("market_rent", 0),
+                    status=unit.get("occupancy_status", status),
+                    building=unit.get("building"),
+                    floor=unit.get("floor"),
+                    ready_status=ready_status,
+                    available=is_available,
+                    days_vacant=unit.get("days_vacant"),
+                    available_date=unit.get("available_date"),
+                    on_notice_date=unit.get("on_notice_date"),
+                ))
+        
+        return all_units
+    
+    async def get_all_residents(
+        self,
+        configs: List[PMSConfig],
+        status: Optional[str] = None
+    ) -> List[UnifiedResident]:
+        """
+        Get combined resident list from all properties (for drill-through).
+        """
+        all_residents: List[UnifiedResident] = []
+        
+        for config in configs:
+            client = self._get_client(config)
+            residents = await client.get_residents(config.property_id, status)
+            
+            for res in residents:
+                # Re-categorize Current residents with notice_date to "Notice" status
+                # (RealPage doesn't have Notice status - they're still Current with notice_date)
+                notice_date = res.get("notice_date")
+                res_status = res.get("status", "unknown")
+                if res_status == "Current" and notice_date:
+                    res_status = "Notice"
+                
+                all_residents.append(UnifiedResident(
+                    resident_id=res.get("resident_id", ""),
+                    property_id=config.property_id,
+                    pms_source=PMSSource(config.pms_type),
+                    unit_id=res.get("unit_id", ""),
+                    unit_number=res.get("unit_number"),
+                    first_name=res.get("first_name", ""),
+                    last_name=res.get("last_name", ""),
+                    current_rent=res.get("current_rent", 0),
+                    status=res_status,
+                    lease_start=res.get("lease_start"),
+                    lease_end=res.get("lease_end"),
+                    move_in_date=res.get("move_in_date"),
+                    move_out_date=res.get("move_out_date"),
+                    notice_date=notice_date,
+                ))
+        
+        return all_residents
+    
+    async def get_portfolio_summary(
+        self,
+        configs: List[PMSConfig],
+        mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
+    ) -> PortfolioSummary:
+        """
+        Get complete portfolio summary with all metrics.
+        """
+        occupancy = await self.get_portfolio_occupancy(configs, mode)
+        pricing = await self.get_portfolio_pricing(configs, mode)
+        
+        # Get counts
+        all_units = await self.get_all_units(configs)
+        all_residents = await self.get_all_residents(configs, status="current")
+        
+        # Get property names
+        property_names = []
+        for config in configs:
+            client = self._get_client(config)
+            properties = await client.get_properties()
+            for prop in properties:
+                if prop.get("property_id") == config.property_id:
+                    property_names.append(prop.get("name", config.property_id))
+                    break
+            else:
+                property_names.append(config.property_id)
+        
+        return PortfolioSummary(
+            property_ids=[c.property_id for c in configs],
+            property_names=property_names,
+            aggregation_mode=mode,
+            occupancy=occupancy,
+            pricing=pricing,
+            total_unit_count=len(all_units),
+            total_resident_count=len(all_residents),
+        )

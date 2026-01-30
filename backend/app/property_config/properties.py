@@ -60,20 +60,6 @@ KAIROI_THE_NORTHERN = PropertyMapping(
 )
 
 # =============================================================================
-# Yardi Properties (existing)
-# =============================================================================
-
-YARDI_DEFAULT = PropertyMapping(
-    unified_id="venn00",
-    name="Venn Default Property",
-    pms_config=PMSConfig(
-        pms_type=PMSSource.YARDI,
-        property_id="venn00",
-        yardi_property_id="venn00",
-    )
-)
-
-# =============================================================================
 # All Properties Registry
 # =============================================================================
 
@@ -82,7 +68,6 @@ ALL_PROPERTIES = {
     "kairoi-parkside": KAIROI_PARKSIDE,
     "kairoi-ridian": KAIROI_RIDIAN,
     "kairoi-the-northern": KAIROI_THE_NORTHERN,
-    "venn00": YARDI_DEFAULT,
 }
 
 # By PMS type

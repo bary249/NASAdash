@@ -82,6 +82,49 @@ async def get_exposure(
     - Move-ins/outs for period
     - Net absorption
     """
+    import sqlite3
+    from pathlib import Path
+    from datetime import date
+    
+    # Try database first for properties without full PMS config
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT exposure_30_days, exposure_60_days, notice_units, vacant_units
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ?
+            ORDER BY snapshot_date DESC
+            LIMIT 1
+        """, (property_id,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row and row[0] is not None:
+            today = date.today()
+            return ExposureMetrics(
+                property_id=property_id,
+                timeframe=timeframe.value,
+                period_start=today.replace(day=1).isoformat(),
+                period_end=today.isoformat(),
+                exposure_30_days=row[0] or 0,
+                exposure_60_days=row[1] or 0,
+                notices_total=row[2] or 0,
+                notices_30_days=int((row[2] or 0) * 0.5),
+                notices_60_days=row[2] or 0,
+                pending_moveouts_30=int((row[2] or 0) * 0.5),
+                pending_moveouts_60=row[2] or 0,
+                pending_moveins_30=0,
+                pending_moveins_60=0,
+                move_ins=0,
+                move_outs=0,
+                net_absorption=0,
+            )
+    except Exception as db_err:
+        print(f"DB fallback failed: {db_err}")
+    
+    # Fall back to live API call
     try:
         return await occupancy_service.get_exposure_metrics(property_id, timeframe)
     except Exception as e:
@@ -488,31 +531,144 @@ async def get_delinquency(property_id: str):
     """
     GET: Delinquency, eviction, and collections data for a property.
     
-    Data source: RealPage Delinquent and Prepaid Report (Excel).
-    Returns: Total delinquent, prepaid, aging buckets, collections summary.
+    Data source: unified_delinquency table (synced from RealPage reports).
+    Returns: DelinquencyReport format for frontend consumption.
     """
-    from app.services.delinquency_parser import parse_delinquency_report
+    import sqlite3
     from pathlib import Path
+    from datetime import datetime
     
-    # Map property IDs to their delinquency report files
-    # Currently only The Northern has a report
-    PROPERTY_REPORTS = {
-        "kairoi-the-northern": "Delinquent and Prepaid Report (3).xls",  # The Northern
-    }
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
     
-    report_filename = PROPERTY_REPORTS.get(property_id)
-    if not report_filename:
-        raise HTTPException(status_code=404, detail="No delinquency report available for this property")
-    
-    report_path = Path(__file__).parent.parent / "db" / report_filename
-    
-    if not report_path.exists():
-        raise HTTPException(status_code=404, detail="Delinquency report file not found")
+    # Normalize property_id: handle both "kairoi-the-northern" and "the_northern" formats
+    normalized_id = property_id
+    if property_id.startswith("kairoi-"):
+        # Convert kairoi-the-northern -> the_northern
+        normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
     
     try:
-        return parse_delinquency_report(str(report_path))
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get delinquency records for property with new fields
+        # Try both the original and normalized property_id
+        cursor.execute("""
+            SELECT unit_number, resident_name, status, current_balance,
+                   balance_0_30, balance_31_60, balance_61_90, balance_over_90, 
+                   prepaid, net_balance, report_date
+            FROM unified_delinquency
+            WHERE unified_property_id = ? OR unified_property_id = ?
+            ORDER BY balance_0_30 DESC
+        """, (property_id, normalized_id))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="No delinquency data found")
+        
+        # Calculate totals
+        total_delinquent = 0
+        total_prepaid = 0
+        total_net = 0
+        aging = {"0_30": 0, "31_60": 0, "61_90": 0, "90_plus": 0}
+        collections = {"0_30": 0, "31_60": 0, "61_90": 0, "90_plus": 0}
+        eviction_units = []
+        resident_details = []
+        report_date = rows[0][10] if rows[0][10] else datetime.now().strftime("%Y-%m-%d")
+        
+        for row in rows:
+            unit_number = row[0]
+            status = row[2] or ""
+            current_bal = row[3] or 0
+            bal_0_30 = row[4] or 0
+            bal_31_60 = row[5] or 0
+            bal_61_90 = row[6] or 0
+            bal_90_plus = row[7] or 0
+            prepaid = row[8] or 0
+            net_balance = row[9] or 0
+            
+            # Calculate total delinquent per unit (sum of positive aging buckets)
+            unit_delinquent = max(0, bal_0_30) + max(0, bal_31_60) + max(0, bal_61_90) + max(0, bal_90_plus)
+            
+            # Check if former resident (collections)
+            is_former = "former" in status.lower()
+            is_eviction = "eviction" in status.lower() or "writ" in status.lower()
+            
+            if is_former:
+                collections["0_30"] += max(0, bal_0_30)
+                collections["31_60"] += max(0, bal_31_60)
+                collections["61_90"] += max(0, bal_61_90)
+                collections["90_plus"] += max(0, bal_90_plus)
+            else:
+                aging["0_30"] += bal_0_30
+                aging["31_60"] += bal_31_60
+                aging["61_90"] += bal_61_90
+                aging["90_plus"] += bal_90_plus
+            
+            if unit_delinquent > 0:
+                total_delinquent += unit_delinquent
+            
+            total_prepaid += min(0, prepaid)  # Prepaid is negative
+            total_net += net_balance
+            
+            if is_eviction:
+                eviction_units.append({"unit": unit_number, "balance": unit_delinquent})
+            
+            # Build resident detail record
+            resident_details.append({
+                "unit": unit_number,
+                "status": status,
+                "total_prepaid": abs(min(0, prepaid)),
+                "total_delinquent": unit_delinquent,
+                "net_balance": net_balance,
+                "current": current_bal,
+                "days_30": bal_0_30,
+                "days_60": bal_31_60,
+                "days_90_plus": bal_90_plus,
+                "deposits_held": 0,
+                "is_eviction": is_eviction
+            })
+        
+        # Count residents with actual delinquency
+        delinquent_count = len([r for r in resident_details if r["total_delinquent"] > 0])
+        
+        return {
+            "property_name": property_id,
+            "report_date": report_date,
+            "total_prepaid": round(abs(total_prepaid), 2),
+            "total_delinquent": round(total_delinquent, 2),
+            "net_balance": round(total_net, 2),
+            "delinquency_aging": {
+                "current": round(aging["0_30"], 2),
+                "days_0_30": round(aging["0_30"], 2),
+                "days_31_60": round(aging["31_60"], 2),
+                "days_61_90": round(aging["61_90"], 2),
+                "days_90_plus": round(aging["90_plus"], 2),
+                "total": round(total_delinquent, 2)
+            },
+            "evictions": {
+                "total_balance": round(sum(e["balance"] for e in eviction_units), 2),
+                "unit_count": len(eviction_units),
+                "filed_count": 0,
+                "writ_count": 0
+            },
+            "collections": {
+                "days_0_30": round(collections["0_30"], 2),
+                "days_31_60": round(collections["31_60"], 2),
+                "days_61_90": round(collections["61_90"], 2),
+                "days_90_plus": round(collections["90_plus"], 2),
+                "total": round(sum(collections.values()), 2)
+            },
+            "deposits_held": 0,
+            "outstanding_deposits": 0,
+            "resident_count": delinquent_count,
+            "resident_details": resident_details
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse delinquency report: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get delinquency data: {str(e)}")
 
 
 # =========================================================================

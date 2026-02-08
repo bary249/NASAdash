@@ -7,6 +7,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from anthropic import Anthropic
 from app.config import get_settings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +176,151 @@ You can help with occupancy analysis, pricing insights, leasing funnel efficienc
             return response.content[0].text
         except Exception as e:
             logger.error(f"Chat error: {e}")
+            return f"Sorry, I encountered an error: {str(e)}"
+
+    def _build_portfolio_system_prompt(self, portfolio_data: Dict[str, Any]) -> str:
+        """Build system prompt for portfolio-level analysis with asset manager perspective."""
+        
+        properties = portfolio_data.get("properties", [])
+        summary = portfolio_data.get("summary", {})
+        
+        # Build property comparison table
+        property_lines = []
+        for prop in properties:
+            name = prop.get("name", "Unknown")
+            occ = prop.get("occupancy", {})
+            pricing = prop.get("pricing", {})
+            funnel = prop.get("funnel", {})
+            
+            units = occ.get("total_units", 0)
+            phys_occ = occ.get("physical_occupancy", 0)
+            vacant = occ.get("vacant_units", 0)
+            aged = occ.get("aged_vacancy_90_plus", 0)
+            in_place = pricing.get("avg_in_place_rent", 0)
+            asking = pricing.get("avg_asking_rent", 0)
+            leads = funnel.get("leads", 0)
+            leases = funnel.get("lease_signs", 0)
+            conversion = funnel.get("lead_to_lease_rate", 0)
+            
+            property_lines.append(
+                f"  • {name}: {units} units, {phys_occ:.1f}% occupied, {vacant} vacant ({aged} aged 90+), "
+                f"In-place ${in_place:,.0f}, Asking ${asking:,.0f}, {leads} leads → {leases} leases ({conversion:.1f}% conv)"
+            )
+        
+        properties_detail = "\n".join(property_lines) if property_lines else "No property data available"
+        
+        # Calculate portfolio totals
+        total_units = summary.get("total_units", 0)
+        total_vacant = summary.get("total_vacant", 0)
+        avg_occupancy = summary.get("avg_occupancy", 0)
+        total_aged = sum(p.get("occupancy", {}).get("aged_vacancy_90_plus", 0) for p in properties)
+        total_leads = sum(p.get("funnel", {}).get("leads", 0) for p in properties)
+        total_leases = sum(p.get("funnel", {}).get("lease_signs", 0) for p in properties)
+        avg_in_place = summary.get("avg_in_place_rent", 0)
+        avg_asking = summary.get("avg_asking_rent", 0)
+        
+        # Identify outliers
+        if properties:
+            best_occ = max(properties, key=lambda p: p.get("occupancy", {}).get("physical_occupancy", 0))
+            worst_occ = min(properties, key=lambda p: p.get("occupancy", {}).get("physical_occupancy", 100))
+            best_conversion = max(properties, key=lambda p: p.get("funnel", {}).get("lead_to_lease_rate", 0))
+            worst_conversion = min(properties, key=lambda p: p.get("funnel", {}).get("lead_to_lease_rate", 100))
+        
+        today = datetime.now().strftime("%B %d, %Y")
+        
+        return f"""You are an expert Asset Manager and Owner Analyst for a multifamily real estate portfolio. 
+You think strategically about NOI optimization, risk mitigation, and portfolio performance.
+
+TODAY'S DATE: {today}
+
+═══════════════════════════════════════════════════════════════════════════════
+PORTFOLIO OVERVIEW
+═══════════════════════════════════════════════════════════════════════════════
+
+PORTFOLIO TOTALS:
+• Total Properties: {len(properties)}
+• Total Units: {total_units:,}
+• Portfolio Occupancy: {avg_occupancy:.1f}%
+• Total Vacant Units: {total_vacant}
+• Aged Vacancy (90+ days): {total_aged}
+• Avg In-Place Rent: ${avg_in_place:,.0f}
+• Avg Asking Rent: ${avg_asking:,.0f}
+• Rent Growth Opportunity: {((avg_asking - avg_in_place) / avg_in_place * 100) if avg_in_place > 0 else 0:.1f}%
+• Total Leads MTD: {total_leads}
+• Total Leases Signed MTD: {total_leases}
+
+PROPERTY-BY-PROPERTY BREAKDOWN:
+{properties_detail}
+
+PERFORMANCE HIGHLIGHTS:
+• Highest Occupancy: {best_occ.get("name", "N/A")} ({best_occ.get("occupancy", {}).get("physical_occupancy", 0):.1f}%)
+• Lowest Occupancy: {worst_occ.get("name", "N/A")} ({worst_occ.get("occupancy", {}).get("physical_occupancy", 0):.1f}%)
+• Best Lead Conversion: {best_conversion.get("name", "N/A")} ({best_conversion.get("funnel", {}).get("lead_to_lease_rate", 0):.1f}%)
+• Needs Attention: {worst_conversion.get("name", "N/A")} ({worst_conversion.get("funnel", {}).get("lead_to_lease_rate", 0):.1f}% conversion)
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR ROLE & ANALYSIS FRAMEWORK
+═══════════════════════════════════════════════════════════════════════════════
+
+As an Asset Manager, analyze this portfolio through these lenses:
+
+1. **NOI OPTIMIZATION**: Identify rent growth opportunities, expense reduction potential
+2. **RISK ASSESSMENT**: Flag aged vacancy, low conversion, lease exposure
+3. **OPERATIONAL EFFICIENCY**: Compare property performance, identify best practices to replicate
+4. **STRATEGIC INSIGHTS**: Market positioning, competitive threats, capital allocation
+
+When providing portfolio highlights:
+- Lead with the most IMPACTFUL metrics (what affects NOI most)
+- Identify OUTLIERS (both positive opportunities and concerns)
+- Provide ACTIONABLE recommendations
+- Compare properties to identify PATTERNS
+- Quantify the FINANCIAL IMPACT when possible
+
+Keep responses strategic and executive-level. Focus on what an owner or asset manager NEEDS to know to make decisions."""
+
+    async def portfolio_chat(
+        self,
+        message: str,
+        portfolio_data: Dict[str, Any],
+        history: Optional[List[Dict[str, str]]] = None
+    ) -> str:
+        """
+        Send a message about portfolio-level data and get AI response.
+        
+        Args:
+            message: User's question about the portfolio
+            portfolio_data: Aggregated portfolio metrics and per-property data
+            history: Previous messages in conversation
+        
+        Returns:
+            AI response string with asset manager perspective
+        """
+        if not self.client:
+            return "Chat is not available. Please configure ANTHROPIC_API_KEY in the backend .env file."
+        
+        system_prompt = self._build_portfolio_system_prompt(portfolio_data)
+        
+        # Build messages
+        messages = []
+        if history:
+            for msg in history[-10:]:
+                content = msg.get("content", "").strip()
+                role = msg.get("role", "user")
+                if content and role in ["user", "assistant"]:
+                    messages.append({"role": role, "content": content})
+        
+        messages.append({"role": "user", "content": message})
+        
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=2048,  # Allow longer responses for portfolio analysis
+                system=system_prompt,
+                messages=messages
+            )
+            return response.content[0].text
+        except Exception as e:
+            logger.error(f"Portfolio chat error: {e}")
             return f"Sorry, I encountered an error: {str(e)}"
 
 

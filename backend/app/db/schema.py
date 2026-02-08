@@ -367,6 +367,173 @@ CREATE INDEX IF NOT EXISTS idx_realpage_leases_site ON realpage_leases(site_id);
 CREATE INDEX IF NOT EXISTS idx_realpage_rentable_items_site ON realpage_rentable_items(site_id);
 CREATE INDEX IF NOT EXISTS idx_realpage_rentable_items_type ON realpage_rentable_items(item_type);
 CREATE INDEX IF NOT EXISTS idx_realpage_rentable_items_status ON realpage_rentable_items(status);
+
+-- =============================================================================
+-- REALPAGE REPORT DATA (from downloaded Excel reports)
+-- =============================================================================
+
+-- Box Score Report - Floorplan-level occupancy and rent metrics
+CREATE TABLE IF NOT EXISTS realpage_box_score (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    fiscal_period TEXT,
+    floorplan_group TEXT,
+    floorplan TEXT NOT NULL,
+    total_units INTEGER,
+    vacant_units INTEGER,
+    vacant_not_leased INTEGER,
+    vacant_leased INTEGER,
+    occupied_units INTEGER,
+    occupied_no_notice INTEGER,
+    occupied_on_notice INTEGER,
+    occupied_mtm INTEGER,
+    model_units INTEGER,
+    down_units INTEGER,
+    avg_sqft INTEGER,
+    avg_market_rent REAL,
+    avg_actual_rent REAL,
+    occupancy_pct REAL,
+    leased_pct REAL,
+    exposure_pct REAL,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT,
+    UNIQUE(property_id, report_date, floorplan)
+);
+
+-- Rent Roll Report - Unit-level current status
+CREATE TABLE IF NOT EXISTS realpage_rent_roll (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    unit_number TEXT NOT NULL,
+    floorplan TEXT,
+    sqft INTEGER,
+    resident_name TEXT,
+    lease_start TEXT,
+    lease_end TEXT,
+    move_in_date TEXT,
+    move_out_date TEXT,
+    market_rent REAL,
+    actual_rent REAL,
+    other_charges REAL,
+    total_charges REAL,
+    balance REAL,
+    status TEXT,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT,
+    UNIQUE(property_id, report_date, unit_number)
+);
+
+-- Activity Report - Leasing activity events
+CREATE TABLE IF NOT EXISTS realpage_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    activity_date TEXT,
+    unit_number TEXT,
+    floorplan TEXT,
+    activity_type TEXT,
+    resident_name TEXT,
+    prior_rent REAL,
+    new_rent REAL,
+    rent_change REAL,
+    lease_term INTEGER,
+    move_in_date TEXT,
+    move_out_date TEXT,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT
+);
+
+-- Monthly Activity Summary - Aggregated monthly metrics
+CREATE TABLE IF NOT EXISTS realpage_monthly_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    period_start TEXT,
+    period_end TEXT,
+    floorplan TEXT,
+    beginning_occupancy INTEGER,
+    move_ins INTEGER,
+    move_outs INTEGER,
+    transfers_in INTEGER,
+    transfers_out INTEGER,
+    ending_occupancy INTEGER,
+    renewals INTEGER,
+    notices INTEGER,
+    avg_rent REAL,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT,
+    UNIQUE(property_id, report_date, floorplan)
+);
+
+-- Lease Expiration Report - Upcoming expirations
+CREATE TABLE IF NOT EXISTS realpage_lease_expirations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    unit_number TEXT,
+    floorplan TEXT,
+    resident_name TEXT,
+    lease_end TEXT,
+    current_rent REAL,
+    market_rent REAL,
+    lease_term INTEGER,
+    months_until_expiration INTEGER,
+    renewal_status TEXT,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT
+);
+
+-- Delinquency Report - Outstanding balances
+CREATE TABLE IF NOT EXISTS realpage_delinquency (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_date TEXT NOT NULL,
+    unit_number TEXT,
+    resident_name TEXT,
+    current_balance REAL,
+    balance_0_30 REAL,
+    balance_31_60 REAL,
+    balance_61_90 REAL,
+    balance_over_90 REAL,
+    prepaid REAL,
+    last_payment_date TEXT,
+    last_payment_amount REAL,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT
+);
+
+-- Report import log
+CREATE TABLE IF NOT EXISTS realpage_report_import_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    property_name TEXT,
+    report_type TEXT NOT NULL,
+    report_date TEXT,
+    file_name TEXT,
+    file_id TEXT,
+    records_imported INTEGER,
+    import_started_at TIMESTAMP,
+    import_completed_at TIMESTAMP,
+    status TEXT,
+    error_message TEXT
+);
+
+-- Indexes for report tables
+CREATE INDEX IF NOT EXISTS idx_box_score_property ON realpage_box_score(property_id);
+CREATE INDEX IF NOT EXISTS idx_box_score_date ON realpage_box_score(report_date);
+CREATE INDEX IF NOT EXISTS idx_rent_roll_property ON realpage_rent_roll(property_id);
+CREATE INDEX IF NOT EXISTS idx_rent_roll_date ON realpage_rent_roll(report_date);
+CREATE INDEX IF NOT EXISTS idx_activity_property ON realpage_activity(property_id);
+CREATE INDEX IF NOT EXISTS idx_activity_type ON realpage_activity(activity_type);
+CREATE INDEX IF NOT EXISTS idx_delinquency_property ON realpage_delinquency(property_id);
 """
 
 

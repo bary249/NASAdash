@@ -210,8 +210,21 @@ export const api = {
   getChatStatus: (): Promise<{ available: boolean; message: string }> =>
     fetchJson(`${API_BASE}/chat/status`),
 
-  sendChatMessage: async (propertyId: string, message: string, history: { role: string; content: string }[] = []): Promise<{ response: string }> => {
+  sendChatMessage: async (propertyId: string, message: string, history: { role: string; content: string }[] = []): Promise<{ response: string; columns?: Array<{key: string; label: string}>; data?: Array<Record<string, unknown>>; actions?: Array<{label: string}> }> => {
     const response = await fetch(`${API_BASE}/properties/${propertyId}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history }),
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  // Portfolio-level AI Chat (Asset Manager perspective)
+  sendPortfolioChatMessage: async (message: string, history: { role: string; content: string }[] = []): Promise<{ response: string; columns?: Array<{key: string; label: string}>; data?: Array<Record<string, unknown>>; actions?: Array<{label: string}> }> => {
+    const response = await fetch(`${PORTFOLIO_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, history }),

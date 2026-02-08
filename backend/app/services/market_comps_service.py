@@ -40,6 +40,10 @@ class MarketCompsService:
             )
             comps = self._extract_comps(apartments_data)
             print(f"[ALN] Got {len(comps)} comps from ALN API")
+            # Fall back to placeholder if ALN returns empty
+            if not comps:
+                print(f"[ALN] No comps found, using placeholder data")
+                comps = self._get_placeholder_comps(submarket)
         except Exception as e:
             print(f"[ALN] Error fetching from ALN: {type(e).__name__}: {e}")
             comps = self._get_placeholder_comps(submarket)

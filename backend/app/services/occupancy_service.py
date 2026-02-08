@@ -41,34 +41,80 @@ class OccupancyService:
         """Determine PMS type for a property."""
         if property_id in ALL_PROPERTIES:
             return get_pms_config(property_id).pms_type
+        
+        # Check unified.db for RealPage properties
+        import sqlite3
+        from pathlib import Path
+        try:
+            db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT pms_source FROM unified_properties WHERE unified_property_id = ?", (property_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0] == 'realpage':
+                return PMSSource.REALPAGE
+        except Exception:
+            pass
+        
         return PMSSource.YARDI
     
     async def get_property_list(self) -> List[PropertyInfo]:
-        """Get list of all properties from Yardi."""
-        data = await self.yardi.get_property_configurations()
+        """Get list of all properties from Yardi and unified.db (RealPage)."""
+        import sqlite3
+        from pathlib import Path
+        
         properties = []
         
-        if isinstance(data, dict):
-            result = data.get("GetPropertyConfigurationsResult", data)
-            if isinstance(result, dict):
-                props = result.get("Properties", result)
-                if isinstance(props, dict):
-                    prop_list = props.get("Property", [])
-                else:
-                    prop_list = props
-                
-                if isinstance(prop_list, dict):
-                    prop_list = [prop_list]
-                
-                for p in prop_list if isinstance(prop_list, list) else []:
-                    address = p.get("Address", {})
-                    properties.append(PropertyInfo(
-                        id=p.get("Code", p.get("PropertyCode", "")),
-                        name=p.get("MarketingName", p.get("Name", p.get("Code", ""))),
-                        city=address.get("City", "") if isinstance(address, dict) else "",
-                        state=address.get("State", "") if isinstance(address, dict) else "",
-                        address=address.get("Address1", "") if isinstance(address, dict) else ""
-                    ))
+        # Get RealPage properties from unified.db first
+        try:
+            db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT unified_property_id, name, city, state, address
+                FROM unified_properties
+                WHERE pms_source = 'realpage'
+            """)
+            for row in cursor.fetchall():
+                properties.append(PropertyInfo(
+                    id=row[0],
+                    name=row[1] or row[0],
+                    city=row[2] or "",
+                    state=row[3] or "",
+                    address=row[4] or ""
+                ))
+            conn.close()
+        except Exception:
+            pass
+        
+        # Get Yardi properties
+        try:
+            data = await self.yardi.get_property_configurations()
+            
+            if isinstance(data, dict):
+                result = data.get("GetPropertyConfigurationsResult", data)
+                if isinstance(result, dict):
+                    props = result.get("Properties", result)
+                    if isinstance(props, dict):
+                        prop_list = props.get("Property", [])
+                    else:
+                        prop_list = props
+                    
+                    if isinstance(prop_list, dict):
+                        prop_list = [prop_list]
+                    
+                    for p in prop_list if isinstance(prop_list, list) else []:
+                        address = p.get("Address", {})
+                        properties.append(PropertyInfo(
+                            id=p.get("Code", p.get("PropertyCode", "")),
+                            name=p.get("MarketingName", p.get("Name", p.get("Code", ""))),
+                            city=address.get("City", "") if isinstance(address, dict) else "",
+                            state=address.get("State", "") if isinstance(address, dict) else "",
+                            address=address.get("Address1", "") if isinstance(address, dict) else ""
+                        ))
+        except Exception:
+            pass
         
         return properties
     
@@ -90,10 +136,18 @@ class OccupancyService:
         
         # Get unit data based on PMS type
         if pms_type == PMSSource.REALPAGE:
+            # If property is in unified.db but not in ALL_PROPERTIES, use unified.db directly
+            if property_id not in ALL_PROPERTIES:
+                return await self._get_occupancy_from_unified(property_id, timeframe)
+            
             units = await self._get_realpage_units(property_id)
             # Get future residents (Applicant - Lease Signed) from RealPage
             future_list = await self._get_realpage_future_residents(property_id)
             property_name = ALL_PROPERTIES.get(property_id, type('', (), {'name': property_id})).name
+            
+            # If no units from API, try unified.db
+            if not units:
+                return await self._get_occupancy_from_unified(property_id, timeframe)
         else:
             units_data = await self.yardi.get_unit_information(property_id)
             units = self._extract_units(units_data)
@@ -155,6 +209,73 @@ class OccupancyService:
             vacant_not_ready=vacant_not_ready,
             available_units=available_units,
             aged_vacancy_90_plus=aged_vacancy
+        )
+    
+    async def _get_occupancy_from_unified(
+        self,
+        property_id: str,
+        timeframe: Timeframe = Timeframe.CM
+    ) -> OccupancyMetrics:
+        """Fallback to read occupancy from unified.db for synced RealPage data."""
+        import sqlite3
+        from pathlib import Path
+        
+        period_start, period_end = get_date_range(timeframe)
+        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Get property name
+            cursor.execute("SELECT name FROM unified_properties WHERE unified_property_id = ?", (property_id,))
+            row = cursor.fetchone()
+            property_name = row[0] if row else property_id
+            
+            # Get occupancy metrics
+            cursor.execute("""
+                SELECT total_units, occupied_units, vacant_units, leased_units,
+                       preleased_vacant, notice_units, model_units, down_units,
+                       physical_occupancy, leased_percentage
+                FROM unified_occupancy_metrics
+                WHERE unified_property_id = ?
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (property_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return OccupancyMetrics(
+                    property_id=property_id,
+                    property_name=property_name,
+                    timeframe=timeframe.value,
+                    period_start=format_date_iso(period_start),
+                    period_end=format_date_iso(period_end),
+                    total_units=row[0] or 0,
+                    occupied_units=row[1] or 0,
+                    vacant_units=row[2] or 0,
+                    leased_units=row[3] or 0,
+                    preleased_vacant=row[4] or 0,
+                    physical_occupancy=row[8] or 0,
+                    leased_percentage=row[9] or 0,
+                    vacant_ready=0,
+                    vacant_not_ready=row[2] or 0,
+                    available_units=row[2] or 0,
+                    aged_vacancy_90_plus=0
+                )
+        except Exception:
+            pass
+        
+        # Return empty metrics if nothing found
+        return OccupancyMetrics(
+            property_id=property_id,
+            property_name=property_id,
+            timeframe=timeframe.value,
+            period_start=format_date_iso(period_start),
+            period_end=format_date_iso(period_end),
+            total_units=0, occupied_units=0, vacant_units=0, leased_units=0,
+            preleased_vacant=0, physical_occupancy=0, leased_percentage=0,
+            vacant_ready=0, vacant_not_ready=0, available_units=0, aged_vacancy_90_plus=0
         )
     
     async def get_exposure_metrics(

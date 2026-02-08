@@ -1,0 +1,263 @@
+{
+  "reports": {
+    "box_score": {
+      "report_id": 4238,
+      "report_key": "446266C0-D572-4D8A-A6DA-310C0AE61037",
+      "name": "Box Score",
+      "formats": {
+        "pdf": "1682",
+        "excel": "1683"
+      },
+      "parameters": [
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "Start_Date", "value": "{{start_date}}"},
+        {"name": "End_Date", "value": "{{end_date}}"},
+        {"name": "ShowUnitDesignations", "value": "Yes"}
+      ],
+      "status": "complete"
+    },
+    "activity_report": {
+      "report_id": 3837,
+      "report_key": "B29B7C76-04B8-4D6C-AABC-62127F0CAE63",
+      "name": "Activity Report",
+      "formats": {
+        "xml": "-1",
+        "html": "561",
+        "excel": "562",
+        "csv": "563"
+      },
+      "parameters": [
+        {"name": "startdate", "value": "{{start_date}}"},
+        {"name": "enddate", "value": "{{end_date}}"},
+        {"name": "OccStatus", "value": "Prospect"},
+        {"name": "CustomActivityTypesIDNameCombo", "value": "ALL_- All activity type(s) -,S000000010_E-mail,S000000100_Event,S000000012_Fax/Letter,S000000011_Internet,S000000015_Notes,S000000001_Phone call,S000000137_Pre-recorded - Tour,S000000136_Self-guided - Tour,S000000114_Signature,S000000131_Text Conversation,S000000101_Text message,S000000135_Videotelephony - Tour,S000000002_Visit,S000000017_Visit (return)"},
+        {"name": "IncludeFollowup", "value": "Yes"},
+        {"name": "IncludeSystem", "value": "Yes"},
+        {"name": "leasingAgents", "value": "All"}
+      ],
+      "status": "complete"
+    },
+    "rent_roll": {
+      "report_id": 4043,
+      "report_key": "A6F61299-E960-4235-9DC2-44D2C2EF4F99",
+      "name": "Rent Roll",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "AsOfDate", "value": "{{as_of_date}}"},
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "SubJournal", "value": "ALL"},
+        {"name": "ReportType", "value": "Details + Summary"},
+        {"name": "UnitDesignation", "value": "ALL"},
+        {"name": "MarketRentType", "value": "Market + Addl."},
+        {"name": "ExclFormers", "value": "No"},
+        {"name": "HideAllPIIData", "value": "1"},
+        {"name": "SortBy", "value": "Unit"}
+      ],
+      "status": "complete"
+    },
+    "monthly_activity_summary": {
+      "report_id": 3877,
+      "report_key": "E41626AB-EC0F-4F6C-A6EA-D7A93909AA9B",
+      "name": "Monthly Activity Summary",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "AccStartDate", "value": "{{start_date}}"},
+        {"name": "OccStartDate", "value": "{{start_date}}"},
+        {"name": "SubTotal", "value": "Floorplan Name"}
+      ],
+      "status": "complete"
+    },
+    "lease_expiration": {
+      "report_id": 3838,
+      "report_key": "89545A3A-C28A-49CC-8791-396AE71AB422",
+      "name": "Lease Expiration",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "Custom_RangeType", "value": "Range"},
+        {"name": "startmonth", "value": "{{start_month}}"},
+        {"name": "endmonth", "value": "{{end_month}}"},
+        {"name": "MarketRentType", "value": "Market + Addl."},
+        {"name": "renewals", "value": "Yes"},
+        {"name": "preleased", "value": "Yes"},
+        {"name": "pending", "value": "Yes"},
+        {"name": "SortBy", "value": "Expiration Date"}
+      ],
+      "status": "complete"
+    },
+    "delinquency": {
+      "report_id": 4260,
+      "report_key": "89A3C427-BE71-4A05-9D2B-BDF3923BF756",
+      "name": "Delinquency Report",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "FiscalPeriod", "value": "{{fiscal_period}}"},
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "SubJournal", "value": "ALL"},
+        {"name": "residentStatus", "value": "Applicant,Approved applicant,Former applicant,Pending resident,Current resident,Former resident"},
+        {"name": "reportType", "value": "Details"},
+        {"name": "DelinquentRentOnly", "value": "Yes"},
+        {"name": "includeDelinquentEqualNTV", "value": "Yes"},
+        {"name": "IncludeOutstandingDeposits", "value": "Yes"},
+        {"name": "ExcludeTransactionsArrears", "value": "No"},
+        {"name": "ShowPrepaidAsAllocated", "value": "Yes"},
+        {"name": "HidePIIData", "value": "1"},
+        {"name": "minimumDelinquent", "value": "0.00"},
+        {"name": "maximumDelinquent", "value": "99999999.00"},
+        {"name": "PeriodType", "value": "Fiscal"},
+        {"name": "IncludeTotals", "value": "ALL"},
+        {"name": "filterType", "value": "ALL"},
+        {"name": "SortBy", "value": "Unit"}
+      ],
+      "status": "complete"
+    }
+  },
+  "properties": {
+    "kalaco": {
+      "propertyId": "5339721",
+      "propertyName": "Kalaco",
+      "country": "US"
+    },
+    "7_east": {
+      "propertyId": "5481703",
+      "propertyName": "7 East",
+      "country": "US"
+    },
+    "block_44": {
+      "propertyId": "5473254",
+      "propertyName": "Block 44",
+      "country": "US"
+    },
+    "curate_orchard": {
+      "propertyId": "4682517",
+      "propertyName": "Curate at Orchard Town Center",
+      "country": "US"
+    },
+    "eden_keller_ranch": {
+      "propertyId": "5536209",
+      "propertyName": "Eden Keller Ranch",
+      "country": "US"
+    },
+    "harvest": {
+      "propertyId": "5507303",
+      "propertyName": "Harvest",
+      "country": "US"
+    },
+    "heights_interlocken": {
+      "propertyId": "5558216",
+      "propertyName": "Heights at Interlocken",
+      "country": "US"
+    },
+    "luna": {
+      "propertyId": "5590740",
+      "propertyName": "Luna",
+      "country": "US"
+    },
+    "nexus_east": {
+      "propertyId": "5472172",
+      "propertyName": "Nexus East",
+      "country": "US"
+    },
+    "park_17": {
+      "propertyId": "4481243",
+      "propertyName": "Park 17",
+      "country": "US"
+    },
+    "parkside": {
+      "propertyId": "5536211",
+      "propertyName": "Parkside at Round Rock",
+      "country": "US"
+    },
+    "pearl_lantana": {
+      "propertyId": "5481704",
+      "propertyName": "Pearl Lantana",
+      "country": "US"
+    },
+    "slate": {
+      "propertyId": "5486880",
+      "propertyName": "Slate",
+      "country": "US"
+    },
+    "sloane": {
+      "propertyId": "5486881",
+      "propertyName": "Sloane",
+      "country": "US"
+    },
+    "stonewood": {
+      "propertyId": "5481705",
+      "propertyName": "Stonewood",
+      "country": "US"
+    },
+    "ten50": {
+      "propertyId": "5581218",
+      "propertyName": "Ten50",
+      "country": "US"
+    },
+    "the_alcott": {
+      "propertyId": "4996967",
+      "propertyName": "The Alcott",
+      "country": "US"
+    },
+    "the_broadleaf": {
+      "propertyId": "5286092",
+      "propertyName": "The Broadleaf",
+      "country": "US"
+    },
+    "the_confluence": {
+      "propertyId": "4832865",
+      "propertyName": "The Confluence",
+      "country": "US"
+    },
+    "links_plum_creek": {
+      "propertyId": "5558220",
+      "propertyName": "The Links at Plum Creek",
+      "country": "US"
+    },
+    "the_pearl": {
+      "propertyId": "5114464",
+      "propertyName": "thePearl",
+      "country": "US"
+    },
+    "the_quinci": {
+      "propertyId": "5286878",
+      "propertyName": "theQuinci",
+      "country": "US"
+    },
+    "aspire_7th_grant": {
+      "propertyId": "4779341",
+      "propertyName": "Aspire 7th and Grant",
+      "city": "Denver",
+      "state": "CO",
+      "country": "US"
+    },
+    "edison_rino": {
+      "propertyId": "4248319",
+      "propertyName": "Edison at RiNo",
+      "city": "Denver",
+      "state": "CO",
+      "country": "US"
+    },
+    "ridian": {
+      "propertyId": "5446271",
+      "propertyName": "Ridian",
+      "city": "Denver",
+      "state": "CO",
+      "country": "US"
+    }
+  }
+}

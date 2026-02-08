@@ -34,6 +34,96 @@ class PortfolioService:
     def __init__(self):
         self._clients: Dict[str, PMSInterface] = {}
     
+    def _get_units_from_db(self, property_id: str) -> Optional[List[Dict]]:
+        """Try to get units from unified.db for a property."""
+        import sqlite3
+        from pathlib import Path
+        
+        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT unit_number, floorplan, square_feet, market_rent, status
+                FROM unified_units
+                WHERE unified_property_id = ?
+            """, (property_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if rows:
+                return [dict(row) for row in rows]
+        except Exception:
+            pass
+        return None
+    
+    def _get_residents_from_db(self, property_id: str) -> Optional[List[Dict]]:
+        """Try to get residents from unified.db for a property."""
+        import sqlite3
+        from pathlib import Path
+        
+        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT pms_resident_id, unit_number, first_name, last_name, full_name,
+                       status, lease_start, lease_end, move_in_date, move_out_date,
+                       current_rent, balance
+                FROM unified_residents
+                WHERE unified_property_id = ?
+            """, (property_id,))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if rows:
+                return [dict(row) for row in rows]
+        except Exception:
+            pass
+        return None
+    
+    def _get_occupancy_from_db(self, property_id: str) -> Optional[Dict]:
+        """Try to get occupancy from unified.db for a property."""
+        import sqlite3
+        from pathlib import Path
+        
+        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT total_units, occupied_units, vacant_units, leased_units,
+                       preleased_vacant, physical_occupancy, leased_percentage,
+                       exposure_30_days, exposure_60_days
+                FROM unified_occupancy_metrics
+                WHERE unified_property_id = ?
+                ORDER BY snapshot_date DESC
+                LIMIT 1
+            """, (property_id,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return {
+                    "total_units": row[0] or 0,
+                    "occupied_units": row[1] or 0,
+                    "vacant_units": row[2] or 0,
+                    "leased_units": row[3] or 0,
+                    "preleased_vacant": row[4] or 0,
+                    "available_units": row[2] or 0,
+                    "vacant_ready": 0,
+                    "vacant_not_ready": row[2] or 0,
+                    "physical_occupancy": row[5] or 0,
+                    "leased_percentage": row[6] or 0,
+                    "exposure_30_days": row[7] or 0,
+                    "exposure_60_days": row[8] or 0,
+                }
+        except Exception:
+            pass
+        return None
+    
     def _get_client(self, config: PMSConfig) -> PMSInterface:
         """Get or create a PMS client for the given configuration."""
         cache_key = f"{config.pms_type}:{config.property_id}"
@@ -82,8 +172,17 @@ class PortfolioService:
         property_metrics: List[UnifiedOccupancy] = []
         
         for config in configs:
-            client = self._get_client(config)
-            metrics = await client.get_occupancy_metrics(config.property_id)
+            # Try to get from unified.db first (faster, no API call)
+            metrics = self._get_occupancy_from_db(config.property_id)
+            
+            # Fall back to API if not in database
+            if not metrics:
+                try:
+                    client = self._get_client(config)
+                    metrics = await client.get_occupancy_metrics(config.property_id)
+                except Exception:
+                    # Skip properties that fail
+                    continue
             
             property_metrics.append(UnifiedOccupancy(
                 property_id=config.property_id,
@@ -147,23 +246,52 @@ class PortfolioService:
         property_metrics: List[UnifiedOccupancy] = []
         
         for config in configs:
-            client = self._get_client(config)
-            units = await client.get_units(config.property_id)
+            # Try to get metrics from unified.db first
+            db_metrics = self._get_occupancy_from_db(config.property_id)
             
-            # Tag units with property info
-            for unit in units:
-                unit["_property_id"] = config.property_id
-                unit["_pms_source"] = config.pms_type
-            
-            all_units.extend(units)
-            
-            # Also store per-property for breakdown
-            metrics = await client.get_occupancy_metrics(config.property_id)
-            property_metrics.append(UnifiedOccupancy(
-                property_id=config.property_id,
-                pms_source=PMSSource(config.pms_type),
-                **metrics
-            ))
+            if db_metrics:
+                # Use database metrics directly
+                property_metrics.append(UnifiedOccupancy(
+                    property_id=config.property_id,
+                    pms_source=PMSSource(config.pms_type),
+                    total_units=db_metrics["total_units"],
+                    occupied_units=db_metrics["occupied_units"],
+                    vacant_units=db_metrics["vacant_units"],
+                    leased_units=db_metrics["leased_units"],
+                    preleased_vacant=db_metrics.get("preleased_vacant", 0),
+                    available_units=db_metrics.get("available_units", 0),
+                    vacant_ready=db_metrics.get("vacant_ready", 0),
+                    vacant_not_ready=db_metrics.get("vacant_not_ready", 0),
+                    physical_occupancy=db_metrics["physical_occupancy"],
+                    leased_percentage=db_metrics["leased_percentage"],
+                ))
+                # Create mock units for calculation
+                for _ in range(db_metrics["occupied_units"]):
+                    all_units.append({"status": "occupied", "_property_id": config.property_id})
+                for _ in range(db_metrics["vacant_units"]):
+                    all_units.append({"status": "vacant", "_property_id": config.property_id})
+            else:
+                # Fall back to API
+                try:
+                    client = self._get_client(config)
+                    units = await client.get_units(config.property_id)
+                    
+                    # Tag units with property info
+                    for unit in units:
+                        unit["_property_id"] = config.property_id
+                        unit["_pms_source"] = config.pms_type
+                    
+                    all_units.extend(units)
+                    
+                    # Also store per-property for breakdown
+                    metrics = await client.get_occupancy_metrics(config.property_id)
+                    property_metrics.append(UnifiedOccupancy(
+                        property_id=config.property_id,
+                        pms_source=PMSSource(config.pms_type),
+                        **metrics
+                    ))
+                except Exception:
+                    continue
         
         # Calculate from combined raw data
         total_units = len(all_units)
@@ -330,8 +458,17 @@ class PortfolioService:
         all_units: List[UnifiedUnit] = []
         
         for config in configs:
-            client = self._get_client(config)
-            units = await client.get_units(config.property_id)
+            # Try database first
+            db_units = self._get_units_from_db(config.property_id)
+            if db_units:
+                units = db_units
+            else:
+                # Fall back to API
+                try:
+                    client = self._get_client(config)
+                    units = await client.get_units(config.property_id)
+                except Exception:
+                    continue
             
             for unit in units:
                 # Determine ready_status and available from unit data
@@ -377,8 +514,17 @@ class PortfolioService:
         all_residents: List[UnifiedResident] = []
         
         for config in configs:
-            client = self._get_client(config)
-            residents = await client.get_residents(config.property_id, status)
+            # Try database first
+            db_residents = self._get_residents_from_db(config.property_id)
+            if db_residents:
+                residents = db_residents
+            else:
+                # Fall back to API
+                try:
+                    client = self._get_client(config)
+                    residents = await client.get_residents(config.property_id, status)
+                except Exception:
+                    continue
             
             for res in residents:
                 # Re-categorize Current residents with notice_date to "Notice" status

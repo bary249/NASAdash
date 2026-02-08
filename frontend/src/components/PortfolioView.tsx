@@ -11,7 +11,7 @@ import { Building2, ChevronDown, ChevronUp, ExternalLink, Check, Calculator, Tab
 import { api } from '../api';
 import type { PropertyInfo, OccupancyMetrics, ExposureMetrics, LeasingFunnelMetrics, AggregationMode } from '../types';
 import { HealthStatus } from './MetricCard';
-import { useScramble, scrambleName } from '../App';
+import { useScramble, useScrambleMode, scrambleName } from './DashboardV3';
 
 interface PropertySummary {
   property: PropertyInfo;
@@ -62,6 +62,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
   const [showModeInfo, setShowModeInfo] = useState(false);
   const scramblePII = useScramble();
+  const scrambleMode = useScrambleMode();
 
   useEffect(() => {
     async function loadPortfolio() {
@@ -379,7 +380,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                     <tr 
                       key={p.property.id}
                       className={`hover:bg-venn-cream/40 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-venn-amber/10' : ''} ${isChecked ? 'bg-venn-amber/5' : ''}`}
-                      onClick={() => onSelectProperty(p.property.id, scrambleName(p.property.name, scramblePII))}
+                      onClick={() => onSelectProperty(p.property.id, scrambleName(p.property.name, scramblePII, scrambleMode))}
                     >
                       <td className="px-2 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -392,7 +393,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           {isChecked && <Check className="w-4 h-4 text-venn-amber" />}
-                          <div className="font-semibold text-venn-navy">{scrambleName(p.property.name, scramblePII)}</div>
+                          <div className="font-semibold text-venn-navy">{scrambleName(p.property.name, scramblePII, scrambleMode)}</div>
                         </div>
                         {p.property.city && !scramblePII && (
                           <div className="text-xs text-slate-500">{p.property.city}, {p.property.state}</div>
@@ -416,11 +417,8 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                       </td>
                       <td className="px-4 py-3 text-center">
                         {p.loading ? '...' : p.exposure ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${healthDot[expHealth]}`} />
-                            <span className={expHealth === 'good' ? 'text-emerald-700 font-semibold' : expHealth === 'warning' ? 'text-amber-700 font-semibold' : 'text-rose-700 font-semibold'}>
-                              {p.exposure.exposure_30_days}
-                            </span>
+                          <span className={`font-semibold ${expHealth === 'critical' ? 'text-rose-600' : expHealth === 'warning' ? 'text-amber-600' : 'text-slate-600'}`}>
+                            {p.exposure.exposure_30_days}
                           </span>
                         ) : '—'}
                       </td>

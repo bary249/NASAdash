@@ -1,8 +1,11 @@
 # RealPage RPX API Field Mapping for Owner Dashboard
 
 **Generated**: 2026-01-19  
+**Last Updated**: 2026-02-04  
 **Site**: Venn - Meadow Bay (Site ID: 5230176)  
 **Test Data**: 58 units, 962 residents, 32 active leases
+
+> **Note**: This document covers the RPX SOAP API. For the Reporting REST API (report downloads), see `Data_Definitions_and_Sources/REALPAGE_DATA_MAPPING.md`
 
 ---
 
@@ -122,18 +125,41 @@
 
 ---
 
-## 🚀 Next Steps
+## 🚀 Implementation Status
 
-1. **Implement RealPage client** using RPX endpoints for:
-   - Occupancy metrics (units, vacancy)
-   - Pricing metrics (market rent, in-place rent)
-   - Resident/lease data (move-ins, move-outs, renewals)
+### Completed
+- ✅ RPX SOAP client (`realpage_client.py`) - Unit, resident, lease data
+- ✅ Reporting REST API integration (`batch_report_downloader.py`)
+- ✅ Smart file ID scanner with content-based matching
+- ✅ Report parsers for Box Score, Rent Roll, Delinquency
+- ✅ Database import pipeline (`import_reports.py`)
 
-2. **For full leasing funnel** (optional, requires credentials):
-   - Request CrossFire Prospect Management API access
-   - Add guest card/activity tracking for leads/tours
+### Report Downloads Working
+| Report | ID | Parser | DB Table |
+|--------|-----|--------|----------|
+| Box Score | 4238 | ✅ | `rp_box_score` |
+| Rent Roll | 4043 | ✅ | `rp_rent_roll` |
+| Delinquency | 4260 | ✅ | `rp_delinquency` |
+| Activity Report | 3837 | ⏳ | `rp_activity` |
+| Monthly Activity Summary | 3877 | ⏳ | `rp_monthly_summary` |
+| Lease Expiration | 3838 | ⏳ | `rp_lease_expiration` |
 
-3. **Data normalization**:
-   - Map `leasestatus` values to Yardi equivalents
-   - Standardize date formats
-   - Handle `Vacant` flag (T/F) vs Yardi's occupancy status
+### Configured Properties
+| Property | ID |
+|----------|----|
+| Aspire 7th and Grant | 4779341 |
+| Edison at RiNo | 4248319 |
+| Ridian | 5446271 |
+| Nexus East | 5472172 |
+| Parkside at Round Rock | 5536211 |
+
+### Usage
+```bash
+# Download and import reports
+python3 batch_report_downloader.py --property "Nexus East" --reports box_score rent_roll delinquency
+```
+
+### Next Steps
+1. Complete parsers for Activity, Monthly Summary, Lease Expiration reports
+2. Connect `realpage_raw.db` to `unified.db` for dashboard UI
+3. Request CrossFire API access for full leasing funnel data

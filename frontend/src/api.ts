@@ -50,6 +50,15 @@ export const api = {
   getLeasingFunnel: (propertyId: string, timeframe: Timeframe = 'cm'): Promise<LeasingFunnelMetrics> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/leasing-funnel?timeframe=${timeframe}`),
 
+  getExpirations: (propertyId: string): Promise<{ periods: { label: string; expirations: number; renewals: number; renewal_pct: number }[] }> =>
+    fetchJson(`${API_BASE}/properties/${propertyId}/expirations`),
+
+  getExpirationDetails: (propertyId: string, days: number = 90, filter?: 'renewed' | 'expiring'): Promise<{ leases: { unit: string; lease_end: string; market_rent: number; status: string; floorplan: string; sqft: number; move_in: string; lease_start: string }[]; count: number }> => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (filter) params.set('filter', filter);
+    return fetchJson(`${API_BASE}/properties/${propertyId}/expirations/details?${params}`);
+  },
+
   getPricing: (propertyId: string): Promise<UnitPricingMetrics> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/pricing`),
 

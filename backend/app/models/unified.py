@@ -26,12 +26,12 @@ class UnifiedUnit(BaseModel):
     property_id: str
     pms_source: PMSSource
     unit_number: str
-    floorplan: str
+    floorplan: str = ""
     floorplan_name: Optional[str] = None
-    bedrooms: int
-    bathrooms: float
-    square_feet: int
-    market_rent: float
+    bedrooms: int = 0
+    bathrooms: float = 0
+    square_feet: int = 0
+    market_rent: float = 0
     status: str  # "occupied" | "vacant" | "notice" | "model" | "down"
     building: Optional[str] = None
     floor: Optional[str] = None

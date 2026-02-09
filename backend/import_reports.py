@@ -294,8 +294,9 @@ def import_rent_roll(conn: sqlite3.Connection, records: List[Dict], file_name: s
             cursor.execute("""
                 INSERT OR REPLACE INTO realpage_rent_roll
                 (property_id, property_name, report_date, unit_number, floorplan,
-                 sqft, status, market_rent, file_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 sqft, status, resident_name, lease_start, lease_end,
+                 move_in_date, market_rent, actual_rent, balance, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 r.get('property_id'),
                 r.get('property_name'),
@@ -304,13 +305,129 @@ def import_rent_roll(conn: sqlite3.Connection, records: List[Dict], file_name: s
                 r.get('floorplan'),
                 r.get('sqft', 0),
                 r.get('status'),
+                r.get('resident_name'),
+                r.get('lease_start'),
+                r.get('lease_end'),
+                r.get('move_in_date'),
                 r.get('market_rent', 0),
+                r.get('actual_rent', 0),
+                r.get('balance', 0),
                 file_id
             ))
             imported += 1
         except Exception as e:
             print(f"  Error inserting record: {e}")
     
+    conn.commit()
+    return imported
+
+
+def import_lease_expiration(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Lease Expiration records."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_lease_expirations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT NOT NULL,
+            unit_number TEXT,
+            floorplan TEXT,
+            resident_name TEXT,
+            lease_end TEXT,
+            current_rent REAL,
+            market_rent REAL,
+            lease_term INTEGER,
+            months_until_expiration INTEGER,
+            renewal_status TEXT,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT
+        )
+    """)
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_lease_expirations
+                (property_id, property_name, report_date, unit_number, floorplan,
+                 resident_name, lease_end, current_rent, market_rent, lease_term,
+                 months_until_expiration, renewal_status, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'),
+                r.get('property_name'),
+                r.get('report_date'),
+                r.get('unit_number'),
+                r.get('floorplan'),
+                r.get('resident_name'),
+                r.get('lease_end'),
+                r.get('current_rent', 0),
+                r.get('market_rent', 0),
+                r.get('lease_term'),
+                r.get('months_until_expiration'),
+                r.get('renewal_status'),
+                file_id
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting lease expiration: {e}")
+    conn.commit()
+    return imported
+
+
+def import_activity(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Activity Report records."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_activity (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT NOT NULL,
+            activity_date TEXT,
+            unit_number TEXT,
+            floorplan TEXT,
+            activity_type TEXT,
+            resident_name TEXT,
+            prior_rent REAL,
+            new_rent REAL,
+            rent_change REAL,
+            lease_term INTEGER,
+            move_in_date TEXT,
+            move_out_date TEXT,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT
+        )
+    """)
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_activity
+                (property_id, property_name, report_date, activity_date, unit_number,
+                 floorplan, activity_type, resident_name, prior_rent, new_rent,
+                 rent_change, lease_term, move_in_date, move_out_date, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'),
+                r.get('property_name'),
+                r.get('report_date'),
+                r.get('activity_date'),
+                r.get('unit_number'),
+                r.get('floorplan'),
+                r.get('activity_type'),
+                r.get('resident_name'),
+                r.get('prior_rent', 0),
+                r.get('new_rent', 0),
+                r.get('rent_change', 0),
+                r.get('lease_term'),
+                r.get('move_in_date'),
+                r.get('move_out_date'),
+                file_id
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting activity: {e}")
     conn.commit()
     return imported
 

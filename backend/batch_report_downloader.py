@@ -25,6 +25,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 BASE_URL = "https://reportingapi.realpage.com/v1"
 SCRIPT_DIR = Path(__file__).parent
@@ -114,7 +115,7 @@ def create_instance(report_name: str, report_def: dict, property_detail: dict, d
     
     print(f"  Creating instance for {report_name}...")
     
-    with httpx.Client(timeout=30) as client:
+    with httpx.Client(timeout=30, verify=False) as client:
         response = client.post(url, headers=get_headers(), json=payload)
         
         if response.status_code in (200, 201):
@@ -138,7 +139,7 @@ def try_download_file(file_id: int) -> Optional[bytes]:
     }
     
     try:
-        with httpx.Client(timeout=30) as client:
+        with httpx.Client(timeout=30, verify=False) as client:
             response = client.post(url, headers=get_headers(), json=payload)
             if response.status_code == 200 and len(response.content) > 1000:
                 return response.content
@@ -199,59 +200,87 @@ def identify_report(content: bytes) -> Dict:
         return {"type": "unknown", "property": None}
 
 
-def find_current_max_file_id() -> int:
-    """Find the current highest file ID."""
-    current = 8850100
-    step = 100
-    
-    while step > 0:
-        if try_download_file(current + step):
-            current += step
-        else:
-            step //= 2
-    
-    return current
+# Last known file ID baseline - update this after successful runs
+LAST_KNOWN_FILE_ID = 8880696
 
 
-def smart_scan_and_match(instances: list, max_scan: int = 300) -> list:
-    """Smart scan file IDs and match to instances based on content."""
-    
-    # Find starting point
-    start_file_id = find_current_max_file_id() + 1
-    print(f"\n=== SMART SCANNING ===")
-    print(f"Scanning from file ID {start_file_id}...")
-    
-    # Track what we need to find
+def normalize_property_name(name: str) -> str:
+    """Normalize property name for matching (remove spaces, special chars)."""
+    if not name:
+        return ""
+    return name.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _scan_single(file_id: int) -> tuple:
+    """Scan a single file ID. Returns (file_id, content_or_None)."""
+    content = try_download_file(file_id)
+    return (file_id, content)
+
+
+def smart_scan_and_match(instances: list, max_scan: int = 500) -> list:
+    """Parallel scan file IDs and match to instances based on content."""
+    start_file_id = LAST_KNOWN_FILE_ID + 1
+    print(f"\n=== PARALLEL SCANNING ===")
+    print(f"Scanning {max_scan} file IDs from {start_file_id} (10 parallel)...", flush=True)
+
     needed = {i: inst for i, inst in enumerate(instances) if inst.get("instance_id")}
-    
-    for offset in range(max_scan):
+    found_any = False
+    batch_size = 10
+
+    for batch_start in range(0, max_scan, batch_size):
         if not needed:
             break
-            
-        file_id = start_file_id + offset
-        content = try_download_file(file_id)
-        
-        if content:
+
+        batch_ids = [start_file_id + batch_start + j for j in range(batch_size)]
+        print(f"  Batch {batch_ids[0]}-{batch_ids[-1]}...", end="", flush=True)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(_scan_single, fid): fid for fid in batch_ids}
+            results = {}
+            for future in as_completed(futures):
+                fid, content = future.result()
+                if content:
+                    results[fid] = content
+
+        if not results:
+            print(f" empty", flush=True)
+            if not found_any and batch_start > 200:
+                print(f"  ⚠ No files found in 200+ IDs, stopping")
+                break
+            continue
+
+        found_any = True
+        hits = 0
+        for fid in sorted(results.keys()):
+            content = results[fid]
             identification = identify_report(content)
-            
-            # Try to match to needed instances
+
             for idx, inst in list(needed.items()):
-                target_property = inst['property_name'].lower()
+                target_prop = normalize_property_name(inst['property_name'])
                 target_report = inst['report_key'].lower()
-                
-                file_property = (identification.get('property') or '').lower()
+                file_prop = normalize_property_name(identification.get('property') or '')
                 file_type = identification.get('type', '')
-                
-                # Match by property and report type
-                if file_property and target_property in file_property and file_type == target_report:
+
+                if file_prop and target_prop in file_prop and file_type == target_report:
                     inst['downloaded'] = True
-                    inst['file_id'] = file_id
+                    inst['file_id'] = fid
                     inst['content'] = content
-                    print(f"  ✓ {file_id}: {inst['report_name']} - {inst['property_name']}")
+                    hits += 1
                     del needed[idx]
                     break
-    
-    print(f"\nMatched: {len([i for i in instances if i.get('downloaded')])} / {len(instances)}")
+
+        if hits:
+            print(f" ✓ {hits} matched", flush=True)
+            for inst in instances:
+                if inst.get('downloaded') and inst.get('file_id'):
+                    if inst['file_id'] in results:
+                        print(f"    ✓ {inst['file_id']}: {inst['report_name']}")
+        else:
+            found_types = [identify_report(c).get('type','?') for c in results.values()]
+            print(f" {len(results)} files (not ours: {','.join(found_types)})", flush=True)
+
+    matched = len([i for i in instances if i.get('downloaded')])
+    print(f"\nMatched: {matched} / {len(instances)}")
     return instances
 
 
@@ -371,8 +400,8 @@ def main():
     
     # Wait for reports to generate
     print(f"\n=== STEP 2: WAITING FOR GENERATION ===")
-    print("Waiting 5 seconds...")
-    time.sleep(5)
+    print("Waiting 30 seconds for report generation...")
+    time.sleep(30)
     
     # Smart scan and match
     print(f"\n=== STEP 3: SMART SCAN & MATCH ===")

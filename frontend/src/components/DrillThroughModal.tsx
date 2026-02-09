@@ -4,6 +4,7 @@ interface Column {
   key: string;
   label: string;
   format?: (value: unknown) => string;
+  cellClassName?: (value: unknown) => string;
 }
 
 interface DrillThroughModalProps {
@@ -66,7 +67,7 @@ export function DrillThroughModal({
                   {data.map((row, idx) => (
                     <tr key={idx} className="hover:bg-gray-50">
                       {columns.map((col) => (
-                        <td key={col.key} className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                        <td key={col.key} className={`px-4 py-3 text-sm whitespace-nowrap ${col.cellClassName ? col.cellClassName(row[col.key]) : 'text-gray-900'}`}>
                           {col.format
                             ? col.format(row[col.key])
                             : String(row[col.key] ?? '—')}

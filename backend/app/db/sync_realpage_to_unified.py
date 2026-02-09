@@ -367,7 +367,7 @@ def sync_residents_from_rent_roll():
     # Clear existing residents (we'll repopulate from latest data)
     uni_cursor.execute("DELETE FROM unified_residents WHERE pms_source = 'realpage'")
     
-    # Get latest rent roll data with residents
+    # Get latest rent roll data - include occupied units even without names
     rp_cursor.execute("""
         SELECT 
             property_id,
@@ -381,7 +381,8 @@ def sync_residents_from_rent_roll():
             actual_rent,
             balance
         FROM realpage_rent_roll
-        WHERE property_id IS NOT NULL AND resident_name IS NOT NULL
+        WHERE property_id IS NOT NULL 
+          AND status IN ('Occupied', 'Occupied-NTV', 'Occupied-NTVL')
         ORDER BY property_id, report_date DESC
     """)
     
@@ -393,7 +394,7 @@ def sync_residents_from_rent_roll():
         unit_number = row[2]
         resident_name = row[3]
         
-        key = (property_id, unit_number, resident_name)
+        key = (property_id, unit_number)
         if key in seen:
             continue
         seen.add(key)
@@ -403,10 +404,16 @@ def sync_residents_from_rent_roll():
         
         unified_id = PROPERTY_MAPPING[property_id]["unified_id"]
         
-        # Split name
-        name_parts = (resident_name or "").split(",")
-        last_name = name_parts[0].strip() if name_parts else ""
-        first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
+        # Split name if available
+        if resident_name:
+            name_parts = resident_name.split(",")
+            last_name = name_parts[0].strip() if name_parts else ""
+            first_name = name_parts[1].strip() if len(name_parts) > 1 else ""
+            full_name = resident_name
+        else:
+            first_name = ""
+            last_name = ""
+            full_name = f"Unit {unit_number} Resident"
         
         lease_start = row[4]
         lease_end = row[5]
@@ -420,7 +427,7 @@ def sync_residents_from_rent_roll():
         if move_out:
             status = "past"
         
-        resident_id = f"{property_id}_{unit_number}_{resident_name[:20] if resident_name else 'unknown'}"
+        resident_id = f"{property_id}_{unit_number}"
         
         uni_cursor.execute("""
             INSERT INTO unified_residents
@@ -430,18 +437,52 @@ def sync_residents_from_rent_roll():
             VALUES (?, 'realpage', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             unified_id, resident_id, unit_number, unit_number,
-            first_name, last_name, resident_name, status, lease_start, lease_end,
+            first_name, last_name, full_name, status, lease_start, lease_end,
             move_in, move_out, current_rent, balance,
             datetime.now().isoformat()
         ))
         count += 1
     
+    # Fallback: generate residents from unified_units for properties missing from rent_roll
+    synced_props = set()
+    for (pid, _) in seen:
+        if pid in PROPERTY_MAPPING:
+            synced_props.add(PROPERTY_MAPPING[pid]["unified_id"])
+    
+    uni_cursor.execute("""
+        SELECT unified_property_id, unit_number, floorplan, market_rent, status
+        FROM unified_units
+        WHERE pms_source = 'realpage' AND status = 'occupied'
+    """)
+    
+    fallback_count = 0
+    for row in uni_cursor.fetchall():
+        uid, unit_num, floorplan, rent, status = row
+        if uid in synced_props:
+            continue  # Already have rent_roll data
+        
+        key_fb = f"fallback_{uid}_{unit_num}"
+        uni_cursor.execute("""
+            INSERT OR IGNORE INTO unified_residents
+            (unified_property_id, pms_source, pms_resident_id, pms_unit_id, unit_number,
+             first_name, last_name, full_name, status, current_rent, synced_at)
+            VALUES (?, 'realpage', ?, ?, ?, '', '', ?, 'current', ?, ?)
+        """, (
+            uid, key_fb, unit_num, unit_num,
+            f"Unit {unit_num} Resident", rent or 0,
+            datetime.now().isoformat()
+        ))
+        fallback_count += 1
+    
+    if fallback_count > 0:
+        print(f"  ℹ️  Added {fallback_count} residents from unified_units fallback")
+    
     uni_conn.commit()
     rp_conn.close()
     uni_conn.close()
     
-    print(f"  ✅ Synced {count} residents")
-    return count
+    print(f"  ✅ Synced {count + fallback_count} residents total")
+    return count + fallback_count
 
 
 def sync_delinquency():

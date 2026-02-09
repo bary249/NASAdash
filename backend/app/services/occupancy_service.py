@@ -136,18 +136,23 @@ class OccupancyService:
         
         # Get unit data based on PMS type
         if pms_type == PMSSource.REALPAGE:
-            # If property is in unified.db but not in ALL_PROPERTIES, use unified.db directly
+            # Use unified_occupancy_metrics as primary source (has correct preleased data)
+            unified_result = await self._get_occupancy_from_unified(property_id, timeframe)
+            if unified_result.total_units > 0:
+                return unified_result
+            
+            # Fall back to SOAP API if unified.db has no data
             if property_id not in ALL_PROPERTIES:
-                return await self._get_occupancy_from_unified(property_id, timeframe)
+                return unified_result
             
             units = await self._get_realpage_units(property_id)
             # Get future residents (Applicant - Lease Signed) from RealPage
             future_list = await self._get_realpage_future_residents(property_id)
             property_name = ALL_PROPERTIES.get(property_id, type('', (), {'name': property_id})).name
             
-            # If no units from API, try unified.db
+            # If no units from API, return empty
             if not units:
-                return await self._get_occupancy_from_unified(property_id, timeframe)
+                return unified_result
         else:
             units_data = await self.yardi.get_unit_information(property_id)
             units = self._extract_units(units_data)
@@ -1467,10 +1472,10 @@ class OccupancyService:
                 cursor.execute("""
                     SELECT 
                         COUNT(*) as expirations,
-                        SUM(CASE WHEN type_text = 'Renewal' THEN 1 ELSE 0 END) as renewals
+                        SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewals
                     FROM realpage_leases 
                     WHERE site_id = ?
-                        AND status_text = 'Current'
+                        AND status_text IN ('Current', 'Current - Future')
                         AND lease_end_date != ''
                         AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
                             BETWEEN date('now') AND date('now', ? || ' days')

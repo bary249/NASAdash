@@ -153,43 +153,70 @@ async def get_leasing_funnel(
     except Exception:
         pass
     
-    # Fall back to Excel reports for properties that have them
-    PROPERTY_LEASING_REPORTS = {
-        "kairoi-the-northern": {
-            "funnel": "Online Leasing Lease Summary (1).xls",
-            "activity": "Leasing Activity Summary (2).xls"
-        }
-    }
-    
-    reports = PROPERTY_LEASING_REPORTS.get(property_id)
-    if reports:
-        db_path = Path(__file__).parent.parent / "db"
-        funnel_path = db_path / reports["funnel"]
-        activity_path = db_path / reports["activity"]
-        
-        if funnel_path.exists() and activity_path.exists():
-            try:
-                excel_data = parse_leasing_funnel(str(funnel_path), str(activity_path))
-                # Parse date range to get period dates
-                date_range = excel_data.get("date_range", "")
-                parts = date_range.split(" - ") if " - " in date_range else ["", ""]
-                return LeasingFunnelMetrics(
-                    property_id=property_id,
-                    timeframe=timeframe.value,
-                    period_start=parts[0] if parts[0] else "2026-01-01",
-                    period_end=parts[1] if len(parts) > 1 else "2026-01-31",
-                    leads=excel_data["leads"],
-                    tours=excel_data["tours"],
-                    applications=excel_data["applications"],
-                    lease_signs=excel_data["lease_signs"],
-                    denials=excel_data["denials"],
-                    lead_to_tour_rate=excel_data["lead_to_tour_rate"],
-                    tour_to_app_rate=excel_data["tour_to_app_rate"],
-                    app_to_lease_rate=excel_data["app_to_lease_rate"],
-                    lead_to_lease_rate=excel_data["lead_to_lease_rate"],
-                )
-            except Exception:
-                pass
+    # Fall back to realpage_activity table
+    try:
+        from app.property_config.properties import ALL_PROPERTIES
+        from app.services.timeframe import get_date_range
+        import sqlite3
+        prop_cfg = ALL_PROPERTIES.get(property_id)
+        if prop_cfg and prop_cfg.pms_config.realpage_siteid:
+            site_id = prop_cfg.pms_config.realpage_siteid
+            raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+            if raw_db.exists():
+                conn = sqlite3.connect(str(raw_db))
+                c = conn.cursor()
+                
+                # Filter by timeframe — activity_date is MM/DD/YYYY format
+                period_start, period_end = get_date_range(timeframe)
+                start_iso = period_start.strftime("%Y-%m-%d")
+                end_iso = period_end.strftime("%Y-%m-%d")
+                
+                c.execute("""
+                    SELECT activity_type, COUNT(*) FROM realpage_activity 
+                    WHERE property_id = ?
+                        AND activity_date IS NOT NULL AND activity_date != ''
+                        AND date(substr(activity_date,7,4) || '-' || substr(activity_date,1,2) || '-' || substr(activity_date,4,2))
+                            BETWEEN ? AND ?
+                    GROUP BY activity_type
+                """, (site_id, start_iso, end_iso))
+                rows = c.fetchall()
+                conn.close()
+                
+                if rows:
+                    LEAD_TYPES = {'E-mail', 'Phone call', 'Text message', 'Online Leasing guest card',
+                                  'Call Center guest card', 'Internet', 'Event', 'Text Conversation'}
+                    TOUR_TYPES = {'Visit', 'Visit (return)'}
+                    APP_TYPES = {'Online Leasing pre-qualify', 'Identity Verification',
+                                 'Online Leasing Agreement', 'Quote'}
+                    LEASE_TYPES = {'Leased', 'Online Leasing reservation', 'Online Leasing Payment'}
+                    
+                    leads = sum(cnt for atype, cnt in rows if atype in LEAD_TYPES)
+                    tours = sum(cnt for atype, cnt in rows if atype in TOUR_TYPES)
+                    applications = sum(cnt for atype, cnt in rows if atype in APP_TYPES)
+                    lease_signs = sum(cnt for atype, cnt in rows if atype in LEASE_TYPES)
+                    
+                    l2t = round(tours / leads * 100, 1) if leads > 0 else 0.0
+                    t2a = round(applications / tours * 100, 1) if tours > 0 else 0.0
+                    a2l = round(lease_signs / applications * 100, 1) if applications > 0 else 0.0
+                    l2l = round(lease_signs / leads * 100, 1) if leads > 0 else 0.0
+                    
+                    return LeasingFunnelMetrics(
+                        property_id=property_id,
+                        timeframe=timeframe.value,
+                        period_start=start_iso,
+                        period_end=end_iso,
+                        leads=leads,
+                        tours=tours,
+                        applications=applications,
+                        lease_signs=lease_signs,
+                        denials=0,
+                        lead_to_tour_rate=l2t,
+                        tour_to_app_rate=t2a,
+                        app_to_lease_rate=a2l,
+                        lead_to_lease_rate=l2l,
+                    )
+    except Exception:
+        pass
     
     # Return empty metrics if no data available
     return await occupancy_service.get_leasing_funnel(property_id, timeframe)
@@ -240,6 +267,202 @@ async def get_expirations(property_id: str):
     """
     try:
         return await occupancy_service.get_lease_expirations(property_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/properties/{property_id}/expirations/details")
+async def get_expiration_details(
+    property_id: str,
+    days: int = Query(90, description="Lookahead window in days (30, 60, or 90)"),
+    filter: Optional[str] = Query(None, description="'renewed' for signed renewals only, 'expiring' for not-yet-renewed only"),
+):
+    """
+    GET: Individual unit records expiring within the given window.
+    Uses rent_roll for real unit numbers and market rent.
+    Filter:
+      'renewed'  = units with a signed renewal (Current-Future in realpage_leases)
+      'expiring' = units whose current lease is expiring and NO renewal is signed yet
+    """
+    import sqlite3
+    from app.db.schema import REALPAGE_DB_PATH
+    from app.property_config.properties import get_pms_config
+
+    pms_config = get_pms_config(property_id)
+    if not pms_config.realpage_siteid:
+        return {"leases": []}
+
+    site_id = pms_config.realpage_siteid
+    try:
+        conn = sqlite3.connect(REALPAGE_DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Helper: check if rent_roll has usable data for this property
+        cursor.execute("""
+            SELECT COUNT(*) FROM realpage_rent_roll
+            WHERE property_id = ? AND unit_number NOT IN ('Unit', 'details')
+              AND lease_end IS NOT NULL AND lease_end != ''
+              AND status LIKE 'Occupied%'
+        """, (site_id,))
+        has_rent_roll = cursor.fetchone()[0] > 0
+
+        # Build set of renewed unit identifiers (from leases with Current-Future status)
+        renewed_lease_ids = set()
+        cursor.execute("""
+            SELECT lease_start_date || '|' || lease_end_date as lid
+            FROM realpage_leases
+            WHERE site_id = ?
+                AND status_text = 'Current - Future'
+                AND lease_end_date != ''
+                AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2))
+                    BETWEEN date('now') AND date('now', '+' || ? || ' days')
+        """, (site_id, days))
+        renewed_lease_ids = {row["lid"] for row in cursor.fetchall()}
+
+        if has_rent_roll:
+            # --- Primary path: use rent_roll for rich unit details ---
+            # Map renewed lease keys to unit numbers via join
+            renewed_units = set()
+            if renewed_lease_ids:
+                cursor.execute("""
+                    SELECT r.unit_number
+                    FROM realpage_leases l
+                    INNER JOIN realpage_rent_roll r
+                        ON r.property_id = l.site_id
+                        AND r.lease_end = l.lease_end_date
+                        AND r.lease_start = l.lease_start_date
+                    WHERE l.site_id = ?
+                        AND l.status_text = 'Current - Future'
+                        AND l.lease_end_date != ''
+                        AND date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
+                            BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                        AND r.unit_number NOT IN ('Unit', 'details')
+                """, (site_id, days))
+                renewed_units = {row["unit_number"] for row in cursor.fetchall()}
+
+            if filter == "renewed":
+                cursor.execute("""
+                    SELECT r.unit_number, r.lease_start, r.lease_end, r.market_rent,
+                           r.status, r.floorplan, r.sqft, r.move_in_date,
+                           l.type_text as renewal_type
+                    FROM realpage_leases l
+                    INNER JOIN realpage_rent_roll r
+                        ON r.property_id = l.site_id
+                        AND r.lease_end = l.lease_end_date
+                        AND r.lease_start = l.lease_start_date
+                    WHERE l.site_id = ?
+                        AND l.status_text = 'Current - Future'
+                        AND l.lease_end_date != ''
+                        AND date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
+                            BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                        AND r.unit_number NOT IN ('Unit', 'details')
+                    ORDER BY date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
+                """, (site_id, days))
+
+                leases = []
+                seen_units = set()
+                for row in cursor.fetchall():
+                    unit = row["unit_number"] or "—"
+                    if unit in seen_units:
+                        continue
+                    seen_units.add(unit)
+                    renewal_type = row["renewal_type"] or ""
+                    leases.append({
+                        "unit": unit,
+                        "lease_end": row["lease_end"] or "",
+                        "market_rent": row["market_rent"] or 0,
+                        "status": "Renewal Signed",
+                        "renewal_type": "Renewal" if "Renewal" in renewal_type else "Lease Extension",
+                        "floorplan": row["floorplan"] or "",
+                        "sqft": row["sqft"] or 0,
+                        "move_in": (row["move_in_date"] or "").split("\n")[0],
+                        "lease_start": row["lease_start"] or "",
+                    })
+            else:
+                cursor.execute("""
+                    SELECT unit_number, lease_start, lease_end, market_rent,
+                           status, floorplan, sqft, move_in_date
+                    FROM realpage_rent_roll
+                    WHERE property_id = ?
+                        AND unit_number NOT IN ('Unit', 'details')
+                        AND lease_end IS NOT NULL AND lease_end != ''
+                        AND status LIKE 'Occupied%'
+                        AND date(substr(lease_end,7,4) || '-' || substr(lease_end,1,2) || '-' || substr(lease_end,4,2))
+                            BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                    ORDER BY date(substr(lease_end,7,4) || '-' || substr(lease_end,1,2) || '-' || substr(lease_end,4,2))
+                """, (site_id, days))
+
+                leases = []
+                for row in cursor.fetchall():
+                    unit = row["unit_number"] or "—"
+                    if filter == "expiring" and unit in renewed_units:
+                        continue
+                    raw_status = row["status"] or ""
+                    if unit in renewed_units:
+                        display_status = "Renewal Signed"
+                    elif "NTV" in raw_status:
+                        display_status = "Notice Given"
+                    else:
+                        display_status = "No Notice"
+                    leases.append({
+                        "unit": unit,
+                        "lease_end": row["lease_end"] or "",
+                        "market_rent": row["market_rent"] or 0,
+                        "status": display_status,
+                        "floorplan": row["floorplan"] or "",
+                        "sqft": row["sqft"] or 0,
+                        "move_in": (row["move_in_date"] or "").split("\n")[0],
+                        "lease_start": row["lease_start"] or "",
+                    })
+        else:
+            # --- Fallback: use realpage_leases directly (no rent_roll data) ---
+            status_cond = ""
+            if filter == "renewed":
+                status_cond = "AND status_text = 'Current - Future'"
+            elif filter == "expiring":
+                status_cond = "AND status_text != 'Current - Future'"
+
+            cursor.execute(f"""
+                SELECT unit_id, lease_start_date, lease_end_date, rent_amount,
+                       status_text, type_text, move_in_date
+                FROM realpage_leases
+                WHERE site_id = ?
+                    AND status_text IN ('Current', 'Current - Future')
+                    AND lease_end_date != ''
+                    AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2))
+                        BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                    {status_cond}
+                ORDER BY date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2))
+            """, (site_id, days))
+
+            leases = []
+            for row in cursor.fetchall():
+                is_renewed = row["status_text"] == "Current - Future"
+                if is_renewed:
+                    display_status = "Renewal Signed"
+                else:
+                    lease_key = f"{row['lease_start_date']}|{row['lease_end_date']}"
+                    display_status = "Renewal Signed" if lease_key in renewed_lease_ids else "No Notice"
+
+                lease_rec = {
+                    "unit": f"Unit {row['unit_id']}" if row["unit_id"] else "—",
+                    "lease_end": row["lease_end_date"] or "",
+                    "market_rent": row["rent_amount"] or 0,
+                    "status": display_status,
+                    "floorplan": "",
+                    "sqft": 0,
+                    "move_in": (row["move_in_date"] or "").split("\n")[0],
+                    "lease_start": row["lease_start_date"] or "",
+                }
+                if filter == "renewed":
+                    renewal_type = row["type_text"] or ""
+                    lease_rec["renewal_type"] = "Renewal" if "Renewal" in renewal_type else "Lease Extension"
+                leases.append(lease_rec)
+
+        conn.close()
+        return {"leases": leases, "count": len(leases)}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -540,10 +763,9 @@ async def get_delinquency(property_id: str):
     
     db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
     
-    # Normalize property_id: handle both "kairoi-the-northern" and "the_northern" formats
+    # Normalize property_id for legacy kairoi- format
     normalized_id = property_id
     if property_id.startswith("kairoi-"):
-        # Convert kairoi-the-northern -> the_northern
         normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
     
     try:

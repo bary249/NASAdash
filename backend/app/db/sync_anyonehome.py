@@ -26,10 +26,10 @@ KAIROI_ACCOUNT_NAME = "Kairoi Residential"
 
 # Known Kairoi properties from OwnerDashV2 (RealPage Site IDs)
 KAIROI_REALPAGE_SITES = {
-    "5472172": "kairoi-nexus-east",
-    "5536211": "kairoi-parkside",
-    "5446271": "kairoi-ridian",
-    "5375283": "kairoi-the-northern",
+    "5472172": "nexus_east",
+    "5536211": "parkside",
+    "5446271": "ridian",
+    "5375283": "the_northern",
 }
 
 

@@ -258,6 +258,36 @@
       "city": "Denver",
       "state": "CO",
       "country": "US"
+    },
+    "the_northern": {
+      "propertyId": "5375283",
+      "propertyName": "The Northern",
+      "country": "US"
+    },
+    "the_avant": {
+      "propertyId": "5480255",
+      "propertyName": "The Avant",
+      "country": "US"
+    },
+    "the_hunter": {
+      "propertyId": "5558217",
+      "propertyName": "The Hunter",
+      "country": "US"
+    },
+    "station_riverfront": {
+      "propertyId": "4976258",
+      "propertyName": "The Station at Riverfront Park",
+      "country": "US"
+    },
+    "discovery_kingwood": {
+      "propertyId": "5618425",
+      "propertyName": "Discovery at Kingwood",
+      "country": "US"
+    },
+    "izzy": {
+      "propertyId": "5618432",
+      "propertyName": "Izzy",
+      "country": "US"
     }
   }
 }

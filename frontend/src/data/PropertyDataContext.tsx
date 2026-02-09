@@ -64,6 +64,17 @@ interface FunnelMetrics {
   leadToLeaseRate: number;
 }
 
+interface ExpirationPeriod {
+  label: string;
+  expirations: number;
+  renewals: number;
+  renewal_pct: number;
+}
+
+interface ExpirationMetrics {
+  periods: ExpirationPeriod[];
+}
+
 interface FilteredData {
   // Units filtered for each metric
   occupiedUnits: UnitRaw[];
@@ -109,6 +120,7 @@ interface PropertyDataContextValue {
   occupancy: OccupancyMetrics | null;
   exposure: ExposureMetrics | null;
   funnel: FunnelMetrics | null;
+  expirations: ExpirationMetrics | null;
   
   // Filtered data for drill-through (same data used for metrics)
   filteredData: FilteredData | null;
@@ -453,6 +465,7 @@ interface PropertyDataProviderProps {
 export function PropertyDataProvider({ propertyId, children }: PropertyDataProviderProps) {
   const [rawData, setRawData] = useState<PropertyRawData | null>(null);
   const [apiFunnelData, setApiFunnelData] = useState<FunnelMetrics | null>(null);
+  const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('cm');
@@ -464,6 +477,7 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
     setLoading(true);
     setError(null);
     setApiFunnelData(null);  // Reset API funnel data when switching properties
+    setExpirationsData(null);
     
     try {
       // Use portfolio API which supports both Yardi and RealPage properties
@@ -519,6 +533,16 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
         // RealPage doesn't have prospect data yet - that's OK
       }
       
+      // Fetch expirations/renewals data from API
+      try {
+        const expData = await api.getExpirations(propertyId);
+        if (expData && expData.periods && expData.periods.length > 0) {
+          setExpirationsData(expData);
+        }
+      } catch {
+        // No expirations data available
+      }
+
       // If no prospects, try to get funnel data from API (imported Excel data for RealPage)
       if (prospects.length === 0) {
         try {
@@ -627,6 +651,7 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
     occupancy,
     exposure,
     funnel,
+    expirations: expirationsData,
     filteredData,
     refresh: fetchRawData,
   };
@@ -647,4 +672,4 @@ export function usePropertyData() {
 }
 
 // Export types for use in components
-export type { OccupancyMetrics, ExposureMetrics, FunnelMetrics, FilteredData, PropertyRawData };
+export type { OccupancyMetrics, ExposureMetrics, FunnelMetrics, ExpirationMetrics, FilteredData, PropertyRawData };

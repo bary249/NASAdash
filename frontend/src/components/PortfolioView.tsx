@@ -13,11 +13,19 @@ import type { PropertyInfo, OccupancyMetrics, ExposureMetrics, LeasingFunnelMetr
 import { HealthStatus } from './MetricCard';
 import { useScramble, useScrambleMode, scrambleName } from './DashboardV3';
 
+interface ExpirationPeriod {
+  label: string;
+  expirations: number;
+  renewals: number;
+  renewal_pct: number;
+}
+
 interface PropertySummary {
   property: PropertyInfo;
   occupancy?: OccupancyMetrics;
   exposure?: ExposureMetrics;
   funnel?: LeasingFunnelMetrics;
+  expirations?: { periods: ExpirationPeriod[] };
   loading: boolean;
   error?: string;
   selected?: boolean;  // For multi-select
@@ -36,11 +44,6 @@ function getAgedVacancyHealth(value: number): HealthStatus {
   return 'critical';
 }
 
-function getExposureHealth(value: number): HealthStatus {
-  if (value <= 3) return 'good';
-  if (value <= 6) return 'warning';
-  return 'critical';
-}
 
 const healthDot: Record<HealthStatus, string> = {
   good: 'bg-emerald-500',
@@ -117,6 +120,22 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
               } catch {
                 // Exposure fetch failed, continue without it
               }
+
+              // Fetch expirations/renewals
+              let expirations: { periods: ExpirationPeriod[] } | undefined;
+              try {
+                expirations = await api.getExpirations(p.id);
+              } catch {
+                // Expirations fetch failed, continue without it
+              }
+
+              // Fetch leasing funnel (current month)
+              let funnel: LeasingFunnelMetrics | undefined;
+              try {
+                funnel = await api.getLeasingFunnel(p.id);
+              } catch {
+                // Funnel fetch failed, continue without it
+              }
               
               setProperties(prev => {
                 const updated = [...prev];
@@ -124,6 +143,8 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                   ...updated[idx],
                   occupancy: occupancy as OccupancyMetrics,
                   exposure: exposure as ExposureMetrics,
+                  expirations,
+                  funnel,
                   loading: false,
                 };
                 return updated;
@@ -347,8 +368,8 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                 <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Units</th>
                 <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Occupancy</th>
                 <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Leased %</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Exp 30d</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Exp 60d</th>
+                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Expiring 90d</th>
+                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Renewals 90d</th>
                 <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Total Vacant</th>
                 <th className="px-5 py-4 text-center font-bold text-slate-500"></th>
               </tr>
@@ -374,7 +395,6 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                   const isSelected = p.property.id === selectedPropertyId;
                   const isChecked = selectedPropertyIds.has(p.property.id);
                   const occHealth = p.occupancy ? getOccupancyHealth(p.occupancy.physical_occupancy) : 'neutral';
-                  const expHealth = p.exposure ? getExposureHealth(p.exposure.exposure_30_days) : 'neutral';
                   
                   return (
                     <tr 
@@ -416,14 +436,19 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                         {p.loading ? '...' : p.occupancy ? `${p.occupancy.leased_percentage}%` : '—'}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {p.loading ? '...' : p.exposure ? (
-                          <span className={`font-semibold ${expHealth === 'critical' ? 'text-rose-600' : expHealth === 'warning' ? 'text-amber-600' : 'text-slate-600'}`}>
-                            {p.exposure.exposure_30_days}
-                          </span>
-                        ) : '—'}
+                        {p.loading ? '...' : p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-center text-slate-600">
-                        {p.loading ? '...' : p.exposure?.exposure_60_days ?? '—'}
+                      <td className="px-4 py-3 text-center">
+                        {(() => {
+                          if (p.loading) return '...';
+                          const period = p.expirations?.periods?.find(pr => pr.label === '90d');
+                          if (!period) return '—';
+                          return (
+                            <span className={`font-semibold ${period.renewal_pct >= 50 ? 'text-emerald-600' : period.renewal_pct >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>
+                              {period.renewals} <span className="text-xs font-normal text-slate-400">({period.renewal_pct}%)</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-center text-slate-600">
                         {p.loading ? '...' : p.occupancy?.vacant_units ?? '—'}
@@ -455,8 +480,12 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                     </span>
                   </td>
                   <td className="px-5 py-4 text-center text-slate-500">—</td>
-                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">{totals.exposure30}</td>
-                  <td className="px-5 py-4 text-center text-slate-500">—</td>
+                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">
+                    {selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? 0), 0)}
+                  </td>
+                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">
+                    {selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.renewals ?? 0), 0)}
+                  </td>
                   <td className="px-5 py-4 text-center text-venn-navy font-semibold">{totals.vacantUnits}</td>
                   <td className="px-5 py-4"></td>
                 </tr>

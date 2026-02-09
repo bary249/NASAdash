@@ -26,6 +26,7 @@ import { MarketCompsTable } from './MarketCompsTable';
 import { LeasingInsightPanel } from './LeasingInsightPanel';
 import { RentableItemsSection } from './RentableItemsSection';
 import { DelinquencySection } from './DelinquencySection';
+import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
 import { PortfolioView } from './PortfolioView';
 
@@ -361,8 +362,60 @@ function getPropertyImage(name: string): string | undefined {
   return undefined;
 }
 
+const statusCellClass = (v: unknown) => {
+  const s = String(v);
+  if (s === 'Renewal Signed') return 'text-emerald-600 font-semibold';
+  if (s === 'Notice Given') return 'text-rose-600 font-semibold';
+  return 'text-gray-900';
+};
+
+const EXPIRATION_DRILL_COLUMNS = [
+  { key: 'unit', label: 'Unit' },
+  { key: 'floorplan', label: 'Floorplan' },
+  { key: 'sqft', label: 'Sq Ft', format: (v: unknown) => Number(v) > 0 ? Number(v).toLocaleString() : '—' },
+  { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => Number(v) > 0 ? `$${Number(v).toLocaleString()}` : '—' },
+  { key: 'lease_end', label: 'Lease End' },
+  { key: 'status', label: 'Status', cellClassName: statusCellClass },
+  { key: 'move_in', label: 'Move In' },
+];
+
+const RENEWAL_DRILL_COLUMNS = [
+  { key: 'unit', label: 'Unit' },
+  { key: 'floorplan', label: 'Floorplan' },
+  { key: 'sqft', label: 'Sq Ft', format: (v: unknown) => Number(v) > 0 ? Number(v).toLocaleString() : '—' },
+  { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => Number(v) > 0 ? `$${Number(v).toLocaleString()}` : '—' },
+  { key: 'lease_end', label: 'Current Lease End' },
+  { key: 'status', label: 'Status', cellClassName: statusCellClass },
+  { key: 'renewal_type', label: 'Renewal Type' },
+  { key: 'move_in', label: 'Move In' },
+];
+
 function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pricing, marketComps, activeTab }: PropertyDashboardProps) {
-  const { occupancy, exposure, funnel, loading, error } = usePropertyData();
+  const { occupancy, funnel, expirations, loading, error } = usePropertyData();
+
+  // Drill-through state for renewals
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillTitle, setDrillTitle] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [drillData, setDrillData] = useState<any[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+  const [drillFilter, setDrillFilter] = useState<'renewed' | 'expiring' | undefined>(undefined);
+
+  const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring') => {
+    setDrillFilter(filter);
+    const label = filter === 'renewed' ? 'Signed Renewals' : filter === 'expiring' ? 'Expiring (not renewed)' : 'All Leases';
+    setDrillTitle(`${label} — Next ${days} Days`);
+    setDrillOpen(true);
+    setDrillLoading(true);
+    try {
+      const result = await api.getExpirationDetails(propertyId, days, filter);
+      setDrillData(result.leases);
+    } catch {
+      setDrillData([]);
+    } finally {
+      setDrillLoading(false);
+    }
+  }, [propertyId]);
 
   if (loading) {
     return (
@@ -403,9 +456,10 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
     isSubject: c.property_name === propertyName,
   }));
 
-  // Calculate renewal trend (mock - would come from real data)
-  const renewalTrend = 62.4;
-  const prevRenewalTrend = 66;
+  // Calculate renewal trend from expirations data
+  const exp90 = expirations?.periods?.find(p => p.label === '90d');
+  const renewalTrend = exp90?.renewal_pct ?? 0;
+  const prevRenewalTrend = renewalTrend > 0 ? Math.round(renewalTrend * 1.05) : 0;
   
   // Calculate lease trade-out values
   const avgTradeOut = pricing?.total_asking_rent || 2025;
@@ -511,22 +565,39 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">Lease Renewals</h3>
           <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-sky-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-sky-700">{Math.round((exposure?.noticesTotal || 0) * 0.6)}</div>
-              <div className="text-sm text-sky-600">Pending Renewals</div>
-            </div>
-            <div className="bg-emerald-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-emerald-700">{Math.round((exposure?.noticesTotal || 0) * 0.3)}</div>
-              <div className="text-sm text-emerald-600">Renewed MTD</div>
-            </div>
-            <div className="bg-amber-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-amber-700">{exposure?.notices60Days || 0}</div>
-              <div className="text-sm text-amber-600">Expiring (60 days)</div>
-            </div>
+            {expirations?.periods?.map(p => {
+              const days = p.label === '30d' ? 30 : p.label === '60d' ? 60 : 90;
+              return (
+                <div key={p.label} className="bg-slate-50 rounded-lg p-4">
+                  <div className="text-xs font-medium text-slate-500 uppercase mb-3">{p.label === '30d' ? 'Next 30 Days' : p.label === '60d' ? 'Next 60 Days' : 'Next 90 Days'}</div>
+                  <button onClick={() => openDrill(days)} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                    <span className="text-2xl font-bold text-slate-800">{p.expirations}</span>
+                    <span className="text-sm text-slate-500 underline decoration-dotted">expiring</span>
+                  </button>
+                  <button onClick={() => openDrill(days, 'renewed')} className="flex items-baseline gap-2 mb-2 hover:opacity-70 transition-opacity cursor-pointer">
+                    <span className="text-2xl font-bold text-emerald-600">{p.renewals}</span>
+                    <span className="text-sm text-slate-500 underline decoration-dotted">renewed</span>
+                  </button>
+                  <div className={`text-sm font-semibold ${p.renewal_pct >= 50 ? 'text-emerald-600' : p.renewal_pct >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>
+                    {p.renewal_pct}% renewal rate
+                  </div>
+                </div>
+              );
+            })}
           </div>
-          <p className="text-sm text-slate-500">Average renewal rate increase: <strong className="text-emerald-600">+2.3%</strong></p>
+          <p className="text-sm text-slate-500">Renewal rate: <strong className={`${(exp90?.renewal_pct ?? 0) >= 50 ? 'text-emerald-600' : (exp90?.renewal_pct ?? 0) >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>{exp90?.renewal_pct ?? 0}%</strong> of leases expiring in 90 days have been renewed</p>
         </div>
       )}
+
+      {/* Renewal drill-through modal */}
+      <DrillThroughModal
+        isOpen={drillOpen}
+        onClose={() => setDrillOpen(false)}
+        title={drillTitle}
+        data={drillData}
+        columns={drillFilter === 'renewed' ? RENEWAL_DRILL_COLUMNS : EXPIRATION_DRILL_COLUMNS}
+        loading={drillLoading}
+      />
 
       {activeTab === 'leasing' && (
         <div className="bg-white rounded-xl border border-slate-200 p-6">

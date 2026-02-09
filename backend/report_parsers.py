@@ -324,8 +324,8 @@ def parse_rent_roll(file_path: str, property_id: str = None) -> List[Dict[str, A
     for idx, h in enumerate(headers):
         if pd.isna(h):
             continue
-        h_clean = str(h).replace('\n', ' ').strip().lower()
-        if h_clean == 'unit' or h_clean == '\nunit':
+        h_clean = str(h).replace('\n', ' ').replace('\r', '').strip().lower()
+        if h_clean == 'unit' or h_clean == 'unit':
             col_map['unit'] = idx
         elif 'floorplan' in h_clean:
             col_map['floorplan'] = idx
@@ -333,58 +333,111 @@ def parse_rent_roll(file_path: str, property_id: str = None) -> List[Dict[str, A
             col_map['sqft'] = idx
         elif 'status' in h_clean:
             col_map['status'] = idx
-        elif 'name' in h_clean:
+        elif h_clean == 'name' or h_clean == 'name':
             col_map['name'] = idx
-        elif 'move-in' in h_clean or 'move in' in h_clean:
+        elif 'move-in' in h_clean or 'move in' in h_clean or 'move-out' in h_clean:
             col_map['move_in'] = idx
         elif 'lease' in h_clean and 'start' in h_clean:
             col_map['lease_start'] = idx
         elif 'lease' in h_clean and 'end' in h_clean:
             col_map['lease_end'] = idx
+        elif 'lease' in h_clean and 'rent' in h_clean:
+            col_map['lease_rent'] = idx
         elif 'market' in h_clean:
             col_map['market_rent'] = idx
+        elif 'balance' in h_clean:
+            col_map['balance'] = idx
+        elif 'total' in h_clean and 'billing' in h_clean:
+            col_map['total_billing'] = idx
+    
+    def safe_float(val):
+        try:
+            return float(val) if pd.notna(val) else 0.0
+        except:
+            return 0.0
+    
+    def safe_int(val):
+        try:
+            return int(val) if pd.notna(val) else 0
+        except:
+            return 0
+    
+    def safe_str(val):
+        if pd.notna(val):
+            s = str(val).replace('\r', '').strip()
+            return s if s and s != '*' else None
+        return None
     
     records = []
-    current_unit = None
     
     for i in range(header_row + 1, len(df)):
         row = df.iloc[i].tolist()
         
         # Check if this is a unit row (has unit number in first column)
         unit_val = row[col_map.get('unit', 0)]
-        if pd.notna(unit_val) and str(unit_val).strip() and str(unit_val).strip().isalnum():
+        if pd.notna(unit_val) and str(unit_val).strip() and not str(unit_val).strip().startswith('='):
             # Skip if it's a section header
             if 'total' in str(unit_val).lower() or 'subtotal' in str(unit_val).lower():
                 continue
             
-            def safe_float(val):
-                try:
-                    return float(val) if pd.notna(val) else 0.0
-                except:
-                    return 0.0
-            
-            def safe_int(val):
-                try:
-                    return int(val) if pd.notna(val) else 0
-                except:
-                    return 0
-            
-            # Get the market rent from the last numeric column in the row
+            # Get market rent: use mapped column, or find first large numeric after sqft
             market_rent = 0
-            for j in range(len(row) - 1, -1, -1):
-                if pd.notna(row[j]) and isinstance(row[j], (int, float)):
-                    market_rent = float(row[j])
-                    break
+            if 'market_rent' in col_map:
+                market_rent = safe_float(row[col_map['market_rent']])
+            else:
+                # Look for first numeric value after status column that looks like rent (> 100)
+                start_col = col_map.get('status', col_map.get('sqft', 13)) + 1
+                for j in range(start_col, len(row)):
+                    if pd.notna(row[j]) and isinstance(row[j], (int, float)) and float(row[j]) > 100:
+                        market_rent = float(row[j])
+                        break
+            
+            # Get actual/lease rent
+            actual_rent = 0
+            if 'lease_rent' in col_map:
+                actual_rent = safe_float(row[col_map['lease_rent']])
+            
+            # Get resident name
+            resident_name = None
+            if 'name' in col_map:
+                resident_name = safe_str(row[col_map['name']])
+            
+            # Get lease dates
+            lease_start = None
+            if 'lease_start' in col_map:
+                lease_start = safe_str(row[col_map['lease_start']])
+            
+            lease_end = None
+            if 'lease_end' in col_map:
+                lease_end = safe_str(row[col_map['lease_end']])
+            
+            # Get move-in date
+            move_in = None
+            if 'move_in' in col_map:
+                move_in = safe_str(row[col_map['move_in']])
+            
+            # Get balance
+            balance = 0
+            if 'balance' in col_map:
+                balance = safe_float(row[col_map['balance']])
+            
+            status_val = safe_str(row[col_map.get('status', 17)])
             
             record = {
                 'property_id': property_id,
                 'property_name': property_name,
                 'report_date': report_date,
                 'unit_number': str(unit_val).strip(),
-                'floorplan': str(row[col_map.get('floorplan', 1)]) if pd.notna(row[col_map.get('floorplan', 1)]) else None,
-                'sqft': safe_int(row[col_map.get('sqft', 2)]),
-                'status': str(row[col_map.get('status', 4)]) if pd.notna(row[col_map.get('status', 4)]) else None,
+                'floorplan': safe_str(row[col_map.get('floorplan', 2)]),
+                'sqft': safe_int(row[col_map.get('sqft', 13)]),
+                'status': status_val,
+                'resident_name': resident_name,
+                'lease_start': lease_start,
+                'lease_end': lease_end,
+                'move_in_date': move_in,
+                'actual_rent': actual_rent,
                 'market_rent': market_rent,
+                'balance': balance,
             }
             records.append(record)
     

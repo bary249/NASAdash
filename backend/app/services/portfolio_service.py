@@ -485,7 +485,7 @@ class PortfolioService:
                     property_id=config.property_id,
                     pms_source=PMSSource(config.pms_type),
                     unit_number=unit.get("unit_number", ""),
-                    floorplan=unit.get("floorplan", ""),
+                    floorplan=unit.get("floorplan") or "",
                     floorplan_name=unit.get("floorplan_name"),
                     bedrooms=unit.get("bedrooms", 0),
                     bathrooms=unit.get("bathrooms", 0),

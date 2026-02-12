@@ -461,13 +461,17 @@ class PricingService:
             logger.warning(f"[PRICING] Failed to get RealPage in-place rents from DB: {e}")
             return {}
 
-    async def get_lease_tradeouts(self, property_id: str) -> dict:
+    async def get_lease_tradeouts(self, property_id: str, days: int | None = None) -> dict:
         """
         Get lease trade-out data: compare prior lease rent vs new lease rent for same unit.
         Trade-out = when a resident moves out and a new one moves in.
         READ-ONLY operation.
+        
+        Args:
+            days: Optional trailing window filter (e.g. 7, 30). Filters by move_in_date.
         """
         import sqlite3
+        from datetime import datetime, timedelta
         from app.db.schema import REALPAGE_DB_PATH
         from app.property_config.properties import get_pms_config
         
@@ -481,11 +485,21 @@ class PricingService:
             conn = sqlite3.connect(REALPAGE_DB_PATH)
             cursor = conn.cursor()
             
-            # Get trade-outs: Former lease -> Current "First (Lease)" for same unit
+            # Get trade-outs: match Current First(Lease) with the most recent
+            # prior lease (Former or Current-Past) on the same unit that had rent > 0.
+            # Join with realpage_units to get the actual unit_number (leases often have NULL unit_number).
             cursor.execute("""
+                WITH prior AS (
+                    SELECT unit_id, site_id, rent_amount,
+                           ROW_NUMBER() OVER (PARTITION BY unit_id, site_id ORDER BY lease_end_date DESC) as rn
+                    FROM realpage_leases
+                    WHERE site_id = ?
+                      AND status_text IN ('Former', 'Current - Past')
+                      AND rent_amount > 0
+                )
                 SELECT 
                     c.unit_id,
-                    c.unit_number,
+                    COALESCE(u.unit_number, c.unit_number, c.unit_id) as unit_number,
                     p.rent_amount as prior_rent,
                     c.rent_amount as new_rent,
                     ROUND(c.rent_amount - p.rent_amount, 0) as dollar_change,
@@ -493,17 +507,24 @@ class PricingService:
                     c.lease_start_date as move_in_date,
                     c.lease_term_desc as unit_type
                 FROM realpage_leases c
-                JOIN realpage_leases p 
+                JOIN prior p 
                     ON c.unit_id = p.unit_id 
                     AND c.site_id = p.site_id 
-                    AND p.status_text = 'Former'
-                    AND c.lease_start_date > p.lease_end_date
+                    AND p.rn = 1
+                LEFT JOIN realpage_units u
+                    ON c.unit_id = u.unit_id
+                    AND c.site_id = u.site_id
                 WHERE c.site_id = ?
                     AND c.status_text = 'Current'
-                    AND c.rent_amount > 0 AND p.rent_amount > 0
+                    AND c.rent_amount > 0
                     AND c.type_text = 'First (Lease)'
                 ORDER BY c.lease_start_date DESC
-            """, (site_id,))
+            """, (site_id, site_id))
+            
+            # Date cutoff for trailing window
+            cutoff_date = None
+            if days:
+                cutoff_date = datetime.now() - timedelta(days=days)
             
             tradeouts = []
             total_prior = 0
@@ -511,6 +532,16 @@ class PricingService:
             
             for row in cursor.fetchall():
                 unit_id, unit_number, prior_rent, new_rent, dollar_change, pct_change, move_in, unit_type = row
+                
+                # Filter by trailing window if specified (dates are MM/DD/YYYY)
+                if cutoff_date and move_in:
+                    try:
+                        move_in_dt = datetime.strptime(move_in, "%m/%d/%Y")
+                        if move_in_dt < cutoff_date:
+                            continue
+                    except ValueError:
+                        continue
+                
                 tradeouts.append({
                     "unit_id": unit_number or str(unit_id),
                     "unit_type": unit_type or "",
@@ -535,7 +566,7 @@ class PricingService:
                 "avg_pct_change": round((total_new - total_prior) / total_prior * 100, 1) if total_prior > 0 else 0,
             }
             
-            logger.info(f"[PRICING] Found {count} trade-outs for site {site_id}")
+            logger.info(f"[PRICING] Found {count} trade-outs for site {site_id} (days={days})")
             return {"tradeouts": tradeouts, "summary": summary}
             
         except Exception as e:

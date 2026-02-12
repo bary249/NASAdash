@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     realpage_siteid: str = ""
     realpage_licensekey: str = ""
     
+    # Google Places API
+    google_places_api_key: str = ""
+    
+    # SerpAPI (for Google Reviews scraping)
+    serpapi_api_key: str = ""
+    
     # Claude AI API
     anthropic_api_key: str = ""
     

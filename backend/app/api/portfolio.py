@@ -260,15 +260,31 @@ async def get_portfolio_residents(
 
 
 @router.get("/properties")
-async def list_portfolio_properties():
+async def list_portfolio_properties(
+    owner_group: Optional[str] = Query(None, description="Filter by owner group (e.g. 'PHH')"),
+):
     """
     List all available properties in the portfolio registry.
     
-    Returns property IDs, names, and their PMS source.
+    Returns property IDs, names, PMS source, and owner_group.
     Includes both configured properties AND properties from unified.db.
+    Optionally filter by owner_group.
     """
     import sqlite3
     from pathlib import Path
+    
+    # Load owner_group from unified.db for all properties
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    owner_groups = {}
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT unified_property_id, owner_group FROM unified_properties")
+        for row in cursor.fetchall():
+            owner_groups[row[0]] = row[1] or "other"
+        conn.close()
+    except Exception:
+        pass
     
     result = []
     seen_ids = set()
@@ -276,10 +292,14 @@ async def list_portfolio_properties():
     # 1. Add configured properties
     properties = list_all_properties()
     for p in properties:
+        og = owner_groups.get(p.unified_id, "other")
+        if owner_group and og.lower() != owner_group.lower():
+            continue
         result.append({
             "id": p.unified_id,
             "name": p.name,
             "pms_type": p.pms_config.pms_type.value,
+            "owner_group": og,
         })
         seen_ids.add(p.unified_id)
     
@@ -287,13 +307,15 @@ async def list_portfolio_properties():
     seen_names = {p.name.lower() for p in properties}
     
     # 2. Add properties from unified.db that aren't in config
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("SELECT unified_property_id, name, pms_source FROM unified_properties")
+        cursor.execute("SELECT unified_property_id, name, pms_source, owner_group FROM unified_properties")
         for row in cursor.fetchall():
-            prop_id, name, pms_source = row
+            prop_id, name, pms_source, og = row
+            og = og or "other"
+            if owner_group and og.lower() != owner_group.lower():
+                continue
             # Skip if ID or name already seen
             if prop_id in seen_ids or (name and name.lower() in seen_names):
                 continue
@@ -301,6 +323,7 @@ async def list_portfolio_properties():
                 "id": prop_id,
                 "name": name,
                 "pms_type": pms_source or "realpage",
+                "owner_group": og,
             })
             seen_ids.add(prop_id)
             if name:
@@ -310,6 +333,24 @@ async def list_portfolio_properties():
         pass  # Continue with config properties if db fails
     
     return result
+
+
+@router.get("/owner-groups")
+async def list_owner_groups():
+    """Return distinct owner groups for filter dropdown."""
+    import sqlite3
+    from pathlib import Path
+    
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT owner_group FROM unified_properties WHERE owner_group IS NOT NULL ORDER BY owner_group")
+        groups = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return groups
+    except Exception:
+        return ["other"]
 
 
 @router.get("/health")
@@ -324,6 +365,107 @@ async def portfolio_health_check():
         "supported_pms": [p.value for p in PMSSource],
         "registered_properties": list(ALL_PROPERTIES.keys()),
     }
+
+
+@router.get("/risk-scores")
+async def get_portfolio_risk_scores(
+    property_ids: Optional[str] = Query(None, description="Comma-separated list of property IDs. If omitted, returns all."),
+):
+    """
+    GET: Aggregated risk scores across properties.
+    
+    Returns per-property churn and delinquency predictions plus portfolio totals.
+    """
+    import sqlite3
+    from pathlib import Path
+    
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        if property_ids:
+            ids = [p.strip() for p in property_ids.split(",") if p.strip()]
+            placeholders = ",".join("?" * len(ids))
+            cursor.execute(f"""
+                SELECT r.*, p.name as property_name
+                FROM unified_risk_scores r
+                LEFT JOIN unified_properties p
+                    ON r.unified_property_id = p.unified_property_id
+                WHERE r.unified_property_id IN ({placeholders})
+                  AND r.snapshot_date = (
+                      SELECT MAX(snapshot_date) FROM unified_risk_scores
+                      WHERE unified_property_id = r.unified_property_id
+                  )
+                ORDER BY r.avg_churn_score ASC
+            """, ids)
+        else:
+            cursor.execute("""
+                SELECT r.*, p.name as property_name
+                FROM unified_risk_scores r
+                LEFT JOIN unified_properties p
+                    ON r.unified_property_id = p.unified_property_id
+                WHERE r.snapshot_date = (
+                    SELECT MAX(snapshot_date) FROM unified_risk_scores
+                    WHERE unified_property_id = r.unified_property_id
+                )
+                ORDER BY r.avg_churn_score ASC
+            """)
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return {"properties": [], "summary": None}
+        
+        properties = []
+        total_scored = 0
+        weighted_churn = 0
+        weighted_delinq = 0
+        total_churn_high = 0
+        total_delinq_high = 0
+        
+        for row in rows:
+            n = row["total_scored"]
+            total_scored += n
+            weighted_churn += row["avg_churn_score"] * n
+            weighted_delinq += row["avg_delinquency_score"] * n
+            total_churn_high += row["churn_high_count"]
+            total_delinq_high += row["delinq_high_count"]
+            
+            properties.append({
+                "property_id": row["unified_property_id"],
+                "property_name": row["property_name"] or row["unified_property_id"],
+                "total_scored": n,
+                "avg_churn_score": row["avg_churn_score"],
+                "avg_delinquency_score": row["avg_delinquency_score"],
+                "churn_high": row["churn_high_count"],
+                "churn_medium": row["churn_medium_count"],
+                "churn_low": row["churn_low_count"],
+                "delinq_high": row["delinq_high_count"],
+                "delinq_medium": row["delinq_medium_count"],
+                "delinq_low": row["delinq_low_count"],
+                "avg_tenure_months": row["avg_tenure_months"],
+                "avg_rent": row["avg_rent"],
+                "avg_open_tickets": row["avg_open_tickets"],
+                "snapshot_date": row["snapshot_date"],
+            })
+        
+        summary = {
+            "total_properties": len(rows),
+            "total_scored": total_scored,
+            "avg_churn_score": round(weighted_churn / total_scored, 3) if total_scored > 0 else 0,
+            "avg_delinquency_score": round(weighted_delinq / total_scored, 3) if total_scored > 0 else 0,
+            "total_churn_high_risk": total_churn_high,
+            "total_delinq_high_risk": total_delinq_high,
+        }
+        
+        return {"properties": properties, "summary": summary}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get portfolio risk scores: {str(e)}")
 
 
 # Service instances for chat

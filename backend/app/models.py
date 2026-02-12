@@ -17,6 +17,7 @@ class Timeframe(str, Enum):
     CM = "cm"
     PM = "pm"
     YTD = "ytd"
+    L30 = "l30"
 
 
 class OccupancyMetrics(BaseModel):
@@ -37,6 +38,9 @@ class OccupancyMetrics(BaseModel):
     # Percentages
     physical_occupancy: float  # Total Occupied / Total Units
     leased_percentage: float   # (Occupied + Preleased Vacant) / Total Units
+    
+    # Notice breakdown
+    notice_break_units: int = 0  # NTV units breaking lease early (available_date << lease_end)
     
     # Vacancy breakdown
     vacant_ready: int          # Move-in ready vacant units
@@ -90,6 +94,11 @@ class LeasingFunnelMetrics(BaseModel):
     tour_to_app_rate: float      # Applications / Tours %
     app_to_lease_rate: float     # Lease Signs / Applications %
     lead_to_lease_rate: float    # Lease Signs / Leads %
+    
+    # Derived marketing metrics (Step 1.2)
+    avg_days_to_lease: Optional[float] = None   # Avg days from first contact to lease sign
+    app_completion_rate: Optional[float] = None  # % of pre-qualifies that reach agreement
+    app_approval_rate: Optional[float] = None    # % of agreements that reach leased status
 
 
 class FloorplanPricing(BaseModel):
@@ -179,6 +188,9 @@ class PropertyInfo(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     address: Optional[str] = None
+    floor_count: Optional[int] = None
+    google_rating: Optional[float] = None
+    google_review_count: Optional[int] = None
 
 
 class DashboardSummary(BaseModel):

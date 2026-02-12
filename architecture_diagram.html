@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OwnerDashV2 — Architecture Overview</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #fafafa;
+    color: #1a1a2e;
+    padding: 48px 40px;
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: #d4a056; }
+  .subtitle {
+    font-size: 14px;
+    color: #777;
+    margin-bottom: 40px;
+    font-weight: 400;
+  }
+
+  /* Flow arrow between layers */
+  .flow-arrow {
+    display: flex;
+    justify-content: center;
+    padding: 14px 0;
+  }
+  .flow-arrow .arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: #bbb;
+  }
+  .flow-arrow .arrow .line {
+    width: 2px;
+    height: 18px;
+    background: #d0d0d0;
+  }
+  .flow-arrow .arrow svg {
+    width: 14px;
+    height: 14px;
+    fill: #bbb;
+  }
+  .flow-label {
+    font-size: 11px;
+    color: #999;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-left: 8px;
+  }
+
+  /* Layer container */
+  .layer {
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 0;
+    position: relative;
+  }
+
+  .layer-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .layer-label .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  /* Source layer */
+  .layer-sources {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+  }
+  .layer-sources .layer-label { color: #6b7280; }
+  .layer-sources .dot { background: #6b7280; }
+
+  .source-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .source-card {
+    background: #f8f8f8;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .source-card .icon { font-size: 24px; margin-bottom: 8px; }
+  .source-card .name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .source-card .detail {
+    font-size: 11px;
+    color: #888;
+    line-height: 1.4;
+  }
+
+  /* Harvest layer */
+  .layer-harvest {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+  }
+  .layer-harvest .layer-label { color: #92400e; }
+  .layer-harvest .dot { background: #d97706; }
+
+  .harvest-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .harvest-card {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .harvest-card .name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #92400e;
+    margin-bottom: 8px;
+  }
+  .harvest-card .items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .harvest-card .item {
+    font-size: 11px;
+    background: #fff;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: #78350f;
+  }
+
+  /* Unify layer */
+  .layer-unify {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+  }
+  .layer-unify .layer-label { color: #065f46; }
+  .layer-unify .dot { background: #059669; }
+
+  .unify-content {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+  }
+  .raw-dbs {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .db-pill {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #166534;
+    text-align: center;
+  }
+  .sync-arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: #059669;
+  }
+  .sync-arrow .label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .sync-arrow svg { width: 28px; height: 28px; fill: #059669; }
+
+  .unified-db {
+    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    border: 2px solid #6ee7b7;
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+  .unified-db .name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #065f46;
+    margin-bottom: 8px;
+  }
+  .unified-db .tables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+  }
+  .unified-db .table-tag {
+    font-size: 10px;
+    background: #fff;
+    border: 1px solid #a7f3d0;
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: #047857;
+  }
+
+  /* Data Domains layer */
+  .layer-domains {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+  }
+  .layer-domains .layer-label { color: #1e3a5f; }
+  .layer-domains .dot { background: #2563eb; }
+
+  .domain-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .domain-card {
+    border-radius: 12px;
+    padding: 16px;
+    border-left: 4px solid;
+  }
+  .domain-card .title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .domain-card .field {
+    font-size: 11px;
+    color: #555;
+    padding: 3px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .domain-card .field:last-child { border-bottom: none; }
+
+  .domain-operational {
+    background: #eff6ff;
+    border-left-color: #3b82f6;
+  }
+  .domain-operational .title { color: #1d4ed8; }
+
+  .domain-financial {
+    background: #fef2f2;
+    border-left-color: #ef4444;
+  }
+  .domain-financial .title { color: #dc2626; }
+
+  .domain-leasing {
+    background: #fffbeb;
+    border-left-color: #f59e0b;
+  }
+  .domain-leasing .title { color: #d97706; }
+
+  .domain-risk {
+    background: #f5f3ff;
+    border-left-color: #8b5cf6;
+  }
+  .domain-risk .title { color: #7c3aed; }
+
+  /* Dashboard Views layer */
+  .layer-dashboard {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+  }
+  .layer-dashboard .layer-label { color: #4338ca; }
+  .layer-dashboard .dot { background: #6366f1; }
+
+  .view-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .view-tab {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4338ca;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .view-tab .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #6366f1;
+  }
+
+  /* AI Agent layer */
+  .layer-ai {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    border: 2px solid #d4a056;
+    position: relative;
+    overflow: hidden;
+  }
+  .layer-ai::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(212, 160, 86, 0.08), transparent 60%);
+  }
+  .layer-ai .layer-label { color: #d4a056; position: relative; }
+  .layer-ai .dot { background: #d4a056; }
+
+  .ai-content {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .ai-description {
+    color: #c9c9d4;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .ai-description strong {
+    color: #d4a056;
+    font-weight: 600;
+  }
+  .ai-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ai-box {
+    background: rgba(212, 160, 86, 0.12);
+    border: 1px solid rgba(212, 160, 86, 0.3);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #d4a056;
+    font-weight: 500;
+  }
+  .ai-capabilities {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ai-cap {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: #a0a0b0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .ai-cap .check {
+    color: #d4a056;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* Bottom bar */
+  .bottom-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 32px;
+    padding-top: 20px;
+    border-top: 1px solid #e5e5e5;
+  }
+  .bottom-bar .brand {
+    font-size: 14px;
+    font-weight: 600;
+    color: #999;
+  }
+  .bottom-bar .brand span { color: #d4a056; }
+  .bottom-bar .stats {
+    display: flex;
+    gap: 24px;
+  }
+  .bottom-bar .stat {
+    text-align: center;
+  }
+  .bottom-bar .stat .num {
+    font-size: 20px;
+    font-weight: 700;
+    color: #1a1a2e;
+  }
+  .bottom-bar .stat .label {
+    font-size: 11px;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Timeline dots at top */
+  .timeline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding: 0 40px;
+  }
+  .timeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .timeline-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #d0d0d0;
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px #d0d0d0;
+  }
+  .timeline-dot.active {
+    background: #1a1a2e;
+    box-shadow: 0 0 0 1px #1a1a2e;
+  }
+  .timeline-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: #888;
+  }
+  .timeline-line {
+    flex: 1;
+    height: 2px;
+    background: #e0e0e0;
+    margin: 0 -8px;
+    margin-bottom: 20px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <h1><span>venn</span> Owner Dashboard V2</h1>
+  </div>
+  <div class="subtitle">Architecture Overview — Data Pipeline, Unified Intelligence & AI Agent</div>
+
+  <!-- Timeline -->
+  <div class="timeline">
+    <div class="timeline-step">
+      <div class="timeline-dot active"></div>
+      <div class="timeline-label">Harvest</div>
+    </div>
+    <div class="timeline-line"></div>
+    <div class="timeline-step">
+      <div class="timeline-dot active"></div>
+      <div class="timeline-label">Unify</div>
+    </div>
+    <div class="timeline-line"></div>
+    <div class="timeline-step">
+      <div class="timeline-dot active"></div>
+      <div class="timeline-label">Enrich</div>
+    </div>
+    <div class="timeline-line"></div>
+    <div class="timeline-step">
+      <div class="timeline-dot active"></div>
+      <div class="timeline-label">Present</div>
+    </div>
+    <div class="timeline-line"></div>
+    <div class="timeline-step">
+      <div class="timeline-dot active"></div>
+      <div class="timeline-label">Analyze</div>
+    </div>
+  </div>
+
+  <!-- Layer 1: Data Sources -->
+  <div class="layer layer-sources">
+    <div class="layer-label"><span class="dot"></span> Data Sources</div>
+    <div class="source-cards">
+      <div class="source-card">
+        <div class="icon">📊</div>
+        <div class="name">PMS Reports</div>
+        <div class="detail">Scheduled report downloads<br/>(Yardi, RealPage, Entrata, etc.)</div>
+      </div>
+      <div class="source-card">
+        <div class="icon">🔌</div>
+        <div class="name">PMS Live APIs</div>
+        <div class="detail">Real-time data feeds<br/>(Yardi, RealPage, Entrata, etc.)</div>
+      </div>
+      <div class="source-card">
+        <div class="icon">🏢</div>
+        <div class="name">Venn Platform</div>
+        <div class="detail">Resident engagement,<br/>amenities, packages, etc.</div>
+      </div>
+      <div class="source-card">
+        <div class="icon">🔮</div>
+        <div class="name">Predictive Analytics</div>
+        <div class="detail">Via Venn Data (if applicable)<br/>Risk scoring & forecasting</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="flow-arrow">
+    <div class="arrow">
+      <div class="line"></div>
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h12z"/></svg>
+    </div>
+    <span class="flow-label">Extract & Parse</span>
+  </div>
+
+  <!-- Layer 2: Data Harvesting -->
+  <div class="layer layer-harvest">
+    <div class="layer-label"><span class="dot"></span> Data Harvesting Engine</div>
+    <div class="harvest-grid">
+      <div class="harvest-card">
+        <div class="name">Report Pipeline</div>
+        <div class="items">
+          <span class="item">Box Score</span>
+          <span class="item">Rent Roll</span>
+          <span class="item">Delinquency & Prepaid</span>
+          <span class="item">Activity Report</span>
+          <span class="item">Monthly Summary</span>
+          <span class="item">Lease Expiration</span>
+          <span class="item">Projected Occupancy</span>
+        </div>
+      </div>
+      <div class="harvest-card">
+        <div class="name">Live API Connectors</div>
+        <div class="items">
+          <span class="item">PMS Live APIs</span>
+          <span class="item">Venn Platform API</span>
+          <span class="item">Venn Data Analytics</span>
+          <span class="item">Automated Parsing</span>
+          <span class="item">Scheduled Sync</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="flow-arrow">
+    <div class="arrow">
+      <div class="line"></div>
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h12z"/></svg>
+    </div>
+    <span class="flow-label">Cleanse & Normalize</span>
+  </div>
+
+  <!-- Layer 3: Unification -->
+  <div class="layer layer-unify">
+    <div class="layer-label"><span class="dot"></span> Unification Layer</div>
+    <div class="unify-content">
+      <div class="raw-dbs">
+        <div class="db-pill">PMS Data (Yardi, RealPage, Entrata, etc.)</div>
+        <div class="db-pill">Venn Platform Data</div>
+        <div class="db-pill">Predictive Analytics (via Venn Data)</div>
+      </div>
+      <div class="sync-arrow">
+        <div class="label">Normalize<br/>& Merge</div>
+        <svg viewBox="0 0 24 24"><path d="M5 12h14m-4-4l4 4-4 4"/></svg>
+      </div>
+      <div class="unified-db">
+        <div class="name">Single Source of Truth</div>
+        <div class="tables">
+          <span class="table-tag">Properties</span>
+          <span class="table-tag">Units</span>
+          <span class="table-tag">Residents</span>
+          <span class="table-tag">Leases</span>
+          <span class="table-tag">Occupancy</span>
+          <span class="table-tag">Pricing</span>
+          <span class="table-tag">Leasing</span>
+          <span class="table-tag">Financials</span>
+          <span class="table-tag">Forecasts</span>
+          <span class="table-tag">Risk Scores</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="flow-arrow">
+    <div class="arrow">
+      <div class="line"></div>
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h12z"/></svg>
+    </div>
+    <span class="flow-label">Compute & Serve</span>
+  </div>
+
+  <!-- Layer 4: Data Domains -->
+  <div class="layer layer-domains">
+    <div class="layer-label"><span class="dot"></span> Data Domains</div>
+    <div class="domain-cards">
+      <div class="domain-card domain-operational">
+        <div class="title">🏠 Operational</div>
+        <div class="field">Occupancy & Leased %</div>
+        <div class="field">Vacancy Breakdown</div>
+        <div class="field">Exposure & Notices</div>
+        <div class="field">Move-in / Move-out Velocity</div>
+        <div class="field">Occupancy Forecast</div>
+        <div class="field">Unit Readiness</div>
+      </div>
+      <div class="domain-card domain-financial">
+        <div class="title">💰 Financial</div>
+        <div class="field">Delinquency & Prepaid</div>
+        <div class="field">Aging Buckets (30/60/90+)</div>
+        <div class="field">In-Place vs. Asking Rent</div>
+        <div class="field">Rent Growth</div>
+        <div class="field">Revenue per SF</div>
+        <div class="field">Floorplan Pricing</div>
+      </div>
+      <div class="domain-card domain-leasing">
+        <div class="title">📋 Leasing & Renewals</div>
+        <div class="field">Full Leasing Funnel</div>
+        <div class="field">Conversion Rates</div>
+        <div class="field">Prospect Activity</div>
+        <div class="field">Lease Expiration Schedule</div>
+        <div class="field">Renewal Performance</div>
+        <div class="field">Trade-Out Analysis</div>
+      </div>
+      <div class="domain-card domain-risk">
+        <div class="title">🔮 Risk & Analytics</div>
+        <div class="field">Churn Prediction</div>
+        <div class="field">Delinquency Prediction</div>
+        <div class="field">Risk Distribution</div>
+        <div class="field">Market Comps</div>
+        <div class="field">Portfolio Benchmarks</div>
+        <div class="field">Outlier Detection</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="flow-arrow">
+    <div class="arrow">
+      <div class="line"></div>
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h12z"/></svg>
+    </div>
+    <span class="flow-label">Render in Dashboard</span>
+  </div>
+
+  <!-- Layer 5: Dashboard Views -->
+  <div class="layer layer-dashboard">
+    <div class="layer-label"><span class="dot"></span> Dashboard Views</div>
+    <div class="view-tabs">
+      <div class="view-tab"><span class="tab-dot"></span> Portfolio View</div>
+      <div class="view-tab"><span class="tab-dot"></span> Overview</div>
+      <div class="view-tab"><span class="tab-dot"></span> Renewals</div>
+      <div class="view-tab"><span class="tab-dot"></span> Leasing</div>
+      <div class="view-tab"><span class="tab-dot"></span> Delinquencies</div>
+      <div class="view-tab"><span class="tab-dot"></span> Rentable Items</div>
+      <div class="view-tab"><span class="tab-dot"></span> Risk Scores</div>
+      <div class="view-tab"><span class="tab-dot"></span> Market Comps</div>
+      <div class="view-tab"><span class="tab-dot"></span> Drill-Through Modals</div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="flow-arrow">
+    <div class="arrow">
+      <div class="line"></div>
+      <svg viewBox="0 0 24 24"><path d="M12 16l-6-6h12z"/></svg>
+    </div>
+    <span class="flow-label">AI Understands All Domains</span>
+  </div>
+
+  <!-- Layer 6: AI Agent -->
+  <div class="layer layer-ai">
+    <div class="layer-label"><span class="dot"></span> AI Agent (Claude) — Conversational Intelligence</div>
+    <div class="ai-content">
+      <div>
+        <div class="ai-description">
+          The AI agent receives the full context of <strong>every data domain</strong> for the selected property or portfolio.
+          It dynamically builds a knowledge context from occupancy, pricing, exposure, funnel, units, and resident data — then reasons about it to deliver <strong>actionable insights</strong>.
+        </div>
+        <div style="margin-top: 14px;">
+          <div style="font-size: 11px; color: #888; font-weight: 600; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Data boxes the agent queries:</div>
+          <div class="ai-boxes">
+            <span class="ai-box">Occupancy</span>
+            <span class="ai-box">Pricing</span>
+            <span class="ai-box">Exposure</span>
+            <span class="ai-box">Leasing Funnel</span>
+            <span class="ai-box">Delinquency</span>
+            <span class="ai-box">Risk Scores</span>
+            <span class="ai-box">Units (raw)</span>
+            <span class="ai-box">Residents (raw)</span>
+            <span class="ai-box">Portfolio Agg.</span>
+          </div>
+        </div>
+      </div>
+      <div class="ai-capabilities">
+        <div class="ai-cap"><span class="check">✓</span> Property-level analysis with full metric context</div>
+        <div class="ai-cap"><span class="check">✓</span> Portfolio-level comparison across 31+ properties</div>
+        <div class="ai-cap"><span class="check">✓</span> NOI optimization & revenue opportunity identification</div>
+        <div class="ai-cap"><span class="check">✓</span> Risk flagging: aged vacancy, low conversion, exposure</div>
+        <div class="ai-cap"><span class="check">✓</span> Actionable recommendations with specific numbers</div>
+        <div class="ai-cap"><span class="check">✓</span> Conversational — maintains chat history for follow-ups</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom bar -->
+  <div class="bottom-bar">
+    <div class="brand"><span>venn</span> | Owner Dashboard V2 | Architecture</div>
+    <div class="stats">
+      <div class="stat">
+        <div class="num">31</div>
+        <div class="label">Properties</div>
+      </div>
+      <div class="stat">
+        <div class="num">7</div>
+        <div class="label">Report Types</div>
+      </div>
+      <div class="stat">
+        <div class="num">2</div>
+        <div class="label">PMS Systems</div>
+      </div>
+      <div class="stat">
+        <div class="num">10</div>
+        <div class="label">Unified Tables</div>
+      </div>
+      <div class="stat">
+        <div class="num">9</div>
+        <div class="label">Dashboard Views</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -99,7 +99,7 @@
     "delinquency": {
       "report_id": 4260,
       "report_key": "89A3C427-BE71-4A05-9D2B-BDF3923BF756",
-      "name": "Delinquency Report",
+      "name": "Delinquency Report (DEPRECATED - use delinquency_prepaid 4009)",
       "formats": {
         "pdf": "1",
         "word": "2",
@@ -123,6 +123,50 @@
         {"name": "IncludeTotals", "value": "ALL"},
         {"name": "filterType", "value": "ALL"},
         {"name": "SortBy", "value": "Unit"}
+      ],
+      "status": "deprecated"
+    },
+    "delinquency_prepaid": {
+      "report_id": 4009,
+      "report_key": "584A377E-0352-470D-8BF0-754F41B250A3",
+      "name": "Delinquent and Prepaid Report",
+      "formats": {
+        "excel": "1611"
+      },
+      "parameters": [
+        {"name": "FiscalPeriod", "value": "{{fiscal_period}}"},
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "SubJournal", "value": "ALL"},
+        {"name": "residentStatus", "value": "Applicant,Approved applicant,Former applicant,Pending resident,Current resident,Former resident"},
+        {"name": "reportType", "value": "Details"},
+        {"name": "DelinquentRentOnly", "value": "No"},
+        {"name": "includeDelinquentEqualNTV", "value": "Yes"},
+        {"name": "IncludeOutstandingDeposits", "value": "No"},
+        {"name": "ExcludeTransactionsArrears", "value": "No"},
+        {"name": "ShowPrepaidAsAllocated", "value": "Yes"},
+        {"name": "HidePIIData", "value": "1"},
+        {"name": "minimumDelinquent", "value": "0.00"},
+        {"name": "maximumDelinquent", "value": "99999999.00"},
+        {"name": "PeriodType", "value": "Fiscal"},
+        {"name": "filterType", "value": "ALL"},
+        {"name": "SortBy", "value": "Unit"},
+        {"name": "eviccomment", "value": "0"}
+      ],
+      "status": "complete"
+    },
+    "projected_occupancy": {
+      "report_id": 3842,
+      "report_key": "345C5708-78BE-44F9-8932-0484913C9F78",
+      "name": "Projected Occupancy",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "dayOfWeek", "value": "Monday"},
+        {"name": "weeksProjectedCount", "value": "12"}
       ],
       "status": "complete"
     }

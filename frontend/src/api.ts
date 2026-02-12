@@ -201,8 +201,15 @@ export const api = {
     return fetchJson(`${PORTFOLIO_BASE}/residents?${params}`);
   },
 
-  getPortfolioProperties: (): Promise<{ id: string; name: string; pms_type: string }[]> =>
-    fetchJson(`${PORTFOLIO_BASE}/properties`),
+  getPortfolioProperties: (ownerGroup?: string): Promise<{ id: string; name: string; pms_type: string; owner_group: string }[]> => {
+    const params = new URLSearchParams();
+    if (ownerGroup) params.set('owner_group', ownerGroup);
+    const query = params.toString();
+    return fetchJson(`${PORTFOLIO_BASE}/properties${query ? `?${query}` : ''}`);
+  },
+
+  getOwnerGroups: (): Promise<string[]> =>
+    fetchJson(`${PORTFOLIO_BASE}/owner-groups`),
 
   // Amenities
   getAmenities: (propertyId: string, itemType?: string): Promise<AmenityItem[]> => {
@@ -214,6 +221,97 @@ export const api = {
 
   getAmenitiesSummary: (propertyId: string): Promise<AmenitiesSummary> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/amenities/summary`),
+
+  // Customer KPIs (Feb 2026)
+  getAvailabilityByFloorplan: (propertyId: string): Promise<{
+    floorplans: { floorplan: string; group: string; total_units: number; vacant_units: number; vacant_not_leased: number; vacant_leased: number; occupied_units: number; on_notice: number; model_units: number; down_units: number; avg_market_rent: number; occupancy_pct: number; leased_pct: number }[];
+    totals: { total: number; vacant: number; notice: number; vacant_leased: number; vacant_not_leased: number; occupied: number; model: number; down: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/availability-by-floorplan`),
+
+  getAvailabilityUnits: (propertyId: string, floorplan?: string, status?: string): Promise<{
+    units: { unit: string; floorplan: string; status: string; sqft: number; market_rent: number; actual_rent: number; lease_start: string; lease_end: string; move_in: string; move_out: string }[];
+    count: number;
+  }> => {
+    const params = new URLSearchParams();
+    if (floorplan) params.set('floorplan', floorplan);
+    if (status) params.set('status', status);
+    const q = params.toString();
+    return fetchJson(`${API_BASE}/properties/${propertyId}/availability-by-floorplan/units${q ? `?${q}` : ''}`);
+  },
+
+  getShows: (propertyId: string, days = 7): Promise<{
+    total_shows: number; days: number;
+    by_date: { date: string; count: number }[];
+    by_type: Record<string, number>;
+    details: { date: string; type: string; unit: string | null; floorplan: string | null }[];
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/shows?days=${days}`),
+
+  getTradeouts: (propertyId: string, days?: number): Promise<{
+    tradeouts: { unit_id: string; unit_type: string; prior_rent: number; new_rent: number; dollar_change: number; pct_change: number; move_in_date: string }[];
+    summary: { count: number; avg_prior_rent: number; avg_new_rent: number; avg_dollar_change: number; avg_pct_change: number };
+  }> => {
+    const url = days ? `${API_BASE}/properties/${propertyId}/tradeouts?days=${days}` : `${API_BASE}/properties/${propertyId}/tradeouts`;
+    return fetchJson(url);
+  },
+
+  getOccupancyForecast: (propertyId: string, weeks = 12): Promise<{
+    forecast: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; lease_expirations: number; net_change: number }[];
+    current_occupied: number; total_units: number; current_notice: number;
+    vacant_leased: number; undated_move_ins: number;
+    notice_units: { unit: string; date: string; floorplan: string; rent: number; type: string }[];
+    move_in_units: { unit: string; date: string | null; floorplan: string; rent: number; type: string }[];
+    expiration_units: { unit: string; date: string; floorplan: string; rent: number; type: string }[];
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/occupancy-forecast?weeks=${weeks}`),
+
+  getLossToLease: (propertyId: string): Promise<{
+    property_id: string; avg_market_rent: number; avg_actual_rent: number;
+    loss_per_unit: number; total_loss_to_lease: number; loss_to_lease_pct: number;
+    occupied_units: number; total_units: number; data_available: boolean;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/loss-to-lease`),
+
+  getReviews: (propertyId: string): Promise<{
+    rating: number; review_count: number; place_id: string; google_maps_url: string;
+    reviews: { author: string; author_photo: string; author_url: string; rating: number; text: string; time_desc: string; publish_time: string; google_maps_uri: string; has_response?: boolean; response_text?: string | null; response_date?: string | null; response_time?: string | null }[];
+    star_distribution: Record<string, number>;
+    needs_response: number; reviews_fetched: number; responded?: number; not_responded?: number;
+    response_rate?: number; avg_response_hours?: number | null; avg_response_label?: string | null;
+    source?: string; error?: string;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/reviews`),
+
+  getAIInsights: (propertyId: string): Promise<{
+    alerts: { severity: string; title: string; fact: string; risk: string; action: string }[];
+    qna: { question: string; answer: string }[];
+    error?: string;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/ai-insights`),
+
+  // Risk Scores (Churn & Delinquency Prediction)
+  getRiskScores: (propertyId: string): Promise<{
+    property_id: string;
+    snapshot_date: string;
+    total_scored: number;
+    notice_count: number;
+    at_risk_total: number;
+    churn: { avg_score: number; median_score: number; high_risk: number; medium_risk: number; low_risk: number; threshold_high: number; threshold_low: number };
+    delinquency: { avg_score: number; median_score: number; high_risk: number; medium_risk: number; low_risk: number };
+    insights: { pct_scheduled_moveout: number; pct_with_app: number; avg_tenure_months: number; avg_rent: number; avg_open_tickets: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/risk-scores`),
+
+  getPortfolioRiskScores: (propertyIds?: string[]): Promise<{
+    properties: {
+      property_id: string; property_name: string; total_scored: number;
+      avg_churn_score: number; avg_delinquency_score: number;
+      churn_high: number; churn_medium: number; churn_low: number;
+      delinq_high: number; delinq_medium: number; delinq_low: number;
+      avg_tenure_months: number; avg_rent: number; avg_open_tickets: number;
+      snapshot_date: string;
+    }[];
+    summary: { total_properties: number; total_scored: number; avg_churn_score: number; avg_delinquency_score: number; total_churn_high_risk: number; total_delinq_high_risk: number } | null;
+  }> => {
+    const params = new URLSearchParams();
+    if (propertyIds && propertyIds.length > 0) params.set('property_ids', propertyIds.join(','));
+    const q = params.toString();
+    return fetchJson(`${PORTFOLIO_BASE}/risk-scores${q ? `?${q}` : ''}`);
+  },
 
   // AI Chat
   getChatStatus: (): Promise<{ available: boolean; message: string }> =>

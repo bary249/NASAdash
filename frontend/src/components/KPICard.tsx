@@ -4,6 +4,7 @@
  */
 import { ReactNode } from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 type TrendDirection = 'up' | 'down' | 'flat';
 type CardVariant = 'default' | 'highlight' | 'warning' | 'success';
@@ -12,6 +13,7 @@ interface KPICardProps {
   title: string;
   value: string | number;
   subtitle?: string;
+  timeLabel?: string;
   comparison?: {
     label: string;
     value: string | number;
@@ -33,6 +35,7 @@ export function KPICard({
   title,
   value,
   subtitle,
+  timeLabel,
   comparison,
   trend,
   variant = 'default',
@@ -74,6 +77,11 @@ export function KPICard({
           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
             {title}
           </span>
+          {timeLabel && (
+            <span className="text-[9px] text-slate-400 font-normal normal-case tracking-normal">
+              {timeLabel}
+            </span>
+          )}
           {isMock && (
             <span className="px-1 py-0.5 text-[8px] font-medium bg-amber-100 text-amber-700 rounded">
               mock
@@ -144,9 +152,12 @@ export function FunnelKPICard({ leads, tours, proposals, leasesSigned, onClick }
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
       `}
     >
-      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-        Leasing Funnel
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide inline-flex items-center gap-0.5">
+          Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Applications = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
+        </span>
+        <span className="text-[10px] text-slate-400">Last 30 days</span>
+      </div>
 
       <div className="flex items-center justify-around mt-3">
         {stages.map((stage, i) => (
@@ -176,10 +187,11 @@ interface VacantKPICardProps {
   total: number;
   ready: number;
   agedCount?: number;
+  timeLabel?: string;
   onClick?: () => void;
 }
 
-export function VacantKPICard({ total, ready, agedCount, onClick }: VacantKPICardProps) {
+export function VacantKPICard({ total, ready, agedCount, timeLabel, onClick }: VacantKPICardProps) {
   return (
     <div
       onClick={onClick}
@@ -188,9 +200,16 @@ export function VacantKPICard({ total, ready, agedCount, onClick }: VacantKPICar
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
       `}
     >
-      <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-        Vacant
-      </span>
+      <div className="flex items-center gap-1">
+        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+          Vacant
+        </span>
+        {timeLabel && (
+          <span className="text-[9px] text-slate-400 font-normal normal-case tracking-normal">
+            {timeLabel}
+          </span>
+        )}
+      </div>
 
       <div className="text-3xl font-bold text-slate-900 mt-2">{total}</div>
 

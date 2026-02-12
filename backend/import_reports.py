@@ -80,12 +80,15 @@ def init_report_tables(conn: sqlite3.Connection):
         report_date TEXT NOT NULL,
         unit_number TEXT,
         resident_name TEXT,
+        status TEXT,
         current_balance REAL,
         balance_0_30 REAL,
         balance_31_60 REAL,
         balance_61_90 REAL,
         balance_over_90 REAL,
         prepaid REAL,
+        total_delinquent REAL,
+        net_balance REAL,
         last_payment_date TEXT,
         last_payment_amount REAL,
         imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -428,6 +431,58 @@ def import_activity(conn: sqlite3.Connection, records: List[Dict], file_name: st
             imported += 1
         except Exception as e:
             print(f"  Error inserting activity: {e}")
+    conn.commit()
+    return imported
+
+
+def import_projected_occupancy(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Projected Occupancy records."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_projected_occupancy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT NOT NULL,
+            week_ending TEXT NOT NULL,
+            total_units INTEGER,
+            occupied_begin INTEGER,
+            pct_occupied_begin REAL,
+            scheduled_move_ins INTEGER,
+            scheduled_move_outs INTEGER,
+            occupied_end INTEGER,
+            pct_occupied_end REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT,
+            UNIQUE(property_id, report_date, week_ending)
+        )
+    """)
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT OR REPLACE INTO realpage_projected_occupancy
+                (property_id, property_name, report_date, week_ending, total_units,
+                 occupied_begin, pct_occupied_begin, scheduled_move_ins, scheduled_move_outs,
+                 occupied_end, pct_occupied_end, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'),
+                r.get('property_name'),
+                r.get('report_date'),
+                r.get('week_ending'),
+                r.get('total_units', 0),
+                r.get('occupied_begin', 0),
+                r.get('pct_occupied_begin', 0),
+                r.get('scheduled_move_ins', 0),
+                r.get('scheduled_move_outs', 0),
+                r.get('occupied_end', 0),
+                r.get('pct_occupied_end', 0),
+                file_id
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting projected occupancy: {e}")
     conn.commit()
     return imported
 

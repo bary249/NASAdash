@@ -9,27 +9,27 @@ interface PropertyCardProps {
   floors?: number;
   units: number;
   rating?: number;
+  reviewCount?: number;
   imageUrl?: string;
   address?: string;
   city?: string;
   state?: string;
   vacantReady?: number;
   agedVacancy?: number;
-  isMock?: boolean;
 }
 
 export function PropertyCard({
   name,
   floors,
   units,
-  rating = 4.6,
+  rating,
+  reviewCount,
   imageUrl,
   address,
   city,
   state,
   vacantReady = 0,
   agedVacancy = 0,
-  isMock = false,
 }: PropertyCardProps) {
   // Default building image (gradient placeholder)
   const hasImage = imageUrl && imageUrl.length > 0;
@@ -62,20 +62,20 @@ export function PropertyCard({
         <div className="flex items-center gap-3 text-sm text-white/80">
           {floors && (
             <>
-              <span className="flex items-center gap-1">
-                {floors} Floors
-                {isMock && <span className="px-1 py-0.5 text-[8px] font-medium bg-amber-400/80 text-amber-900 rounded">mock</span>}
-              </span>
+              <span>{floors} Floors</span>
               <span className="text-white/40">•</span>
             </>
           )}
           <span>{units} Units</span>
-          <span className="text-white/40">•</span>
-          <div className="flex items-center gap-1">
-            <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-            <span>{rating.toFixed(1)}</span>
-            {isMock && <span className="px-1 py-0.5 text-[8px] font-medium bg-amber-400/80 text-amber-900 rounded">mock</span>}
-          </div>
+          {rating != null && (
+            <>
+              <span className="text-white/40">•</span>
+              <div className="flex items-center gap-1">
+                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
+                <span>{rating.toFixed(1)}{reviewCount ? ` (${reviewCount})` : ''}</span>
+              </div>
+            </>
+          )}
         </div>
         
         {/* Location */}

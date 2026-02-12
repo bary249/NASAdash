@@ -7,7 +7,7 @@
  * - Row Metrics: Combined raw data, metrics calculated from combined dataset
  */
 import { useState, useEffect } from 'react';
-import { Building2, ChevronDown, ChevronUp, ExternalLink, Check, Calculator, Table2, Info } from 'lucide-react';
+import { Building2, ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, Check, Calculator, Table2, Info, Filter } from 'lucide-react';
 import { api } from '../api';
 import type { PropertyInfo, OccupancyMetrics, ExposureMetrics, LeasingFunnelMetrics, AggregationMode } from '../types';
 import { HealthStatus } from './MetricCard';
@@ -52,6 +52,22 @@ const healthDot: Record<HealthStatus, string> = {
   neutral: 'bg-slate-300',
 };
 
+type SortKey = 'property' | 'units' | 'occupancy' | 'leased' | 'expiring90' | 'renewals90' | 'vacant';
+type SortDir = 'asc' | 'desc';
+
+function getSortValue(p: PropertySummary, key: SortKey): number | string {
+  switch (key) {
+    case 'property': return p.property.name?.toLowerCase() ?? '';
+    case 'units': return p.occupancy?.total_units ?? -1;
+    case 'occupancy': return p.occupancy?.physical_occupancy ?? -1;
+    case 'leased': return p.occupancy?.leased_percentage ?? -1;
+    case 'expiring90': return p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? -1;
+    case 'renewals90': return p.expirations?.periods?.find(pr => pr.label === '90d')?.renewals ?? -1;
+    case 'vacant': return p.occupancy?.vacant_units ?? -1;
+    default: return 0;
+  }
+}
+
 interface PortfolioViewProps {
   onSelectProperty: (propertyId: string, propertyName?: string) => void;
   selectedPropertyId?: string;
@@ -64,14 +80,25 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
   const [aggregationMode, setAggregationMode] = useState<AggregationMode>('row_metrics');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
   const [showModeInfo, setShowModeInfo] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [ownerGroups, setOwnerGroups] = useState<string[]>([]);
+  const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>('PHH');
   const scramblePII = useScramble();
   const scrambleMode = useScrambleMode();
+
+  // Load owner groups for filter dropdown
+  useEffect(() => {
+    api.getOwnerGroups().then(groups => {
+      setOwnerGroups(groups);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function loadPortfolio() {
       try {
         // Fetch from portfolio API to get all properties including RealPage
-        const portfolioProps = await api.getPortfolioProperties();
+        const portfolioProps = await api.getPortfolioProperties(selectedOwnerGroup || undefined);
         
         // Map to PropertyInfo format
         const props = portfolioProps.map(p => ({
@@ -129,10 +156,10 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                 // Expirations fetch failed, continue without it
               }
 
-              // Fetch leasing funnel (current month)
+              // Fetch leasing funnel (last 30 days)
               let funnel: LeasingFunnelMetrics | undefined;
               try {
-                funnel = await api.getLeasingFunnel(p.id);
+                funnel = await api.getLeasingFunnel(p.id, 'l30');
               } catch {
                 // Funnel fetch failed, continue without it
               }
@@ -170,7 +197,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
     }
 
     loadPortfolio();
-  }, [aggregationMode]);
+  }, [aggregationMode, selectedOwnerGroup]);
 
   // Toggle property selection for multi-select
   const togglePropertySelection = (propertyId: string) => {
@@ -221,6 +248,29 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
     },
     { totalUnits: 0, occupiedUnits: 0, vacantUnits: 0, agedVacancy: 0, exposure30: 0, notices30: 0, leads: 0, tours: 0, leaseSigns: 0 }
   );
+
+  // Sort properties
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir(key === 'property' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedProperties = [...properties].sort((a, b) => {
+    if (!sortKey) return 0;
+    const aVal = getSortValue(a, sortKey);
+    const bVal = getSortValue(b, sortKey);
+    let cmp = 0;
+    if (typeof aVal === 'string' && typeof bVal === 'string') {
+      cmp = aVal.localeCompare(bVal);
+    } else {
+      cmp = (aVal as number) - (bVal as number);
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
 
   // Calculate occupancy based on aggregation mode
   let portfolioOccupancy: number;
@@ -286,6 +336,23 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
       {expanded && (
         <div className="px-6 py-3 border-b border-venn-sand/40 bg-gradient-to-r from-slate-50 to-venn-cream/20 flex items-center justify-between">
           <div className="flex items-center gap-4">
+            {/* Owner Group Filter */}
+            {ownerGroups.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-slate-500" />
+                <select
+                  value={selectedOwnerGroup}
+                  onChange={(e) => { e.stopPropagation(); setSelectedOwnerGroup(e.target.value); setSelectedPropertyIds(new Set()); }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs font-medium border border-venn-sand rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:ring-venn-amber focus:border-venn-amber cursor-pointer"
+                >
+                  <option value="">All Groups</option>
+                  {ownerGroups.map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {/* Multi-select indicator */}
             {selectedPropertyIds.size > 0 && (
               <span className="text-sm text-venn-amber font-medium">
@@ -364,13 +431,30 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                     title="Select all"
                   />
                 </th>
-                <th className="px-5 py-4 text-left font-bold text-slate-500 uppercase text-xs tracking-wider">Property</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Units</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Occupancy</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Leased %</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Expiring 90d</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Renewals 90d</th>
-                <th className="px-5 py-4 text-center font-bold text-slate-500 uppercase text-xs tracking-wider">Total Vacant</th>
+                {([
+                  { key: 'property' as SortKey, label: 'Property', align: 'left' },
+                  { key: 'units' as SortKey, label: 'Units', align: 'center' },
+                  { key: 'occupancy' as SortKey, label: 'Occupancy', align: 'center' },
+                  { key: 'leased' as SortKey, label: 'Leased %', align: 'center' },
+                  { key: 'expiring90' as SortKey, label: 'Expiring 90d', align: 'center' },
+                  { key: 'renewals90' as SortKey, label: 'Renewals 90d', align: 'center' },
+                  { key: 'vacant' as SortKey, label: 'Total Vacant', align: 'center' },
+                ]).map(col => (
+                  <th
+                    key={col.key}
+                    className={`px-5 py-4 text-${col.align} font-bold text-slate-500 uppercase text-xs tracking-wider cursor-pointer select-none hover:text-venn-amber transition-colors group`}
+                    onClick={() => handleSort(col.key)}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      {sortKey === col.key ? (
+                        sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5 text-venn-amber" /> : <ChevronDown className="w-3.5 h-3.5 text-venn-amber" />
+                      ) : (
+                        <ChevronsUpDown className="w-3.5 h-3.5 text-slate-300 group-hover:text-venn-amber/50" />
+                      )}
+                    </span>
+                  </th>
+                ))}
                 <th className="px-5 py-4 text-center font-bold text-slate-500"></th>
               </tr>
             </thead>
@@ -391,7 +475,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                   </td>
                 </tr>
               ) : (
-                properties.map((p) => {
+                sortedProperties.map((p) => {
                   const isSelected = p.property.id === selectedPropertyId;
                   const isChecked = selectedPropertyIds.has(p.property.id);
                   const occHealth = p.occupancy ? getOccupancyHealth(p.occupancy.physical_occupancy) : 'neutral';

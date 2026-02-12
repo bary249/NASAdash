@@ -2,9 +2,9 @@
  * TabNavigation - Tab navigation for Overview, Renewals, Leasing, Delinquencies
  * Matches design: Icon tabs with labels
  */
-import { LayoutDashboard, RefreshCw, FileText, AlertTriangle, Package } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, FileText, AlertTriangle, Package, ShieldAlert, Star } from 'lucide-react';
 
-export type TabId = 'overview' | 'renewals' | 'leasing' | 'delinquencies' | 'rentable';
+export type TabId = 'overview' | 'renewals' | 'leasing' | 'delinquencies' | 'rentable' | 'risk' | 'reviews';
 
 interface Tab {
   id: TabId;
@@ -19,6 +19,8 @@ const tabs: Tab[] = [
   { id: 'leasing', label: 'Leasing', icon: FileText, color: 'text-amber-600' },
   { id: 'delinquencies', label: 'Delinquencies', icon: AlertTriangle, color: 'text-rose-600' },
   { id: 'rentable', label: 'Rentable Items', icon: Package, color: 'text-purple-600' },
+  { id: 'risk', label: 'Risk Scores', icon: ShieldAlert, color: 'text-indigo-600' },
+  { id: 'reviews', label: 'Reviews', icon: Star, color: 'text-yellow-600' },
 ];
 
 interface TabNavigationProps {

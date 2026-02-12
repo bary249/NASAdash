@@ -490,7 +490,7 @@ CREATE TABLE IF NOT EXISTS realpage_lease_expirations (
     file_id TEXT
 );
 
--- Delinquency Report - Outstanding balances
+-- Delinquency Report - Outstanding balances (report 4260 + 4009 Delinquent and Prepaid)
 CREATE TABLE IF NOT EXISTS realpage_delinquency (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     property_id TEXT NOT NULL,
@@ -498,12 +498,15 @@ CREATE TABLE IF NOT EXISTS realpage_delinquency (
     report_date TEXT NOT NULL,
     unit_number TEXT,
     resident_name TEXT,
+    status TEXT,
     current_balance REAL,
     balance_0_30 REAL,
     balance_31_60 REAL,
     balance_61_90 REAL,
     balance_over_90 REAL,
     prepaid REAL,
+    total_delinquent REAL,
+    net_balance REAL,
     last_payment_date TEXT,
     last_payment_amount REAL,
     imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -643,8 +646,11 @@ CREATE TABLE IF NOT EXISTS unified_occupancy_metrics (
     leased_units INTEGER,
     preleased_vacant INTEGER DEFAULT 0,
     notice_units INTEGER DEFAULT 0,
+    notice_break_units INTEGER DEFAULT 0,
     model_units INTEGER DEFAULT 0,
     down_units INTEGER DEFAULT 0,
+    vacant_ready INTEGER DEFAULT 0,
+    vacant_not_ready INTEGER DEFAULT 0,
     physical_occupancy REAL,
     leased_percentage REAL,
     exposure_30_days INTEGER,
@@ -695,6 +701,40 @@ CREATE TABLE IF NOT EXISTS unified_leasing_metrics (
     UNIQUE(unified_property_id, snapshot_date, period),
     FOREIGN KEY (unified_property_id) REFERENCES unified_properties(unified_property_id)
 );
+
+-- Unified Risk Scores (aggregated per property from Snowflake scoring engine)
+-- Risk tiers use portfolio-wide percentile thresholds on the at-risk group
+-- (residents who have NOT given notice). HIGH = bottom 25%, MED = 25-75%, LOW = top 25%.
+CREATE TABLE IF NOT EXISTS unified_risk_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    total_scored INTEGER DEFAULT 0,
+    notice_count INTEGER DEFAULT 0,
+    at_risk_total INTEGER DEFAULT 0,
+    avg_churn_score REAL DEFAULT 0,
+    median_churn_score REAL DEFAULT 0,
+    avg_delinquency_score REAL DEFAULT 0,
+    median_delinquency_score REAL DEFAULT 0,
+    churn_high_count INTEGER DEFAULT 0,
+    churn_medium_count INTEGER DEFAULT 0,
+    churn_low_count INTEGER DEFAULT 0,
+    delinq_high_count INTEGER DEFAULT 0,
+    delinq_medium_count INTEGER DEFAULT 0,
+    delinq_low_count INTEGER DEFAULT 0,
+    pct_scheduled_moveout REAL DEFAULT 0,
+    pct_with_app REAL DEFAULT 0,
+    avg_tenure_months REAL DEFAULT 0,
+    avg_rent REAL DEFAULT 0,
+    avg_open_tickets REAL DEFAULT 0,
+    churn_threshold_high REAL DEFAULT 0,
+    churn_threshold_low REAL DEFAULT 0,
+    synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(unified_property_id, snapshot_date),
+    FOREIGN KEY (unified_property_id) REFERENCES unified_properties(unified_property_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_unified_risk_scores_property ON unified_risk_scores(unified_property_id);
 
 -- Sync metadata
 CREATE TABLE IF NOT EXISTS unified_sync_log (

@@ -179,6 +179,8 @@ def identify_report(content: bytes) -> Dict:
             report_type = "delinquency"
         elif "LEASE EXPIRATION" in content_text or "LEASE EXPIR" in content_text:
             report_type = "lease_expiration"
+        elif "PROJECTED OCCUPANCY" in content_text:
+            report_type = "projected_occupancy"
         elif "ACTIVITY REPORT" in content_text:
             report_type = "activity_report"
         
@@ -201,7 +203,7 @@ def identify_report(content: bytes) -> Dict:
 
 
 # Last known file ID baseline - update this after successful runs
-LAST_KNOWN_FILE_ID = 8880696
+LAST_KNOWN_FILE_ID = 8896187
 
 
 def normalize_property_name(name: str) -> str:
@@ -261,7 +263,9 @@ def smart_scan_and_match(instances: list, max_scan: int = 500) -> list:
                 file_prop = normalize_property_name(identification.get('property') or '')
                 file_type = identification.get('type', '')
 
-                if file_prop and target_prop in file_prop and file_type == target_report:
+                # Normalize report key for matching (delinquency_prepaid → delinquency)
+                match_type = target_report.replace('_prepaid', '') if '_prepaid' in target_report else target_report
+                if file_prop and target_prop in file_prop and file_type == match_type:
                     inst['downloaded'] = True
                     inst['file_id'] = fid
                     inst['content'] = content
@@ -287,7 +291,7 @@ def smart_scan_and_match(instances: list, max_scan: int = 500) -> list:
 def import_to_database(instances: list) -> int:
     """Import downloaded reports to database."""
     from report_parsers import parse_report
-    from import_reports import import_box_score, import_delinquency, import_rent_roll, init_report_tables
+    from import_reports import import_box_score, import_delinquency, import_rent_roll, import_monthly_summary, import_lease_expiration, import_activity, import_projected_occupancy, init_report_tables
     
     conn = sqlite3.connect(DB_PATH)
     init_report_tables(conn)
@@ -312,12 +316,20 @@ def import_to_database(instances: list) -> int:
                     r['property_id'] = inst['property_id']
                 
                 # Import based on type
-                if result['report_type'] == 'box_score':
-                    count = import_box_score(conn, result['records'], str(temp_file), str(inst['file_id']))
-                elif result['report_type'] == 'delinquency':
-                    count = import_delinquency(conn, result['records'], str(temp_file), str(inst['file_id']))
-                elif result['report_type'] == 'rent_roll':
-                    count = import_rent_roll(conn, result['records'], str(temp_file), str(inst['file_id']))
+                IMPORTERS = {
+                    'box_score': import_box_score,
+                    'delinquency': import_delinquency,
+                    'delinquency_prepaid': import_delinquency,
+                    'rent_roll': import_rent_roll,
+                    'monthly_summary': import_monthly_summary,
+                    'lease_expiration': import_lease_expiration,
+                    'activity': import_activity,
+                    'activity_report': import_activity,
+                    'projected_occupancy': import_projected_occupancy,
+                }
+                importer = IMPORTERS.get(result['report_type'])
+                if importer:
+                    count = importer(conn, result['records'], str(temp_file), str(inst['file_id']))
                 else:
                     count = 0
                 

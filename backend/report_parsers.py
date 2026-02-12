@@ -29,6 +29,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'lease_expiration'
         elif 'DELINQUENT' in row_text or 'DELINQUENCY' in row_text:
             return 'delinquency'
+        elif 'PROJECTED OCCUPANCY' in row_text:
+            return 'projected_occupancy'
     
     return None
 
@@ -92,8 +94,8 @@ def parse_box_score(file_path: str, property_id: str = None) -> List[Dict[str, A
     header_row = None
     for i in range(min(20, len(df))):
         row = df.iloc[i].dropna().tolist()
-        row_text = ' '.join(str(x) for x in row)
-        if 'Floor Plan' in row_text and 'Units' in row_text:
+        row_text = ' '.join(str(x) for x in row).lower()
+        if 'floor plan' in row_text and 'unit' in row_text:
             header_row = i
             break
     
@@ -173,7 +175,9 @@ def parse_box_score(file_path: str, property_id: str = None) -> List[Dict[str, A
         
         def safe_float(val):
             try:
-                return float(val) if pd.notna(val) else 0.0
+                if pd.isna(val):
+                    return 0.0
+                return float(str(val).replace(',', ''))
             except:
                 return 0.0
         
@@ -216,12 +220,23 @@ def parse_box_score(file_path: str, property_id: str = None) -> List[Dict[str, A
 
 def parse_delinquency(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
     """
-    Parse Delinquency report.
-    Returns list of resident balance records.
+    Parse Delinquency / Delinquent and Prepaid report (reports 4260 and 4009).
+    Returns list of resident balance records aggregated by unit.
     
-    RealPage delinquency reports have a multi-row format:
-    - Unit header row: contains unit number (col 1) and status (col 9)
-    - Balance row: NEXT row with values in cols 39 (Net Balance), 43 (Current), 48 (30 days), etc.
+    Handles two RealPage report formats:
+    
+    1. Detail format (~25 cols, report 4009): Per-resident per-transaction-code rows.
+       Row 0 = header blob, Row 1 = column headers, Row 2+ = data.
+       Columns: Resh ID[0], Lease ID[1], Bldg/Unit[2], Name[3], Phone[4], Email[5],
+       Status[6], Move-In/Out[7], Code Description[8], Total Prepaid[9],
+       Total Delinquent[10], D[11], O[12], Net Balance[13], Current[14],
+       30 Days[15], 60 Days[16], 90+ Days[17], Prorate Credit[18],
+       Deposits Held[19], Outstanding Deposit[20], #Late[21], #NSF[22],
+       Comment Date[23], Leasing Agent[24].
+       Multiple rows per unit (one per charge code) — must aggregate by unit.
+    
+    2. Summary format (74 cols, report 4260): Transaction-code level property summary.
+       Provides property-level financial totals by transaction code, not per-unit detail.
     """
     df = pd.read_excel(file_path, sheet_name=0, header=None)
     
@@ -229,70 +244,166 @@ def parse_delinquency(file_path: str, property_id: str = None) -> List[Dict[str,
     property_name = info['property_name']
     report_date = info['report_date']
     
-    # Column indices for RealPage Delinquent and Prepaid Report
-    COL_UNIT = 1
-    COL_STATUS = 9
-    COL_MOVE_DATE = 13
-    COL_TOTAL_PREPAID = 24
-    COL_TOTAL_DELINQUENT = 30
-    COL_NET_BALANCE = 39
-    COL_CURRENT = 43
-    COL_30_DAYS = 48
-    COL_60_DAYS = 52
-    COL_90_PLUS = 55
-    
     def safe_float(val):
         try:
-            return float(val) if pd.notna(val) else 0.0
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', ''))
         except:
             return 0.0
     
-    records = []
-    i = 15  # Skip header rows
+    # Detect format: detail format has column headers in early rows
+    is_detail = False
+    header_row = None
+    for check_row in range(min(5, len(df))):
+        row_vals = [str(x).upper() for x in df.iloc[check_row].dropna().tolist()]
+        row_text = ' '.join(row_vals)
+        if 'BLDG/UNIT' in row_text or ('TOTAL PREPAID' in row_text and 'TOTAL DELINQUENT' in row_text):
+            is_detail = True
+            header_row = check_row
+            break
     
-    while i < len(df) - 1:
-        unit = df.iloc[i, COL_UNIT]
-        status = df.iloc[i, COL_STATUS]
+    if is_detail:
+        return _parse_delinquency_detail(df, header_row, property_id, property_name, report_date, safe_float)
+    else:
+        return _parse_delinquency_summary(df, property_id, property_name, report_date, safe_float)
+
+
+def _parse_delinquency_detail(df, header_row, property_id, property_name, report_date, safe_float):
+    """
+    Parse detail format (report 4009, ~25 columns).
+    Multiple rows per unit (one per transaction code) — aggregate by unit.
+    """
+    # Build column index map from header row
+    col_map = {}
+    for j in range(df.shape[1]):
+        val = df.iloc[header_row, j]
+        if pd.notna(val):
+            col_map[str(val).strip().upper()] = j
+    
+    # Map known columns (with fallback indices for standard layout)
+    COL_UNIT = col_map.get('BLDG/UNIT', 2)
+    COL_STATUS = col_map.get('STATUS', 6)
+    COL_PREPAID = col_map.get('TOTAL PREPAID', 9)
+    COL_DELINQUENT = col_map.get('TOTAL DELINQUENT', 10)
+    COL_NET_BALANCE = col_map.get('NET BALANCE', 13)
+    COL_CURRENT = col_map.get('CURRENT', 14)
+    COL_30_DAYS = col_map.get('30 DAYS', 15)
+    COL_60_DAYS = col_map.get('60 DAYS', 16)
+    COL_90_PLUS = col_map.get('90+ DAYS', 17)
+    COL_DEPOSITS = col_map.get('DEPOSITS HELD', 19)
+    COL_OUTSTANDING = col_map.get('OUTSTANDING DEPOSIT', 20)
+    
+    def get_val(row_idx, col_idx):
+        if col_idx < df.shape[1]:
+            return df.iloc[row_idx, col_idx]
+        return None
+    
+    # Aggregate by unit number
+    units = {}
+    start_row = header_row + 1
+    
+    for i in range(start_row, len(df)):
+        unit_val = get_val(i, COL_UNIT)
+        if pd.isna(unit_val):
+            continue
         
-        # Check if this is a unit row
-        if pd.notna(unit) and isinstance(unit, (str, int, float)):
-            unit_str = str(unit).strip()
-            
-            # Skip header text and total rows
-            if unit_str and 'unit' not in unit_str.lower() and 'total' not in unit_str.lower() and len(unit_str) < 15:
-                # Look for balance row in next few rows
-                for j in range(i + 1, min(i + 10, len(df))):
-                    net_balance = df.iloc[j, COL_NET_BALANCE]
-                    current = df.iloc[j, COL_CURRENT]
-                    days_30 = df.iloc[j, COL_30_DAYS]
-                    days_60 = df.iloc[j, COL_60_DAYS]
-                    days_90 = df.iloc[j, COL_90_PLUS]
-                    prepaid = df.iloc[j, COL_TOTAL_PREPAID]
-                    delinquent = df.iloc[j, COL_TOTAL_DELINQUENT]
-                    
-                    # Found balance row if any balance column has data
-                    if pd.notna(net_balance) or pd.notna(current) or pd.notna(days_30):
-                        record = {
-                            'property_id': property_id,
-                            'property_name': property_name,
-                            'report_date': report_date,
-                            'unit_number': unit_str,
-                            'resident_name': None,  # PII hidden in reports
-                            'status': str(status).strip() if pd.notna(status) else '',
-                            'current_balance': safe_float(current),
-                            'balance_0_30': safe_float(days_30),
-                            'balance_31_60': safe_float(days_60),
-                            'balance_61_90': 0.0,  # Combined with 90+
-                            'balance_over_90': safe_float(days_90),
-                            'prepaid': safe_float(prepaid),
-                            'total_delinquent': safe_float(delinquent),
-                            'net_balance': safe_float(net_balance),
-                        }
-                        records.append(record)
-                        break
-        i += 1
+        unit_str = str(unit_val).strip()
+        
+        # Skip non-data rows
+        if not unit_str or 'total' in unit_str.lower() or 'grand' in unit_str.lower():
+            continue
+        if unit_str.upper() in ('BLDG/UNIT', 'UNIT', ''):
+            continue
+        
+        status_val = get_val(i, COL_STATUS)
+        status = str(status_val).strip() if pd.notna(status_val) else ''
+        
+        if unit_str not in units:
+            units[unit_str] = {
+                'property_id': property_id,
+                'property_name': property_name,
+                'report_date': report_date,
+                'unit_number': unit_str,
+                'resident_name': None,
+                'status': status,
+                'current_balance': 0.0,
+                'balance_0_30': 0.0,
+                'balance_31_60': 0.0,
+                'balance_61_90': 0.0,
+                'balance_over_90': 0.0,
+                'prepaid': 0.0,
+                'total_delinquent': 0.0,
+                'net_balance': 0.0,
+            }
+        
+        rec = units[unit_str]
+        if status and not rec['status']:
+            rec['status'] = status
+        
+        # Sum financial columns across transaction codes for this unit
+        rec['prepaid'] += safe_float(get_val(i, COL_PREPAID))
+        rec['total_delinquent'] += safe_float(get_val(i, COL_DELINQUENT))
+        rec['net_balance'] += safe_float(get_val(i, COL_NET_BALANCE))
+        rec['current_balance'] += safe_float(get_val(i, COL_CURRENT))
+        rec['balance_0_30'] += safe_float(get_val(i, COL_30_DAYS))
+        rec['balance_31_60'] += safe_float(get_val(i, COL_60_DAYS))
+        rec['balance_over_90'] += safe_float(get_val(i, COL_90_PLUS))
     
-    return records
+    return list(units.values())
+
+
+def _parse_delinquency_summary(df, property_id, property_name, report_date, safe_float):
+    """
+    Parse summary format (report 4260, ~74 columns).
+    Transaction-code level property summary — extract property-level totals.
+    
+    Column layout (from row ~19 headers):
+    [3]=Description, [8]=D/P Account, [14]=Beginning Prepaid, [20]=Current Prepaid,
+    [26]=Change In Prepaid, [31]=Beginning Delinquent, [37]=Current Delinquent,
+    [42]=Change In Delinquent, [46]=Beginning Balance, [51]=Current Balance,
+    [55]=Change In Balance
+    """
+    # Find the grand totals row (row ~54 or the row before "Summary by General Ledger")
+    total_prepaid = 0.0
+    total_delinquent = 0.0
+    total_net_balance = 0.0
+    
+    for i in range(len(df)):
+        # Look for the totals row (has values in cols 14, 20, 31, 37 but no description in col 3)
+        desc = df.iloc[i, 3] if 3 < df.shape[1] else None
+        acct = df.iloc[i, 8] if 8 < df.shape[1] else None
+        
+        if pd.isna(desc) and pd.isna(acct):
+            cur_prepaid = safe_float(df.iloc[i, 20] if 20 < df.shape[1] else None)
+            cur_delinquent = safe_float(df.iloc[i, 37] if 37 < df.shape[1] else None)
+            cur_balance = safe_float(df.iloc[i, 51] if 51 < df.shape[1] else None)
+            
+            if cur_prepaid != 0 or cur_delinquent != 0 or cur_balance != 0:
+                total_prepaid = cur_prepaid
+                total_delinquent = cur_delinquent
+                total_net_balance = cur_balance
+    
+    # Return a single property-level summary record
+    if total_prepaid != 0 or total_delinquent != 0 or total_net_balance != 0:
+        return [{
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'unit_number': 'PROPERTY_TOTAL',
+            'resident_name': None,
+            'status': 'summary',
+            'current_balance': total_delinquent,
+            'balance_0_30': 0.0,
+            'balance_31_60': 0.0,
+            'balance_61_90': 0.0,
+            'balance_over_90': 0.0,
+            'prepaid': total_prepaid,
+            'total_delinquent': total_delinquent,
+            'net_balance': total_net_balance,
+        }]
+    
+    return []
 
 
 def parse_rent_roll(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
@@ -352,7 +463,9 @@ def parse_rent_roll(file_path: str, property_id: str = None) -> List[Dict[str, A
     
     def safe_float(val):
         try:
-            return float(val) if pd.notna(val) else 0.0
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', ''))
         except:
             return 0.0
     
@@ -687,10 +800,149 @@ def parse_activity(file_path: str, property_id: str = None) -> List[Dict[str, An
     return records
 
 
-def parse_report(file_path: str, property_id: str = None, file_id: str = None) -> Dict[str, Any]:
+def parse_projected_occupancy(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Projected Occupancy report (report 3842).
+    
+    Actual Excel layout (25 wide-spaced columns with merged cells):
+      Col 0:  Week Ending
+      Col 3:  # Occupied At Week Begin
+      Col 9:  % Occupied At Week Begin
+      Col 11: Scheduled Move-Ins
+      Col 15: Scheduled Move-Outs
+      Col 19: Projected # Occupied At Week End
+      Col 24: Projected % Occupied At Week End
+    
+    Total Units found in header area: row with "Total Units:" has the count in the next column.
+    Header row is the one containing "Week" + "Ending".
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+    
+    # Extract total units from header area (row with "Total Units:" → value in next col)
+    total_units = 0
+    for i in range(min(20, len(df))):
+        for j in range(min(5, df.shape[1])):
+            val = df.iloc[i, j]
+            if pd.notna(val) and 'total units' in str(val).lower():
+                # The number is in the next column
+                if j + 1 < df.shape[1] and pd.notna(df.iloc[i, j + 1]):
+                    try:
+                        total_units = int(float(df.iloc[i, j + 1]))
+                    except (ValueError, TypeError):
+                        pass
+                break
+        if total_units > 0:
+            break
+    
+    # Find header row containing "Week" + "Ending"
+    header_row = None
+    for i in range(min(20, len(df))):
+        row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist()).lower()
+        if 'week' in row_text and 'end' in row_text:
+            header_row = i
+            break
+    
+    if header_row is None:
+        return []
+    
+    # Map columns by scanning header row(s) for known labels
+    # The report uses multi-row headers with merged cells, so scan rows header_row-2..header_row+2
+    col_map = {}
+    for scan_row in range(max(0, header_row - 2), min(len(df), header_row + 3)):
+        for j in range(df.shape[1]):
+            val = df.iloc[scan_row, j]
+            if pd.isna(val):
+                continue
+            h = str(val).replace('\n', ' ').replace('\r', '').strip().lower()
+            if 'week' in h and 'end' in h:
+                col_map['week_ending'] = j
+            elif 'move' in h and 'in' in h and 'out' not in h:
+                col_map['move_ins'] = j
+            elif 'move' in h and 'out' in h:
+                col_map['move_outs'] = j
+            elif 'projected' in h and '#' in h:
+                col_map['occupied_end'] = j
+            elif 'projected' in h and '%' in h:
+                col_map['pct_end'] = j
+            elif '# occupied' in h or h == '# occupied':
+                col_map['occupied_begin'] = j
+            elif '% occupied' in h and 'projected' not in h:
+                col_map.setdefault('pct_begin', j)
+    
+    # Fallback: known fixed positions from actual RealPage Excel layout
+    col_map.setdefault('week_ending', 0)
+    col_map.setdefault('occupied_begin', 3)
+    col_map.setdefault('pct_begin', 9)
+    col_map.setdefault('move_ins', 11)
+    col_map.setdefault('move_outs', 15)
+    col_map.setdefault('occupied_end', 19)
+    col_map.setdefault('pct_end', 24)
+    
+    def safe_int(val):
+        try:
+            return int(val) if pd.notna(val) else 0
+        except:
+            return 0
+    
+    def safe_float(val):
+        try:
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', '').replace('%', ''))
+        except:
+            return 0.0
+    
+    def safe_str(val):
+        if pd.notna(val):
+            s = str(val).strip()
+            return s if s and s != 'nan' else None
+        return None
+    
+    # Data rows start after the header block (skip blank rows after header)
+    data_start = header_row + 1
+    
+    records = []
+    for i in range(data_start, len(df)):
+        row = df.iloc[i].tolist()
+        
+        week_ending = safe_str(row[col_map['week_ending']])
+        if not week_ending:
+            continue
+        
+        # Skip totals/subtotals
+        if 'total' in str(week_ending).lower():
+            continue
+        
+        # Validate it looks like a date (MM/DD/YYYY)
+        if not re.match(r'\d{2}/\d{2}/\d{4}', str(week_ending)):
+            continue
+        
+        record = {
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'week_ending': week_ending,
+            'occupied_begin': safe_int(row[col_map['occupied_begin']]),
+            'pct_occupied_begin': safe_float(row[col_map['pct_begin']]),
+            'scheduled_move_ins': safe_int(row[col_map['move_ins']]),
+            'scheduled_move_outs': safe_int(row[col_map['move_outs']]),
+            'occupied_end': safe_int(row[col_map['occupied_end']]),
+            'pct_occupied_end': safe_float(row[col_map['pct_end']]),
+            'total_units': total_units,
+        }
+        records.append(record)
+    
+    return records
+
+
+def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
-    Auto-detects report type.
+    Auto-detects report type, falls back to report_type_hint if detection fails.
     """
     try:
         df = pd.read_excel(file_path, sheet_name=0, header=None)
@@ -698,6 +950,17 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None) -
         return {'error': str(e), 'report_type': None, 'records': []}
     
     report_type = detect_report_type(df)
+    
+    # Fall back to hint if auto-detection failed
+    if not report_type and report_type_hint:
+        # Map download type keys to parser type keys
+        hint_map = {
+            'delinquency_prepaid': 'delinquency',
+            'activity_report': 'activity',
+            'monthly_activity_summary': 'monthly_summary',
+            'projected_occupancy': 'projected_occupancy',
+        }
+        report_type = hint_map.get(report_type_hint, report_type_hint)
     
     if report_type == 'box_score':
         records = parse_box_score(file_path, property_id)
@@ -711,6 +974,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None) -
         records = parse_lease_expiration(file_path, property_id)
     elif report_type == 'activity':
         records = parse_activity(file_path, property_id)
+    elif report_type == 'projected_occupancy':
+        records = parse_projected_occupancy(file_path, property_id)
     else:
         records = []
     

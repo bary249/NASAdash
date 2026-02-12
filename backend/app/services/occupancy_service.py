@@ -76,15 +76,64 @@ class OccupancyService:
                 FROM unified_properties
                 WHERE pms_source = 'realpage'
             """)
-            for row in cursor.fetchall():
+            prop_rows = cursor.fetchall()
+            
+            # Derive floor count per property from unit numbers
+            # Heuristic: unit 502 → floor 5, unit 1134 → floor 11
+            # Skip 5-digit units (garden-style BBBUU encoding) and max floor > 20
+            floor_counts: dict = {}
+            has_5digit: set = set()
+            cursor.execute("""
+                SELECT unified_property_id, unit_number
+                FROM unified_units
+            """)
+            for urow in cursor.fetchall():
+                pid, unum = urow[0], urow[1]
+                try:
+                    num = int(unum)
+                    if num >= 10000:
+                        has_5digit.add(pid)
+                        continue
+                    if num >= 100:
+                        floor = num // 100
+                    else:
+                        floor = 1
+                    if pid not in floor_counts:
+                        floor_counts[pid] = set()
+                    floor_counts[pid].add(floor)
+                except (ValueError, TypeError):
+                    pass
+            # Remove properties with building-encoded units or unreasonable floor counts
+            for pid in has_5digit:
+                floor_counts.pop(pid, None)
+            for pid in list(floor_counts.keys()):
+                if max(floor_counts[pid]) > 20:
+                    floor_counts.pop(pid)
+            
+            conn.close()
+            
+            # Get Google Places ratings (cached)
+            google_ratings = {}
+            try:
+                from app.services.google_places_service import get_all_property_ratings
+                google_ratings = await get_all_property_ratings()
+            except Exception as e:
+                logger.warning(f"[OCCUPANCY] Failed to get Google ratings: {e}")
+
+            for row in prop_rows:
+                pid = row[0]
+                fc = len(floor_counts.get(pid, set())) or None
+                g_data = google_ratings.get(pid, {})
                 properties.append(PropertyInfo(
-                    id=row[0],
-                    name=row[1] or row[0],
+                    id=pid,
+                    name=row[1] or pid,
                     city=row[2] or "",
                     state=row[3] or "",
-                    address=row[4] or ""
+                    address=row[4] or "",
+                    floor_count=fc,
+                    google_rating=g_data.get("rating"),
+                    google_review_count=g_data.get("review_count"),
                 ))
-            conn.close()
         except Exception:
             pass
         
@@ -241,15 +290,26 @@ class OccupancyService:
             cursor.execute("""
                 SELECT total_units, occupied_units, vacant_units, leased_units,
                        preleased_vacant, notice_units, model_units, down_units,
-                       physical_occupancy, leased_percentage
+                       physical_occupancy, leased_percentage,
+                       COALESCE(vacant_ready, 0), COALESCE(vacant_not_ready, 0),
+                       COALESCE(notice_break_units, 0)
                 FROM unified_occupancy_metrics
                 WHERE unified_property_id = ?
                 ORDER BY snapshot_date DESC LIMIT 1
             """, (property_id,))
             row = cursor.fetchone()
-            conn.close()
             
-            if row:
+            if not row:
+                conn.close()
+            else:
+                conn.close()
+                vacant_units = row[2] or 0
+                vacant_ready = row[10] or 0
+                vacant_not_ready = row[11] or 0
+                notice_break = row[12] or 0
+                # Fallback: if no vacant_ready data, use total vacant
+                if vacant_ready == 0 and vacant_not_ready == 0 and vacant_units > 0:
+                    vacant_ready = vacant_units
                 return OccupancyMetrics(
                     property_id=property_id,
                     property_name=property_name,
@@ -258,14 +318,15 @@ class OccupancyService:
                     period_end=format_date_iso(period_end),
                     total_units=row[0] or 0,
                     occupied_units=row[1] or 0,
-                    vacant_units=row[2] or 0,
+                    vacant_units=vacant_units,
                     leased_units=row[3] or 0,
                     preleased_vacant=row[4] or 0,
                     physical_occupancy=row[8] or 0,
                     leased_percentage=row[9] or 0,
-                    vacant_ready=0,
-                    vacant_not_ready=row[2] or 0,
-                    available_units=row[2] or 0,
+                    notice_break_units=notice_break,
+                    vacant_ready=vacant_ready,
+                    vacant_not_ready=vacant_not_ready,
+                    available_units=vacant_ready if vacant_ready > 0 else vacant_units,
                     aged_vacancy_90_plus=0
                 )
         except Exception:

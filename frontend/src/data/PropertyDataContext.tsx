@@ -546,7 +546,7 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
       // If no prospects, try to get funnel data from API (imported Excel data for RealPage)
       if (prospects.length === 0) {
         try {
-          const apiFunnel = await api.getLeasingFunnel(propertyId, 'cm');
+          const apiFunnel = await api.getLeasingFunnel(propertyId, 'l30');
           if (apiFunnel && apiFunnel.leads > 0) {
             // Map API response to FunnelMetrics format
             setApiFunnelData({

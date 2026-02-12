@@ -45,7 +45,10 @@ class PortfolioService:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT unit_number, floorplan, square_feet, market_rent, status
+                SELECT unit_number, floorplan, square_feet, market_rent, status,
+                       occupancy_status, available_date, on_notice_date, days_vacant,
+                       made_ready_date, excluded_from_occupancy, floorplan_name,
+                       bedrooms, bathrooms, building, floor
                 FROM unified_units
                 WHERE unified_property_id = ?
             """, (property_id,))
@@ -96,7 +99,9 @@ class PortfolioService:
             cursor.execute("""
                 SELECT total_units, occupied_units, vacant_units, leased_units,
                        preleased_vacant, physical_occupancy, leased_percentage,
-                       exposure_30_days, exposure_60_days
+                       exposure_30_days, exposure_60_days,
+                       COALESCE(vacant_ready, 0), COALESCE(vacant_not_ready, 0),
+                       COALESCE(notice_break_units, 0), COALESCE(notice_units, 0)
                 FROM unified_occupancy_metrics
                 WHERE unified_property_id = ?
                 ORDER BY snapshot_date DESC
@@ -106,15 +111,25 @@ class PortfolioService:
             conn.close()
             
             if row:
+                vacant_units = row[2] or 0
+                vacant_ready = row[9] or 0
+                vacant_not_ready = row[10] or 0
+                notice_break = row[11] or 0
+                notice_units = row[12] or 0
+                # Fallback: if no vacant_ready data, use total vacant
+                if vacant_ready == 0 and vacant_not_ready == 0 and vacant_units > 0:
+                    vacant_ready = vacant_units
                 return {
                     "total_units": row[0] or 0,
                     "occupied_units": row[1] or 0,
-                    "vacant_units": row[2] or 0,
+                    "vacant_units": vacant_units,
                     "leased_units": row[3] or 0,
                     "preleased_vacant": row[4] or 0,
-                    "available_units": row[2] or 0,
-                    "vacant_ready": 0,
-                    "vacant_not_ready": row[2] or 0,
+                    "available_units": vacant_ready if vacant_ready > 0 else vacant_units,
+                    "vacant_ready": vacant_ready,
+                    "vacant_not_ready": vacant_not_ready,
+                    "notice_units": notice_units,
+                    "notice_break_units": notice_break,
                     "physical_occupancy": row[5] or 0,
                     "leased_percentage": row[6] or 0,
                     "exposure_30_days": row[7] or 0,
@@ -473,25 +488,33 @@ class PortfolioService:
             for unit in units:
                 # Determine ready_status and available from unit data
                 status = unit.get("status", "unknown")
-                is_vacant = unit.get("occupancy_status") == "vacant" or status == "vacant"
+                occ_status = unit.get("occupancy_status")
+                is_vacant = occ_status == "vacant" or status == "vacant" or occ_status in ("vacant_ready", "vacant_not_ready")
                 ready_status = unit.get("ready_status")
                 if not ready_status:
-                    # Infer from status if not explicitly set
-                    ready_status = "ready" if is_vacant and "ready" in status.lower() else ("not_ready" if is_vacant else None)
+                    # Use occupancy_status from enriched unified_units data
+                    if occ_status == "vacant_ready":
+                        ready_status = "ready"
+                    elif occ_status == "vacant_not_ready":
+                        ready_status = "not_ready"
+                    elif is_vacant:
+                        ready_status = "not_ready"
                 is_available = unit.get("available", is_vacant and ready_status == "ready")
                 
                 all_units.append(UnifiedUnit(
-                    unit_id=unit.get("unit_id", ""),
+                    unit_id=unit.get("unit_id") or unit.get("unit_number") or "",
                     property_id=config.property_id,
                     pms_source=PMSSource(config.pms_type),
-                    unit_number=unit.get("unit_number", ""),
+                    unit_number=unit.get("unit_number") or "",
                     floorplan=unit.get("floorplan") or "",
                     floorplan_name=unit.get("floorplan_name"),
-                    bedrooms=unit.get("bedrooms", 0),
-                    bathrooms=unit.get("bathrooms", 0),
-                    square_feet=unit.get("square_feet", 0),
-                    market_rent=unit.get("market_rent", 0),
-                    status=unit.get("occupancy_status", status),
+                    bedrooms=unit.get("bedrooms") or 0,
+                    bathrooms=unit.get("bathrooms") or 0,
+                    square_feet=unit.get("square_feet") or 0,
+                    market_rent=unit.get("market_rent") or 0,
+                    status=status if status in ("occupied", "vacant", "down", "notice", "model") else (
+                        "vacant" if occ_status in ("vacant_ready", "vacant_not_ready") else (occ_status or status)
+                    ),
                     building=unit.get("building"),
                     floor=unit.get("floor"),
                     ready_status=ready_status,

@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface FloorplanRow {
   name: string;
@@ -46,7 +47,7 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition-colors"
       >
-        <h3 className="text-sm font-semibold text-slate-700">Unit Mix & Pricing</h3>
+        <h3 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-1">Unit Mix & Pricing <InfoTooltip text="In-Place = avg rent currently being paid by occupied units (from RealPage Rent Roll). Asking = current market/asking rent for the floorplan. Delta = Asking minus In-Place. Source: RealPage Rent Roll & Pricing reports." /></h3>
         {isExpanded ? (
           <ChevronUp className="w-4 h-4 text-slate-400" />
         ) : (
@@ -55,13 +56,19 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
       </button>
 
       {isExpanded && <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[24%]" />
+            <col className="w-[24%]" />
+            <col className="w-[24%]" />
+          </colgroup>
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Type</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">In-Place</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">Asking</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">Delta</th>
+              <th className="px-2 py-2 text-left text-xs font-medium text-slate-500">Type</th>
+              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">In-Place</th>
+              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Asking</th>
+              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -78,19 +85,19 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
                     ${onRowClick ? 'cursor-pointer' : ''}
                   `}
                 >
-                  <td className="px-4 py-2.5">
+                  <td className="px-2 py-2.5 truncate">
                     <div className="flex flex-col">
                       <span className="font-medium text-slate-900">{fp.name}</span>
                       <span className="text-xs text-slate-400">{fp.unitCount} units</span>
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                  <td className="px-2 py-2.5 text-right font-medium text-slate-700 whitespace-nowrap">
                     {formatCurrency(fp.inPlaceRent)}
                   </td>
-                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                  <td className="px-2 py-2.5 text-right font-medium text-slate-700 whitespace-nowrap">
                     {formatCurrency(fp.askingRent)}
                   </td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-2 py-2.5 text-right whitespace-nowrap">
                     <span className={`
                       inline-flex items-center gap-1 text-xs font-medium
                       ${isPositive ? 'text-emerald-600' : 'text-rose-600'}

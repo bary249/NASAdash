@@ -45,6 +45,12 @@ def get_date_range(timeframe: Timeframe, reference_date: date = None) -> Tuple[d
         _, last_day = monthrange(prev_year, prev_month)
         end = date(prev_year, prev_month, last_day)
         
+    elif timeframe == Timeframe.L30:
+        # Last 30 Days: 30 days ago to now
+        from datetime import timedelta
+        start = reference_date - timedelta(days=30)
+        end = reference_date
+    
     elif timeframe == Timeframe.YTD:
         # Year-to-Date: Jan 1st to now
         start = date(reference_date.year, 1, 1)

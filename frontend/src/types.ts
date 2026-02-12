@@ -3,7 +3,7 @@
  * Per spec: Owners Dashboard Specification
  */
 
-export type Timeframe = 'cm' | 'pm' | 'ytd';
+export type Timeframe = 'cm' | 'pm' | 'ytd' | 'l30';
 
 export interface PropertyInfo {
   id: string;
@@ -11,6 +11,9 @@ export interface PropertyInfo {
   city?: string;
   state?: string;
   address?: string;
+  floor_count?: number;
+  google_rating?: number;
+  google_review_count?: number;
 }
 
 export interface OccupancyMetrics {

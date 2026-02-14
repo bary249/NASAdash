@@ -353,6 +353,257 @@ async def list_owner_groups():
         return ["other"]
 
 
+@router.get("/watchlist")
+async def get_watchlist(
+    owner_group: Optional[str] = Query(None, description="Filter by owner group"),
+    occ_threshold: float = Query(85.0, description="Occupancy % below which property is flagged"),
+    delinq_threshold: float = Query(25000.0, description="Total delinquent $ above which property is flagged"),
+    renewal_threshold: float = Query(30.0, description="Renewal rate % below which property is flagged"),
+    review_threshold: float = Query(3.5, description="Google rating below which property is flagged"),
+):
+    """
+    GET: Watch List — underperforming properties.
+    
+    Scores each property against configurable thresholds:
+    - Occupancy % < occ_threshold
+    - Delinquency $ > delinq_threshold
+    - Renewal rate (90d) < renewal_threshold
+    - Google rating < review_threshold
+    
+    Returns properties sorted by number of flags (most flagged first).
+    """
+    import sqlite3
+    from pathlib import Path
+    
+    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    
+    # Get all properties
+    properties = []
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT p.unified_property_id, p.name, p.owner_group, p.pms_source,
+                   o.total_units, o.occupied_units, o.vacant_units,
+                   o.physical_occupancy, o.preleased_vacant, o.notice_units
+            FROM unified_properties p
+            LEFT JOIN unified_occupancy_metrics o
+                ON o.unified_property_id = p.unified_property_id
+                AND o.snapshot_date = (
+                    SELECT MAX(snapshot_date) FROM unified_occupancy_metrics 
+                    WHERE unified_property_id = p.unified_property_id
+                )
+            ORDER BY p.name
+        """)
+        
+        for row in cursor.fetchall():
+            og = row["owner_group"] or "other"
+            if owner_group and og.lower() != owner_group.lower():
+                continue
+            
+            prop_id = row["unified_property_id"]
+            occ_pct = row["physical_occupancy"] or 0
+            total_units = row["total_units"] or 0
+            
+            properties.append({
+                "id": prop_id,
+                "name": row["name"] or prop_id,
+                "owner_group": og,
+                "total_units": total_units,
+                "occupancy_pct": occ_pct,
+                "vacant": row["vacant_units"] or 0,
+                "on_notice": row["notice_units"] or 0,
+                "preleased": row["preleased_vacant"] or 0,
+            })
+        
+        # Get delinquency totals per property
+        try:
+            cursor.execute("""
+                SELECT unified_property_id,
+                       SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END) as total_delinq,
+                       COUNT(CASE WHEN total_delinquent > 0 THEN 1 END) as delinq_units
+                FROM unified_delinquency
+                GROUP BY unified_property_id
+            """)
+            delinq_map = {}
+            for row in cursor.fetchall():
+                delinq_map[row["unified_property_id"]] = {
+                    "total": row["total_delinq"] or 0,
+                    "units": row["delinq_units"] or 0,
+                }
+        except Exception:
+            delinq_map = {}
+        
+        # Get risk scores per property
+        try:
+            cursor.execute("""
+                SELECT unified_property_id, avg_churn_score, at_risk_total
+                FROM unified_risk_scores
+                WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM unified_risk_scores)
+            """)
+            risk_map = {}
+            for row in cursor.fetchall():
+                risk_map[row["unified_property_id"]] = {
+                    "churn_score": row["avg_churn_score"] or 0,
+                    "at_risk": row["at_risk_total"] or 0,
+                }
+        except Exception:
+            risk_map = {}
+        
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build watchlist: {str(e)}")
+    
+    # Get renewal rates — prefer report 4156 (realpage_lease_expiration_renewal),
+    # fall back to realpage_leases
+    renewal_map = {}
+    try:
+        raw_conn = sqlite3.connect(raw_db)
+        rc = raw_conn.cursor()
+        
+        from app.property_config.properties import ALL_PROPERTIES as all_props
+        date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
+        
+        # Try report 4156 first for each property
+        props_with_4156 = set()
+        try:
+            rc.execute("SELECT DISTINCT property_id FROM realpage_lease_expiration_renewal")
+            props_with_4156 = {row[0] for row in rc.fetchall()}
+        except Exception:
+            pass
+        
+        for pid, p in all_props.items():
+            try:
+                site_id = p.pms_config.realpage_siteid
+                if not site_id:
+                    continue
+                
+                if site_id in props_with_4156:
+                    rc.execute(f"""
+                        SELECT COUNT(*) as total,
+                               SUM(CASE WHEN decision = 'Renewed' THEN 1 ELSE 0 END) as renewed
+                        FROM realpage_lease_expiration_renewal
+                        WHERE property_id = ?
+                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
+                          AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
+                    """, (site_id,))
+                else:
+                    rc.execute("""
+                        SELECT COUNT(*) as total,
+                               SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewed
+                        FROM realpage_leases
+                        WHERE site_id = ?
+                          AND status_text IN ('Current', 'Current - Future')
+                          AND lease_end_date != ''
+                          AND date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))
+                              BETWEEN date('now') AND date('now', '+90 days')
+                    """, (site_id,))
+                
+                row = rc.fetchone()
+                if row and row[0] > 0:
+                    renewal_map[pid] = round(row[1] / row[0] * 100, 1)
+            except Exception:
+                continue
+        raw_conn.close()
+    except Exception:
+        pass
+    
+    # Get Google ratings from reviews cache
+    review_map = {}
+    try:
+        import json
+        cache_path = Path(__file__).parent.parent / "db" / "data" / "google_reviews_cache.json"
+        if cache_path.exists():
+            cache = json.loads(cache_path.read_text())
+            for pid, entry in cache.items():
+                data = entry.get("data", {})
+                if data.get("rating"):
+                    review_map[pid] = data["rating"]
+    except Exception:
+        pass
+    
+    # Score each property
+    watchlist = []
+    for prop in properties:
+        pid = prop["id"]
+        flags = []
+        
+        # Occupancy check
+        if prop["occupancy_pct"] > 0 and prop["occupancy_pct"] < occ_threshold:
+            flags.append({
+                "metric": "occupancy",
+                "label": f"Occupancy {prop['occupancy_pct']}% (< {occ_threshold}%)",
+                "severity": "high" if prop["occupancy_pct"] < occ_threshold - 10 else "medium",
+                "value": prop["occupancy_pct"],
+                "threshold": occ_threshold,
+            })
+        
+        # Delinquency check
+        delinq = delinq_map.get(pid, {})
+        delinq_total = delinq.get("total", 0)
+        if delinq_total > delinq_threshold:
+            flags.append({
+                "metric": "delinquency",
+                "label": f"Delinquent ${delinq_total:,.0f} (> ${delinq_threshold:,.0f})",
+                "severity": "high" if delinq_total > delinq_threshold * 2 else "medium",
+                "value": delinq_total,
+                "threshold": delinq_threshold,
+            })
+        
+        # Renewal rate check
+        renewal_pct = renewal_map.get(pid, None)
+        if renewal_pct is not None and renewal_pct < renewal_threshold:
+            flags.append({
+                "metric": "renewal_rate",
+                "label": f"Renewal rate {renewal_pct}% (< {renewal_threshold}%)",
+                "severity": "high" if renewal_pct < renewal_threshold - 20 else "medium",
+                "value": renewal_pct,
+                "threshold": renewal_threshold,
+            })
+        
+        # Review rating check
+        rating = review_map.get(pid, None)
+        if rating is not None and rating < review_threshold:
+            flags.append({
+                "metric": "review_rating",
+                "label": f"Rating {rating} (< {review_threshold})",
+                "severity": "high" if rating < 3.0 else "medium",
+                "value": rating,
+                "threshold": review_threshold,
+            })
+        
+        prop["delinquent_total"] = delinq_total
+        prop["delinquent_units"] = delinq.get("units", 0)
+        prop["renewal_rate_90d"] = renewal_pct
+        prop["google_rating"] = rating
+        prop["churn_score"] = risk_map.get(pid, {}).get("churn_score")
+        prop["at_risk_residents"] = risk_map.get(pid, {}).get("at_risk", 0)
+        prop["flags"] = flags
+        prop["flag_count"] = len(flags)
+        
+        watchlist.append(prop)
+    
+    # Sort: most flags first, then by occupancy ascending
+    watchlist.sort(key=lambda p: (-p["flag_count"], p["occupancy_pct"]))
+    
+    flagged = [p for p in watchlist if p["flag_count"] > 0]
+    
+    return {
+        "total_properties": len(watchlist),
+        "flagged_count": len(flagged),
+        "thresholds": {
+            "occupancy_pct": occ_threshold,
+            "delinquent_total": delinq_threshold,
+            "renewal_rate_90d": renewal_threshold,
+            "google_rating": review_threshold,
+        },
+        "watchlist": watchlist,
+    }
+
+
 @router.get("/health")
 async def portfolio_health_check():
     """

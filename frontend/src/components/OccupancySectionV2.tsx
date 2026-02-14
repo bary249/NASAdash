@@ -161,7 +161,7 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
   const [trendsLoading, setTrendsLoading] = useState(false);
   
   // Lease expirations state
-  const [expirations, setExpirations] = useState<{periods: {label: string; expirations: number; renewals: number; renewal_pct: number}[]} | null>(null);
+  const [expirations, setExpirations] = useState<{periods: {label: string; expirations: number; renewals: number; renewal_pct: number; vacating?: number; unknown?: number; mtm?: number; moved_out?: number}[]} | null>(null);
   
   // Tab mode: 'dateRange' or 'month'
   const [dateMode, setDateMode] = useState<'dateRange' | 'month'>('month');
@@ -579,17 +579,41 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
                 </thead>
                 <tbody>
                   <tr className="border-b border-gray-100">
-                    <td className="text-sm text-gray-700 py-2 pr-4 font-medium">Expiration</td>
+                    <td className="text-sm text-gray-700 py-2 pr-4 font-medium">Expiring</td>
                     {expirations.periods.map(p => (
                       <td key={p.label} className="text-right text-sm text-gray-900 py-2 px-4 font-semibold">{p.expirations}</td>
                     ))}
                   </tr>
                   <tr className="border-b border-gray-100">
-                    <td className="text-sm text-gray-700 py-2 pr-4 font-medium">Renewal</td>
+                    <td className="text-sm text-green-700 py-2 pr-4 font-medium">Renewed</td>
                     {expirations.periods.map(p => (
-                      <td key={p.label} className="text-right text-sm text-gray-900 py-2 px-4">{p.renewals}</td>
+                      <td key={p.label} className="text-right text-sm text-green-700 py-2 px-4 font-semibold">{p.renewals}</td>
                     ))}
                   </tr>
+                  {expirations.periods[0]?.vacating != null && (
+                    <tr className="border-b border-gray-100">
+                      <td className="text-sm text-red-600 py-2 pr-4 font-medium">Vacating</td>
+                      {expirations.periods.map(p => (
+                        <td key={p.label} className="text-right text-sm text-red-600 py-2 px-4 font-semibold">{p.vacating || 0}</td>
+                      ))}
+                    </tr>
+                  )}
+                  {expirations.periods[0]?.unknown != null && expirations.periods[0].unknown > 0 && (
+                    <tr className="border-b border-gray-100">
+                      <td className="text-sm text-amber-600 py-2 pr-4 font-medium">Pending</td>
+                      {expirations.periods.map(p => (
+                        <td key={p.label} className="text-right text-sm text-amber-600 py-2 px-4">{p.unknown || 0}</td>
+                      ))}
+                    </tr>
+                  )}
+                  {expirations.periods[0]?.mtm != null && expirations.periods[0].mtm > 0 && (
+                    <tr className="border-b border-gray-100">
+                      <td className="text-sm text-gray-500 py-2 pr-4 font-medium">Month-to-Month</td>
+                      {expirations.periods.map(p => (
+                        <td key={p.label} className="text-right text-sm text-gray-500 py-2 px-4">{p.mtm || 0}</td>
+                      ))}
+                    </tr>
+                  )}
                   <tr>
                     <td className="text-sm text-gray-700 py-2 pr-4 font-medium">Renewal %</td>
                     {expirations.periods.map(p => (

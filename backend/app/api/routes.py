@@ -384,22 +384,27 @@ async def get_tradeouts(property_id: str, days: Optional[int] = None):
 
 
 @router.get("/properties/{property_id}/renewals")
-async def get_renewal_leases(property_id: str, days: Optional[int] = None):
+async def get_renewal_leases(
+    property_id: str,
+    days: Optional[int] = None,
+    month: Optional[str] = Query(None, description="Calendar month filter (e.g. '2026-04')")
+):
     """
     GET: Renewal lease data.
     
-    Shows current rent vs market rent for residents who renewed their lease.
-    Helps assess whether renewal pricing is competitive with market.
+    Shows renewal rent vs prior resident rent for residents who renewed.
+    Prior rent = what the resident was paying before the renewal.
     
     Query params:
-    - days: Optional filter for trailing window (e.g. 30)
+    - month: Calendar month filter (e.g. '2026-04') — preferred
+    - days: Optional trailing window in days (fallback)
     
     Returns:
-    - renewals: List of individual renewals with rent vs market
-    - summary: Average renewal rent, market rent, and variance
+    - renewals: List of individual renewals with prior rent comparison
+    - summary: Average renewal rent, prior rent, and variance
     """
     try:
-        return await pricing_service.get_renewal_leases(property_id, days=days)
+        return await pricing_service.get_renewal_leases(property_id, days=days, month=month)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -702,6 +707,187 @@ async def get_projected_occupancy(property_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to calculate projected occupancy: {str(e)}")
 
 
+@router.get("/properties/{property_id}/availability")
+async def get_availability(property_id: str):
+    """
+    GET: Availability metrics per PHH feedback.
+    
+    Returns:
+    - ATR (Actual-To-Rent): total vacant + on notice - pre-leased
+    - Availability buckets: 0-30 days, 30-60 days available
+    - Total availability %
+    - 7-week availability trend with direction indicator
+    
+    Sources: unified_occupancy_metrics, realpage_rent_roll, realpage_projected_occupancy
+    """
+    import sqlite3
+    from pathlib import Path
+    from datetime import datetime, timedelta
+    from app.property_config.properties import get_pms_config
+    
+    uni_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    
+    normalized_id = property_id
+    if property_id.startswith("kairoi-"):
+        normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
+    
+    try:
+        # --- Current occupancy snapshot ---
+        uni_conn = sqlite3.connect(str(uni_db))
+        uc = uni_conn.cursor()
+        uc.execute("""
+            SELECT total_units, occupied_units, vacant_units, preleased_vacant, notice_units
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ? OR unified_property_id = ?
+            ORDER BY snapshot_date DESC LIMIT 1
+        """, (property_id, normalized_id))
+        occ = uc.fetchone()
+        uni_conn.close()
+        
+        if not occ:
+            raise HTTPException(status_code=404, detail="No occupancy data found")
+        
+        total_units = occ[0] or 0
+        occupied = occ[1] or 0
+        vacant = occ[2] or 0
+        preleased = occ[3] or 0
+        on_notice = occ[4] or 0
+        
+        # ATR = total vacant + on notice - pre-leased (matches Yardi definition)
+        atr = vacant + on_notice - preleased
+        atr = max(0, atr)
+        atr_pct = round(atr / total_units * 100, 1) if total_units > 0 else 0
+        availability_pct = round(atr / total_units * 100, 1) if total_units > 0 else 0
+        
+        # --- Availability buckets from rent_roll (available_date or days_vacant) ---
+        avail_0_30 = 0
+        avail_30_60 = 0
+        avail_60_plus = 0
+        
+        try:
+            pms_config = get_pms_config(property_id)
+            site_id = pms_config.realpage_siteid
+        except Exception:
+            site_id = None
+        
+        if site_id:
+            try:
+                raw_conn = sqlite3.connect(str(raw_db))
+                rc = raw_conn.cursor()
+                today = datetime.now()
+                
+                # Count available units by days-until-available
+                # Vacant units available now = bucket 0-30
+                # Units becoming available (on notice with move-out in 0-30 or 30-60) 
+                rc.execute("""
+                    SELECT 
+                        SUM(CASE WHEN status IN ('Vacant', 'Admin/Down') THEN 1 ELSE 0 END) as vacant_now,
+                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL') 
+                                AND lease_end IS NOT NULL AND lease_end != ''
+                                AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
+                                    <= date('now', '+30 days')
+                            THEN 1 ELSE 0 END) as notice_0_30,
+                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL')
+                                AND lease_end IS NOT NULL AND lease_end != ''
+                                AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
+                                    BETWEEN date('now', '+31 days') AND date('now', '+60 days')
+                            THEN 1 ELSE 0 END) as notice_30_60,
+                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL')
+                                AND (lease_end IS NULL OR lease_end = ''
+                                     OR date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
+                                        > date('now', '+60 days'))
+                            THEN 1 ELSE 0 END) as notice_60_plus
+                    FROM realpage_rent_roll
+                    WHERE property_id = ?
+                      AND report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
+                """, (site_id, site_id))
+                row = rc.fetchone()
+                if row:
+                    avail_0_30 = (row[0] or 0) + (row[1] or 0)  # Vacant now + notice expiring in 0-30
+                    avail_30_60 = row[2] or 0  # Notice expiring in 30-60
+                    avail_60_plus = row[3] or 0  # Notice expiring beyond 60 days
+                
+                raw_conn.close()
+            except Exception:
+                # Fallback: use ATR as 0-30 bucket
+                avail_0_30 = atr
+        else:
+            avail_0_30 = atr
+        
+        # --- 7-week availability trend from projected_occupancy ---
+        trend_weeks = []
+        trend_direction = "flat"
+        
+        if site_id:
+            try:
+                raw_conn = sqlite3.connect(str(raw_db))
+                rc = raw_conn.cursor()
+                rc.execute("""
+                    SELECT week_ending, MAX(total_units), MAX(occupied_end), MAX(pct_occupied_end),
+                           MAX(scheduled_move_ins), MAX(scheduled_move_outs)
+                    FROM realpage_projected_occupancy
+                    WHERE property_id = ?
+                    GROUP BY week_ending
+                    ORDER BY week_ending ASC
+                    LIMIT 7
+                """, (site_id,))
+                
+                for row in rc.fetchall():
+                    week_end, t_units, occ_end, occ_pct, mi, mo = row
+                    t_units = t_units or total_units
+                    week_atr = max(0, (t_units or 0) - (occ_end or 0))
+                    week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
+                    trend_weeks.append({
+                        "week_ending": week_end,
+                        "atr": week_atr,
+                        "atr_pct": week_atr_pct,
+                        "occupancy_pct": occ_pct or 0,
+                        "move_ins": mi or 0,
+                        "move_outs": mo or 0,
+                    })
+                raw_conn.close()
+                
+                # Determine direction: compare first vs last week ATR
+                if len(trend_weeks) >= 2:
+                    first_atr = trend_weeks[0]["atr_pct"]
+                    last_atr = trend_weeks[-1]["atr_pct"]
+                    if last_atr > first_atr + 1:
+                        trend_direction = "increasing"  # ATR going up = bad
+                    elif last_atr < first_atr - 1:
+                        trend_direction = "decreasing"  # ATR going down = good
+                    else:
+                        trend_direction = "flat"
+            except Exception:
+                pass
+        
+        return {
+            "property_id": property_id,
+            "total_units": total_units,
+            "occupied": occupied,
+            "vacant": vacant,
+            "on_notice": on_notice,
+            "preleased": preleased,
+            "atr": atr,
+            "atr_pct": atr_pct,
+            "availability_pct": availability_pct,
+            "buckets": {
+                "available_0_30": avail_0_30,
+                "available_30_60": avail_30_60,
+                "available_60_plus": avail_60_plus,
+                "total": avail_0_30 + avail_30_60 + avail_60_plus,
+            },
+            "trend": {
+                "direction": trend_direction,
+                "weeks": trend_weeks,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get availability: {str(e)}")
+
+
 @router.get("/properties/{property_id}/expirations")
 async def get_expirations(property_id: str):
     """
@@ -720,18 +906,25 @@ async def get_expirations(property_id: str):
 async def get_expiration_details(
     property_id: str,
     days: int = Query(90, description="Lookahead window in days (30, 60, or 90)"),
-    filter: Optional[str] = Query(None, description="'renewed' for signed renewals only, 'expiring' for not-yet-renewed only"),
+    filter: Optional[str] = Query(None, description="Decision filter: renewed, vacating, pending, mtm, moved_out, expiring (all non-renewed)"),
 ):
     """
     GET: Individual lease records expiring within the given window.
     
-    Primary source: realpage_leases (same as the summary /expirations endpoint)
+    Primary source: realpage_lease_expiration_renewal (Report 4156) when available,
+    fallback to realpage_leases. Same source as the summary /expirations endpoint
     so that drill-through counts always match the summary numbers.
-    Enriched with rent_roll data (sqft, floorplan, market_rent) via LEFT JOIN.
     
-    Filter:
-      'renewed'  = units with a signed renewal (Current-Future)
-      'expiring' = units whose current lease is expiring (Current only)
+    Filter (report 4156):
+      'renewed'   = decision = Renewed
+      'vacating'  = decision = Vacating
+      'pending'   = decision = Unknown
+      'mtm'       = decision = MTM
+      'moved_out' = decision = Moved out
+      'expiring'  = all non-renewed
+    Filter (fallback):
+      'renewed'  = status_text = Current - Future
+      'expiring' = status_text = Current
     """
     import sqlite3
     from app.db.schema import REALPAGE_DB_PATH
@@ -747,61 +940,133 @@ async def get_expiration_details(
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Status filter — matches the summary endpoint logic exactly
-        status_cond = "AND status_text IN ('Current', 'Current - Future')"
-        if filter == "renewed":
-            status_cond = "AND status_text = 'Current - Future'"
-        elif filter == "expiring":
-            status_cond = "AND status_text = 'Current'"
-
-        # Query realpage_leases as primary source (same table as summary),
-        # LEFT JOIN rent_roll for enrichment (sqft, floorplan, market_rent)
-        cursor.execute(f"""
-            SELECT l.unit_id, l.lease_start_date, l.lease_end_date, l.rent_amount,
-                   l.status_text, l.type_text, l.move_in_date,
-                   COALESCE(u.unit_number, l.unit_id) as unit_display,
-                   r.floorplan, r.sqft, r.market_rent as rr_market_rent,
-                   r.move_in_date as rr_move_in, r.status as rr_status
-            FROM realpage_leases l
-            LEFT JOIN realpage_units u
-                ON u.unit_id = l.unit_id AND u.site_id = l.site_id
-            LEFT JOIN realpage_rent_roll r
-                ON r.property_id = l.site_id
-                AND r.lease_end = l.lease_end_date
-                AND r.lease_start = l.lease_start_date
-                AND r.unit_number NOT IN ('Unit', 'details')
-            WHERE l.site_id = ?
-                AND l.lease_end_date != ''
-                AND date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
-                    BETWEEN date('now') AND date('now', '+' || ? || ' days')
-                {status_cond}
-            ORDER BY date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
-        """, (site_id, days))
+        # Check if report 4156 data is available (same source as summary endpoint)
+        use_4156 = False
+        try:
+            cursor.execute("SELECT COUNT(*) FROM realpage_lease_expiration_renewal WHERE property_id = ?", (site_id,))
+            if (cursor.fetchone()[0] or 0) > 0:
+                use_4156 = True
+        except Exception:
+            pass
 
         leases = []
-        for row in cursor.fetchall():
-            is_renewed = row["status_text"] == "Current - Future"
-            if is_renewed:
-                display_status = "Renewal Signed"
-            else:
-                rr_status = row["rr_status"] or ""
-                display_status = "Notice Given" if "NTV" in rr_status else "No Notice"
 
-            unit = row["unit_display"] or row["unit_id"] or "—"
-            lease_rec = {
-                "unit": unit,
-                "lease_end": row["lease_end_date"] or "",
-                "market_rent": row["rr_market_rent"] or row["rent_amount"] or 0,
-                "status": display_status,
-                "floorplan": row["floorplan"] or "",
-                "sqft": row["sqft"] or 0,
-                "move_in": ((row["rr_move_in"] or row["move_in_date"] or "").split("\n")[0]),
-                "lease_start": row["lease_start_date"] or "",
-            }
-            if is_renewed:
-                renewal_type = row["type_text"] or ""
-                lease_rec["renewal_type"] = "Renewal" if "Renewal" in renewal_type else "Lease Extension"
-            leases.append(lease_rec)
+        if use_4156:
+            # Report 4156: decision-based filtering (matches summary endpoint exactly)
+            date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
+            decision_cond = ""
+            if filter == "renewed":
+                decision_cond = "AND decision = 'Renewed'"
+            elif filter == "vacating":
+                decision_cond = "AND decision = 'Vacating'"
+            elif filter == "pending":
+                decision_cond = "AND decision = 'Unknown'"
+            elif filter == "mtm":
+                decision_cond = "AND decision = 'MTM'"
+            elif filter == "moved_out":
+                decision_cond = "AND decision = 'Moved out'"
+            elif filter == "expiring":
+                decision_cond = "AND decision != 'Renewed'"
+
+            cursor.execute(f"""
+                SELECT e.unit_number, e.floorplan, e.actual_rent, e.market_rent,
+                       e.lease_end_date, e.decision, e.new_lease_start, e.new_lease_term,
+                       e.new_rent, e.move_in_date,
+                       rr.sqft
+                FROM realpage_lease_expiration_renewal e
+                LEFT JOIN realpage_rent_roll rr
+                    ON rr.property_id = e.property_id
+                    AND rr.unit_number = e.unit_number
+                    AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = e.property_id)
+                WHERE e.property_id = ?
+                  AND e.lease_end_date IS NOT NULL AND e.lease_end_date != ''
+                  AND {date_expr} BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                  {decision_cond}
+                ORDER BY {date_expr}
+            """, (site_id, days))
+
+            for row in cursor.fetchall():
+                decision = row["decision"] or ""
+                if decision == "Renewed":
+                    display_status = "Renewed"
+                elif decision == "Vacating":
+                    display_status = "Vacating"
+                elif decision == "Moved out":
+                    display_status = "Moved Out"
+                elif decision == "MTM":
+                    display_status = "Month-to-Month"
+                else:
+                    display_status = "Pending"
+
+                lease_rec = {
+                    "unit": row["unit_number"] or "—",
+                    "lease_end": row["lease_end_date"] or "",
+                    "market_rent": row["market_rent"] or row["actual_rent"] or 0,
+                    "actual_rent": row["actual_rent"] or 0,
+                    "status": display_status,
+                    "floorplan": row["floorplan"] or "",
+                    "sqft": row["sqft"] or 0,
+                    "move_in": (row["move_in_date"] or ""),
+                    "lease_start": "",
+                    "decision": decision,
+                }
+                if decision == "Renewed":
+                    lease_rec["new_rent"] = row["new_rent"] or 0
+                    lease_rec["new_lease_term"] = row["new_lease_term"] or ""
+                leases.append(lease_rec)
+        else:
+            # Fallback: realpage_leases
+            status_cond = "AND status_text IN ('Current', 'Current - Future')"
+            if filter == "renewed":
+                status_cond = "AND status_text = 'Current - Future'"
+            elif filter == "expiring":
+                status_cond = "AND status_text = 'Current'"
+
+            cursor.execute(f"""
+                SELECT l.unit_id, l.lease_start_date, l.lease_end_date, l.rent_amount,
+                       l.status_text, l.type_text, l.move_in_date,
+                       COALESCE(u.unit_number, l.unit_id) as unit_display,
+                       r.floorplan, r.sqft, r.market_rent as rr_market_rent,
+                       r.move_in_date as rr_move_in, r.status as rr_status
+                FROM realpage_leases l
+                LEFT JOIN realpage_units u
+                    ON u.unit_id = l.unit_id AND u.site_id = l.site_id
+                LEFT JOIN realpage_rent_roll r
+                    ON r.property_id = l.site_id
+                    AND r.lease_end = l.lease_end_date
+                    AND r.lease_start = l.lease_start_date
+                    AND r.unit_number NOT IN ('Unit', 'details')
+                WHERE l.site_id = ?
+                    AND l.lease_end_date != ''
+                    AND date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
+                        BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                    {status_cond}
+                ORDER BY date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
+            """, (site_id, days))
+
+            for row in cursor.fetchall():
+                is_renewed = row["status_text"] == "Current - Future"
+                if is_renewed:
+                    display_status = "Renewal Signed"
+                else:
+                    rr_status = row["rr_status"] or ""
+                    display_status = "Notice Given" if "NTV" in rr_status else "No Notice"
+
+                unit = row["unit_display"] or row["unit_id"] or "—"
+                lease_rec = {
+                    "unit": unit,
+                    "lease_end": row["lease_end_date"] or "",
+                    "market_rent": row["rr_market_rent"] or row["rent_amount"] or 0,
+                    "status": display_status,
+                    "floorplan": row["floorplan"] or "",
+                    "sqft": row["sqft"] or 0,
+                    "move_in": ((row["rr_move_in"] or row["move_in_date"] or "").split("\n")[0]),
+                    "lease_start": row["lease_start_date"] or "",
+                }
+                if is_renewed:
+                    renewal_type = row["type_text"] or ""
+                    lease_rec["renewal_type"] = "Renewal" if "Renewal" in renewal_type else "Lease Extension"
+                leases.append(lease_rec)
 
         conn.close()
         return {"leases": leases, "count": len(leases)}
@@ -1213,14 +1478,20 @@ async def get_delinquency(property_id: str):
                 "is_former": is_former
             })
         
-        # Count all residents with actual delinquency
+        # Count all residents with actual delinquency, split by current/former
         delinquent_count = len([r for r in resident_details if r["total_delinquent"] > 0])
+        current_residents = [r for r in resident_details if r["total_delinquent"] > 0 and not r["is_former"]]
+        former_residents = [r for r in resident_details if r["total_delinquent"] > 0 and r["is_former"]]
         
         return {
             "property_name": property_id,
             "report_date": report_date,
             "total_prepaid": round(abs(total_prepaid), 2),
             "total_delinquent": round(total_delinquent, 2),
+            "current_resident_total": round(sum(r["total_delinquent"] for r in current_residents), 2),
+            "former_resident_total": round(sum(r["total_delinquent"] for r in former_residents), 2),
+            "current_resident_count": len(current_residents),
+            "former_resident_count": len(former_residents),
             "net_balance": round(total_net, 2),
             "delinquency_aging": {
                 "current": round(aging["current"], 2),
@@ -1407,6 +1678,214 @@ async def get_availability_by_floorplan(property_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/properties/{property_id}/consolidated-by-bedroom")
+async def get_consolidated_by_bedroom(property_id: str):
+    """
+    GET: Dashboard Consolidation — aggregates occupancy, pricing, and availability
+    by bedroom type (Studio, 1BR, 2BR, 3BR+).
+    
+    Combines box_score (occupancy/availability) with unified_pricing_metrics (rent)
+    into a single consolidated view per bedroom count.
+    """
+    import sqlite3
+    from pathlib import Path
+    from app.property_config.properties import get_pms_config
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            return {"bedrooms": [], "totals": {}}
+        
+        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+        unified_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        
+        # Aggregate box_score by bedroom count
+        conn = sqlite3.connect(raw_db)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT floorplan_group, floorplan,
+                   total_units, occupied_units, vacant_units,
+                   vacant_leased, vacant_not_leased, occupied_on_notice,
+                   model_units, down_units, avg_market_rent,
+                   occupancy_pct, leased_pct, avg_actual_rent
+            FROM realpage_box_score
+            WHERE property_id = ?
+              AND floorplan IS NOT NULL AND floorplan != ''
+              AND report_date = (
+                  SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
+              )
+        """, (site_id, site_id))
+        
+        # Derive bedroom count from floorplan_group (e.g. "1x1" -> 1) or floorplan prefix (S=Studio, A=1BR, B=2BR, C=3BR)
+        def _derive_bedrooms(fg: str, fp: str) -> int:
+            # Try floorplan_group first (if it looks like NxN format)
+            if fg and len(fg) >= 3 and fg[0].isdigit() and fg[1] == 'x':
+                return int(fg[0])
+            # Fallback: derive from floorplan name prefix
+            if fp:
+                first = fp[0].upper()
+                if first == 'S': return 0  # Studio
+                if first == 'A': return 1
+                if first == 'B': return 2
+                if first == 'C': return 3
+                if first == 'D': return 4
+            return 0
+        
+        bedroom_data = {}
+        for row in cursor.fetchall():
+            fg = row[0] or ""
+            fp = row[1] or ""
+            beds = _derive_bedrooms(fg, fp)
+            
+            bed_label = "Studio" if beds == 0 else f"{beds}BR"
+            
+            if bed_label not in bedroom_data:
+                bedroom_data[bed_label] = {
+                    "bedroom_type": bed_label,
+                    "bedrooms": beds,
+                    "floorplans": [],
+                    "total_units": 0,
+                    "occupied": 0,
+                    "vacant": 0,
+                    "vacant_leased": 0,
+                    "vacant_not_leased": 0,
+                    "on_notice": 0,
+                    "model": 0,
+                    "down": 0,
+                    "_market_rent_sum": 0,
+                    "_actual_rent_sum": 0,
+                    "_rent_count": 0,
+                }
+            
+            bd = bedroom_data[bed_label]
+            bd["floorplans"].append(row[1])
+            bd["total_units"] += row[2] or 0
+            bd["occupied"] += row[3] or 0
+            bd["vacant"] += row[4] or 0
+            bd["vacant_leased"] += row[5] or 0
+            bd["vacant_not_leased"] += row[6] or 0
+            bd["on_notice"] += row[7] or 0
+            bd["model"] += row[8] or 0
+            bd["down"] += row[9] or 0
+            if row[10] and row[10] > 0:
+                bd["_market_rent_sum"] += (row[10] or 0) * (row[2] or 0)
+                bd["_actual_rent_sum"] += (row[13] or 0) * (row[3] or 0)
+                bd["_rent_count"] += row[2] or 0
+        
+        conn.close()
+        
+        # Get expiration data by floorplan from rent_roll (leases table has NULL unit_number)
+        renewal_map = {}
+        total_renewed = 0
+        total_expiring_leases = 0
+        try:
+            conn2 = sqlite3.connect(raw_db)
+            c2 = conn2.cursor()
+            
+            # Expirations by floorplan from rent_roll (has unit_number + floorplan + lease_end)
+            c2.execute("""
+                SELECT floorplan, COUNT(*) as expiring
+                FROM realpage_rent_roll
+                WHERE property_id = ?
+                  AND report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
+                  AND status = 'Occupied'
+                  AND lease_end IS NOT NULL AND lease_end != ''
+                  AND floorplan IS NOT NULL AND floorplan != '' AND floorplan != 'Floorplan'
+                  AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
+                      BETWEEN date('now') AND date('now', '+90 days')
+                GROUP BY floorplan
+            """, (site_id, site_id))
+            for row in c2.fetchall():
+                renewal_map[row[0]] = {"expiring": row[1], "renewed": 0}
+            
+            # Total renewals from leases table (works for totals, just can't map to floorplan)
+            c2.execute("""
+                SELECT COUNT(*) as total_exp,
+                       SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewed
+                FROM realpage_leases
+                WHERE site_id = ?
+                  AND status_text IN ('Current', 'Current - Future')
+                  AND lease_end_date != ''
+                  AND date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))
+                      BETWEEN date('now') AND date('now', '+90 days')
+            """, (site_id,))
+            row = c2.fetchone()
+            if row:
+                total_expiring_leases = row[0] or 0
+                total_renewed = row[1] or 0
+            
+            # Proportionally distribute renewals across floorplans by their expiration count
+            if total_expiring_leases > 0 and total_renewed > 0:
+                total_rr_exp = sum(v["expiring"] for v in renewal_map.values())
+                for fp_data in renewal_map.values():
+                    if total_rr_exp > 0:
+                        fp_data["renewed"] = round(fp_data["expiring"] * total_renewed / total_rr_exp)
+            
+            conn2.close()
+        except Exception:
+            pass
+        
+        # Build final result
+        result = []
+        grand_totals = {
+            "total_units": 0, "occupied": 0, "vacant": 0,
+            "vacant_leased": 0, "on_notice": 0,
+            "expiring_90d": 0, "renewed_90d": 0,
+        }
+        
+        for bed_label in sorted(bedroom_data.keys(), key=lambda x: bedroom_data[x]["bedrooms"]):
+            bd = bedroom_data[bed_label]
+            total = bd["total_units"]
+            occ_pct = round(bd["occupied"] / total * 100, 1) if total > 0 else 0
+            avg_market = round(bd["_market_rent_sum"] / bd["_rent_count"], 0) if bd["_rent_count"] > 0 else 0
+            avg_actual = round(bd["_actual_rent_sum"] / bd["occupied"], 0) if bd["occupied"] > 0 else 0
+            
+            # Renewal data for this bedroom type's floorplans
+            expiring = sum(renewal_map.get(fp, {}).get("expiring", 0) for fp in bd["floorplans"])
+            renewed = sum(renewal_map.get(fp, {}).get("renewed", 0) for fp in bd["floorplans"])
+            renewal_pct = round(renewed / expiring * 100, 1) if expiring > 0 else None
+            
+            entry = {
+                "bedroom_type": bed_label,
+                "bedrooms": bd["bedrooms"],
+                "floorplan_count": len(bd["floorplans"]),
+                "floorplans": bd["floorplans"],
+                "total_units": total,
+                "occupied": bd["occupied"],
+                "vacant": bd["vacant"],
+                "vacant_leased": bd["vacant_leased"],
+                "vacant_not_leased": bd["vacant_not_leased"],
+                "on_notice": bd["on_notice"],
+                "occupancy_pct": occ_pct,
+                "avg_market_rent": avg_market,
+                "avg_in_place_rent": avg_actual,
+                "rent_delta": round(avg_market - avg_actual, 0) if avg_market and avg_actual else 0,
+                "expiring_90d": expiring,
+                "renewed_90d": renewed,
+                "renewal_pct_90d": renewal_pct,
+            }
+            result.append(entry)
+            
+            grand_totals["total_units"] += total
+            grand_totals["occupied"] += bd["occupied"]
+            grand_totals["vacant"] += bd["vacant"]
+            grand_totals["vacant_leased"] += bd["vacant_leased"]
+            grand_totals["on_notice"] += bd["on_notice"]
+            grand_totals["expiring_90d"] += expiring
+            grand_totals["renewed_90d"] += renewed
+        
+        gt = grand_totals
+        gt["occupancy_pct"] = round(gt["occupied"] / gt["total_units"] * 100, 1) if gt["total_units"] > 0 else 0
+        gt["renewal_pct_90d"] = round(gt["renewed_90d"] / gt["expiring_90d"] * 100, 1) if gt["expiring_90d"] > 0 else None
+        
+        return {"bedrooms": result, "totals": gt}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/properties/{property_id}/availability-by-floorplan/units")
 async def get_availability_units(property_id: str, floorplan: str = None, status: str = None):
     """
@@ -1430,45 +1909,100 @@ async def get_availability_units(property_id: str, floorplan: str = None, status
         conn = sqlite3.connect(raw_db)
         cursor = conn.cursor()
         
-        query = """
-            SELECT DISTINCT unit_number, floorplan, status, sqft,
-                   market_rent, actual_rent, lease_start, lease_end,
-                   move_in_date, move_out_date
-            FROM realpage_rent_roll
+        # Build floorplan avg_actual_rent lookup from box_score as fallback
+        fp_rent = {}
+        cursor.execute("""
+            SELECT floorplan, avg_actual_rent
+            FROM realpage_box_score
             WHERE property_id = ?
+              AND floorplan IS NOT NULL AND floorplan != ''
+              AND report_date = (SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?)
+        """, (site_id, site_id))
+        for row in cursor.fetchall():
+            if row[1] and row[1] > 0:
+                fp_rent[row[0]] = row[1]
+        
+        query = """
+            SELECT DISTINCT rr.unit_number, rr.floorplan, rr.status, rr.sqft,
+                   rr.market_rent, rr.actual_rent, rr.lease_start, rr.lease_end,
+                   rr.move_in_date, rr.move_out_date,
+                   l.rent_amount,
+                   ru.available_date
+            FROM realpage_rent_roll rr
+            LEFT JOIN realpage_leases l
+                ON l.site_id = rr.property_id
+                AND l.lease_start_date = rr.lease_start
+                AND l.lease_end_date = rr.lease_end
+                AND l.status_text IN ('Current', 'Current - Future')
+            LEFT JOIN realpage_units ru
+                ON ru.site_id = rr.property_id
+                AND ru.unit_number = rr.unit_number
+            WHERE rr.property_id = ?
+              AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
         """
-        params = [site_id]
+        params = [site_id, site_id]
         
         if floorplan:
-            query += " AND floorplan = ?"
+            query += " AND rr.floorplan = ?"
             params.append(floorplan)
         if status:
             if status.lower() == 'vacant':
-                query += " AND status IN ('Vacant', 'Vacant-Leased')"
+                query += " AND rr.status IN ('Vacant', 'Vacant-Leased', 'Admin/Down')"
             elif status.lower() == 'notice':
-                query += " AND status = 'Occupied-NTV'"
+                query += " AND rr.status IN ('Occupied-NTV', 'Occupied-NTVL')"
             elif status.lower() == 'occupied':
-                query += " AND status = 'Occupied'"
+                query += " AND rr.status = 'Occupied'"
+            elif status.lower() == 'preleased':
+                query += " AND rr.status = 'Vacant-Leased'"
             else:
-                query += " AND status = ?"
+                query += " AND rr.status = ?"
                 params.append(status)
         
-        query += " ORDER BY unit_number"
+        query += " ORDER BY rr.unit_number"
         cursor.execute(query, params)
         
+        seen = set()
         units = []
         for row in cursor.fetchall():
+            unit_num = row[0]
+            if unit_num in seen:
+                continue
+            seen.add(unit_num)
+            
+            # Determine actual rent: rent_roll > lease rent_amount > box_score avg
+            actual = row[5] if row[5] and row[5] > 0 else None
+            if not actual and row[10] and row[10] > 0:
+                actual = row[10]
+            if not actual:
+                actual = fp_rent.get(row[1])
+            
+            # Compute days_vacant from realpage_units.available_date
+            days_vacant = None
+            avail_date_raw = row[11]  # available_date from realpage_units
+            unit_status = row[2] or ''
+            if unit_status in ('Vacant', 'Vacant-Leased', 'Admin/Down') and avail_date_raw:
+                try:
+                    from datetime import datetime as dt
+                    # Handle "YYYY-MM-DD HH:MM:SS" format from realpage_units
+                    avail_dt = dt.strptime(avail_date_raw.strip()[:10], '%Y-%m-%d')
+                    days_vacant = (dt.now() - avail_dt).days
+                    if days_vacant < 0:
+                        days_vacant = 0
+                except Exception:
+                    pass
+
             units.append({
-                "unit": row[0],
+                "unit": unit_num,
                 "floorplan": row[1],
                 "status": row[2],
                 "sqft": row[3],
                 "market_rent": row[4],
-                "actual_rent": row[5],
+                "actual_rent": actual,
                 "lease_start": row[6],
                 "lease_end": row[7],
                 "move_in": row[8],
                 "move_out": row[9],
+                "days_vacant": days_vacant,
             })
         
         conn.close()
@@ -1856,8 +2390,79 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
 
 
 # =========================================================================
-# Google Reviews
+# Reputation & Reviews
 # =========================================================================
+
+@router.get("/properties/{property_id}/reputation")
+async def get_reputation(property_id: str):
+    """
+    GET: Multi-source reputation summary per PHH feedback.
+    
+    Returns:
+    - sources: Array of {source, rating, review_count, url} for each ILS
+    - review_power: Response rate, avg response time, needs_attention count
+    - overall_rating: Weighted average across sources
+    
+    Currently supports Google. Architecture ready for Apartments.com, Zillow, Yelp.
+    """
+    from app.services.google_reviews_service import get_property_reviews
+    
+    sources = []
+    review_power = {
+        "response_rate": 0,
+        "avg_response_hours": None,
+        "avg_response_label": None,
+        "needs_attention": 0,
+        "responded": 0,
+        "not_responded": 0,
+        "total_reviews": 0,
+    }
+    
+    # Google Reviews (primary source)
+    try:
+        google_data = await get_property_reviews(property_id)
+        if google_data and not google_data.get("error"):
+            sources.append({
+                "source": "google",
+                "name": "Google",
+                "rating": google_data.get("rating"),
+                "review_count": google_data.get("review_count", 0),
+                "url": google_data.get("google_maps_url", ""),
+                "star_distribution": google_data.get("star_distribution"),
+            })
+            review_power["response_rate"] = google_data.get("response_rate", 0)
+            review_power["avg_response_hours"] = google_data.get("avg_response_hours")
+            review_power["avg_response_label"] = google_data.get("avg_response_label")
+            review_power["needs_attention"] = google_data.get("needs_response", 0)
+            review_power["responded"] = google_data.get("responded", 0)
+            review_power["not_responded"] = google_data.get("not_responded", 0)
+            review_power["total_reviews"] = google_data.get("reviews_fetched", 0)
+    except Exception:
+        pass
+    
+    # Placeholder ILS sources — ready for future integration
+    # When Apartments.com / Zillow APIs are added, populate these:
+    ils_placeholders = [
+        {"source": "apartments_com", "name": "Apartments.com", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
+        {"source": "zillow", "name": "Zillow", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
+        {"source": "yelp", "name": "Yelp", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
+    ]
+    
+    # Overall rating = weighted average of sources with data
+    active_sources = [s for s in sources if s["rating"] is not None]
+    if active_sources:
+        total_weight = sum(s["review_count"] for s in active_sources)
+        overall = sum(s["rating"] * s["review_count"] for s in active_sources) / total_weight if total_weight > 0 else 0
+    else:
+        overall = 0
+    
+    return {
+        "property_id": property_id,
+        "overall_rating": round(overall, 2),
+        "sources": sources + ils_placeholders,
+        "review_power": review_power,
+    }
+
 
 @router.get("/properties/{property_id}/reviews")
 async def get_reviews(property_id: str):
@@ -2009,6 +2614,16 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
         except Exception:
             pass
 
+        # Inject custom watchpoints (WS8)
+        try:
+            from app.services.watchpoint_service import format_watchpoints_for_ai
+            current_metrics = await _gather_current_metrics(property_id)
+            wp_text = format_watchpoints_for_ai(property_id, current_metrics)
+            if wp_text:
+                property_data["watchpoint_summary"] = wp_text
+        except Exception:
+            pass
+
         result = await generate_insights(property_id, property_data)
         # Include property_name so frontend can tag alerts in multi-property mode
         result["property_name"] = property_data.get("property_name", property_id)
@@ -2080,3 +2695,134 @@ async def chat_with_ai(
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================================================================
+# Custom AI Watchpoints (WS8)
+# =========================================================================
+
+@router.get("/properties/{property_id}/watchpoints")
+async def get_watchpoints(property_id: str):
+    """
+    GET: User-defined metric watchpoints for a property.
+    Returns watchpoints with their current evaluation status.
+    """
+    from app.services.watchpoint_service import (
+        get_watchpoints as _get_wps,
+        evaluate_watchpoints,
+        AVAILABLE_METRICS,
+    )
+    
+    # Gather current metrics for evaluation
+    current_metrics = await _gather_current_metrics(property_id)
+    
+    wps = _get_wps(property_id)
+    evaluated = evaluate_watchpoints(property_id, current_metrics)
+    
+    return {
+        "property_id": property_id,
+        "watchpoints": evaluated,
+        "available_metrics": AVAILABLE_METRICS,
+        "current_metrics": current_metrics,
+    }
+
+
+@router.post("/properties/{property_id}/watchpoints")
+async def create_watchpoint(property_id: str, body: dict):
+    """
+    POST: Create a new watchpoint for a property.
+    Body: { metric, operator, threshold, label? }
+    """
+    from app.services.watchpoint_service import add_watchpoint
+    
+    metric = body.get("metric")
+    operator = body.get("operator")
+    threshold = body.get("threshold")
+    label = body.get("label")
+    
+    if not metric or not operator or threshold is None:
+        raise HTTPException(status_code=400, detail="Required: metric, operator, threshold")
+    
+    try:
+        wp = add_watchpoint(property_id, metric, operator, float(threshold), label)
+        return wp
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/properties/{property_id}/watchpoints/{watchpoint_id}")
+async def delete_watchpoint(property_id: str, watchpoint_id: str):
+    """DELETE: Remove a watchpoint."""
+    from app.services.watchpoint_service import remove_watchpoint
+    
+    removed = remove_watchpoint(property_id, watchpoint_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Watchpoint not found")
+    return {"deleted": True}
+
+
+@router.patch("/properties/{property_id}/watchpoints/{watchpoint_id}/toggle")
+async def toggle_watchpoint_endpoint(property_id: str, watchpoint_id: str):
+    """PATCH: Toggle a watchpoint's enabled/disabled state."""
+    from app.services.watchpoint_service import toggle_watchpoint
+    
+    wp = toggle_watchpoint(property_id, watchpoint_id)
+    if not wp:
+        raise HTTPException(status_code=404, detail="Watchpoint not found")
+    return wp
+
+
+async def _gather_current_metrics(property_id: str) -> dict:
+    """Collect current metric values for watchpoint evaluation."""
+    metrics = {}
+    
+    try:
+        occ = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+        if occ:
+            metrics["occupancy_pct"] = occ.physical_occupancy or 0
+            metrics["vacant_units"] = occ.vacant_units or 0
+            metrics["on_notice_units"] = occ.notice_break_units or 0
+            metrics["aged_vacancy_90"] = occ.aged_vacancy_90_plus or 0
+    except Exception:
+        pass
+    
+    try:
+        import sqlite3
+        from pathlib import Path
+        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("""
+            SELECT SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END),
+                   COUNT(CASE WHEN total_delinquent > 0 THEN 1 END)
+            FROM unified_delinquency WHERE unified_property_id = ?
+        """, (property_id,))
+        row = c.fetchone()
+        if row:
+            metrics["delinquent_total"] = row[0] or 0
+            metrics["delinquent_units"] = row[1] or 0
+        conn.close()
+    except Exception:
+        pass
+    
+    try:
+        p = await pricing_service.get_unit_pricing(property_id)
+        if p and p.floorplans:
+            total_rent = sum(f.in_place_rent * f.unit_count for f in p.floorplans if f.in_place_rent)
+            total_units = sum(f.unit_count for f in p.floorplans if f.in_place_rent)
+            metrics["avg_rent"] = round(total_rent / total_units, 0) if total_units > 0 else 0
+    except Exception:
+        pass
+    
+    try:
+        from app.services.google_reviews_service import get_property_reviews
+        reviews = await get_property_reviews(property_id)
+        if reviews and not reviews.get("error"):
+            if reviews.get("rating"):
+                metrics["google_rating"] = reviews["rating"]
+            if reviews.get("response_rate") is not None:
+                metrics["response_rate"] = reviews["response_rate"]
+    except Exception:
+        pass
+    
+    return metrics

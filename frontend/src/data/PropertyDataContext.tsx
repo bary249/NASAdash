@@ -70,7 +70,14 @@ interface ExpirationPeriod {
   label: string;
   expirations: number;
   renewals: number;
+  signed: number;
+  submitted: number;
+  selected: number;
   renewal_pct: number;
+  vacating?: number;
+  unknown?: number;
+  mtm?: number;
+  moved_out?: number;
 }
 
 interface ExpirationMetrics {
@@ -550,13 +557,20 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
           effectiveIds.map(pid => api.getExpirations(pid).catch(() => null))
         );
         // Merge expiration periods by label
-        const periodMap: Record<string, { expirations: number; renewals: number }> = {};
+        const periodMap: Record<string, { expirations: number; renewals: number; signed: number; submitted: number; selected: number; vacating: number; unknown: number; mtm: number; moved_out: number }> = {};
         for (const expData of allExpData) {
           if (expData?.periods) {
             for (const p of expData.periods) {
-              if (!periodMap[p.label]) periodMap[p.label] = { expirations: 0, renewals: 0 };
+              if (!periodMap[p.label]) periodMap[p.label] = { expirations: 0, renewals: 0, signed: 0, submitted: 0, selected: 0, vacating: 0, unknown: 0, mtm: 0, moved_out: 0 };
               periodMap[p.label].expirations += p.expirations;
               periodMap[p.label].renewals += p.renewals;
+              periodMap[p.label].signed += p.signed || 0;
+              periodMap[p.label].submitted += p.submitted || 0;
+              periodMap[p.label].selected += p.selected || 0;
+              periodMap[p.label].vacating += (p as any).vacating || 0;
+              periodMap[p.label].unknown += (p as any).unknown || 0;
+              periodMap[p.label].mtm += (p as any).mtm || 0;
+              periodMap[p.label].moved_out += (p as any).moved_out || 0;
             }
           }
         }
@@ -564,7 +578,14 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
           label,
           expirations: data.expirations,
           renewals: data.renewals,
+          signed: data.signed,
+          submitted: data.submitted,
+          selected: data.selected,
           renewal_pct: data.expirations > 0 ? Math.round(data.renewals / data.expirations * 100) : 0,
+          vacating: data.vacating,
+          unknown: data.unknown,
+          mtm: data.mtm,
+          moved_out: data.moved_out,
         }));
         if (mergedPeriods.length > 0) {
           setExpirationsData({ periods: mergedPeriods });

@@ -66,16 +66,31 @@ async def get_property_reviews(property_id: str) -> dict:
     1. Playwright cache (populated by scrape_reviews.py — full data, owner replies)
     2. SerpAPI (if configured + paid plan)
     3. Google Places API fallback (5 reviews, no replies)
+    
+    Playwright data is authoritative — never overwrite it with degraded API data.
+    Expired Playwright data is still returned (stale > empty).
     """
-    # Check cache first — Playwright-scraped data lives here
     cache = _load_reviews_cache()
-    if property_id in cache:
-        entry = cache[property_id]
-        if time.time() - entry.get("ts", 0) < REVIEWS_CACHE_TTL:
-            return entry["data"]
+    existing_entry = cache.get(property_id)
+    existing_data = existing_entry.get("data", {}) if existing_entry else {}
+    existing_source = existing_data.get("source", "")
+    existing_review_count = existing_data.get("review_count", 0)
+    is_expired = existing_entry and (time.time() - existing_entry.get("ts", 0) >= REVIEWS_CACHE_TTL)
+
+    # Valid (non-expired) cache → return immediately
+    if existing_entry and not is_expired:
+        return existing_data
+
+    # Expired Playwright data → still return it (stale > empty).
+    # Don't try API fallbacks that will return degraded data.
+    if existing_entry and existing_source == "playwright" and existing_review_count > 10:
+        logger.info(f"[REVIEWS] Returning stale Playwright data for {property_id} ({existing_review_count} reviews). Re-run scrape_reviews.py to refresh.")
+        return existing_data
 
     place_id = _get_place_id(property_id)
     if not place_id:
+        if existing_entry:
+            return existing_data  # Return whatever we have
         return {"error": "Property not found in Google Places", "reviews": [], "source": "none"}
 
     settings = get_settings()
@@ -84,17 +99,26 @@ async def get_property_reviews(property_id: str) -> dict:
     if settings.serpapi_api_key:
         result = await _fetch_serpapi(property_id, place_id, settings.serpapi_api_key)
         if result and not result.get("error"):
-            cache[property_id] = {"ts": time.time(), "data": result}
-            _save_reviews_cache(cache)
+            new_count = result.get("review_count", 0)
+            # Only save if it has more data than existing cache
+            if new_count >= existing_review_count:
+                cache[property_id] = {"ts": time.time(), "data": result}
+                _save_reviews_cache(cache)
             return result
 
     # Fallback: Google Places API (5 reviews, no replies)
     if settings.google_places_api_key:
         result = await _fetch_google_places(property_id, place_id, settings.google_places_api_key)
         if result:
-            cache[property_id] = {"ts": time.time(), "data": result}
-            _save_reviews_cache(cache)
+            new_count = result.get("review_count", 0)
+            if new_count >= existing_review_count:
+                cache[property_id] = {"ts": time.time(), "data": result}
+                _save_reviews_cache(cache)
             return result
+
+    # Nothing worked — return stale cache if available
+    if existing_entry:
+        return existing_data
 
     return {"error": "No review data. Run scrape_reviews.py or configure API keys.", "reviews": []}
 

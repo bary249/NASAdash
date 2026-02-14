@@ -490,6 +490,47 @@ CREATE TABLE IF NOT EXISTS realpage_lease_expirations (
     file_id TEXT
 );
 
+-- Lease Expiration Renewal Detail (Report 4156) - per-unit expiration with decision & rent data
+CREATE TABLE IF NOT EXISTS realpage_lease_expiration_renewal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    unit_number TEXT,
+    floorplan TEXT,
+    actual_rent REAL,
+    other_billings REAL,
+    last_increase_date TEXT,
+    last_increase_amount REAL,
+    market_rent REAL,
+    move_in_date TEXT,
+    lease_end_date TEXT,
+    decision TEXT,
+    new_lease_start TEXT,
+    new_lease_term INTEGER,
+    new_rent REAL,
+    new_other_billings REAL,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT
+);
+
+-- Lease Expiration Renewal Summary by Floorplan (Report 4156 sheet 3)
+CREATE TABLE IF NOT EXISTS realpage_lease_exp_renewal_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    floorplan TEXT,
+    total_possible INTEGER,
+    renewed INTEGER,
+    vacating INTEGER,
+    unknown INTEGER,
+    month_to_month INTEGER,
+    avg_term_renewed REAL,
+    avg_new_rent REAL,
+    avg_market_rent REAL,
+    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    file_id TEXT
+);
+
 -- Delinquency Report - Outstanding balances (report 4260 + 4009 Delinquent and Prepaid)
 CREATE TABLE IF NOT EXISTS realpage_delinquency (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

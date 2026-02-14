@@ -573,10 +573,18 @@ class PricingService:
             logger.warning(f"[PRICING] Failed to get trade-outs: {e}")
             return {"tradeouts": [], "summary": {}}
 
-    async def get_renewal_leases(self, property_id: str, days: int = None) -> dict:
+    async def get_renewal_leases(self, property_id: str, days: int = None, month: str = None) -> dict:
         """
-        Get renewal lease data: current rent vs market rent for residents who renewed.
-        Shows how renewal pricing compares to market for the same unit.
+        Get renewal lease data: renewal rent vs prior resident rent on the same unit.
+        
+        Primary source: Report 4156 (realpage_lease_expiration_renewal) — has separate
+        actual_rent (prior) and new_rent (renewal) columns with real differences.
+        Fallback: realpage_leases (prior rent unreliable — RealPage overwrites both records).
+        
+        Filtering:
+        - month: Calendar month filter (e.g. '2026-04') — filters by new_lease_start
+        - days: Trailing window in days (fallback)
+        
         READ-ONLY operation.
         """
         import sqlite3
@@ -593,59 +601,130 @@ class PricingService:
             conn = sqlite3.connect(REALPAGE_DB_PATH)
             cursor = conn.cursor()
             
-            # Build optional date filter on lease_start_date (MM/DD/YYYY format)
-            date_filter = ""
-            params = [site_id]
-            if days:
-                date_filter = """
-                  AND date(substr(c.lease_start_date,7,4) || '-' || substr(c.lease_start_date,1,2) || '-' || substr(c.lease_start_date,4,2))
-                      >= date('now', ?)
-                """
-                params.append(f'-{days} days')
-            
-            # Get renewal leases with market_rent from the latest rent_roll snapshot
-            cursor.execute(f"""
-                SELECT 
-                    COALESCE(u.unit_number, c.unit_number, c.unit_id) as unit_number,
-                    c.rent_amount as renewal_rent,
-                    rr.market_rent,
-                    ROUND(c.rent_amount - rr.market_rent, 0) as vs_market,
-                    ROUND((c.rent_amount - rr.market_rent) / rr.market_rent * 100, 1) as vs_market_pct,
-                    c.lease_start_date,
-                    c.lease_term_desc,
-                    rr.floorplan
-                FROM realpage_leases c
-                LEFT JOIN realpage_units u ON c.unit_id = u.unit_id AND c.site_id = u.site_id
-                LEFT JOIN realpage_rent_roll rr 
-                    ON COALESCE(u.unit_number, c.unit_number, CAST(c.unit_id AS TEXT)) = rr.unit_number 
-                    AND c.site_id = rr.property_id
-                    AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = c.site_id)
-                WHERE c.type_text = 'Renewal' 
-                  AND c.status_text IN ('Current', 'Current - Future')
-                  AND c.rent_amount > 0
-                  AND c.site_id = ?
-                  {date_filter}
-                ORDER BY c.lease_start_date DESC
-            """, params)
+            # Check if report 4156 data is available
+            use_4156 = False
+            try:
+                cursor.execute("SELECT COUNT(*) FROM realpage_lease_expiration_renewal WHERE property_id = ? AND decision = 'Renewed'", (site_id,))
+                if (cursor.fetchone()[0] or 0) > 0:
+                    use_4156 = True
+            except Exception:
+                pass
             
             renewals = []
             total_rent = 0
-            total_market = 0
+            total_prior = 0
             
-            for row in cursor.fetchall():
-                unit_number, renewal_rent, market_rent, vs_market, vs_market_pct, start_date, term_desc, floorplan = row
-                renewals.append({
-                    "unit_id": unit_number or "",
-                    "renewal_rent": renewal_rent,
-                    "market_rent": market_rent or 0,
-                    "vs_market": vs_market or 0,
-                    "vs_market_pct": vs_market_pct or 0,
-                    "lease_start": start_date,
-                    "lease_term": term_desc or "",
-                    "floorplan": floorplan or "",
-                })
-                total_rent += renewal_rent
-                total_market += (market_rent or 0)
+            if use_4156:
+                # Report 4156: actual_rent = prior rent, new_rent = renewal rent
+                date_expr = "date(substr(new_lease_start,7,4)||'-'||substr(new_lease_start,1,2)||'-'||substr(new_lease_start,4,2))"
+                date_filter = ""
+                params = [site_id]
+                
+                if month:
+                    date_filter = f"AND substr(new_lease_start,7,4) || '-' || substr(new_lease_start,1,2) = ?"
+                    params.append(month)
+                elif days:
+                    date_filter = f"AND {date_expr} >= date('now', ?)"
+                    params.append(f'-{days} days')
+                
+                cursor.execute(f"""
+                    SELECT unit_number, floorplan, actual_rent, new_rent,
+                           new_lease_start, new_lease_term, lease_end_date
+                    FROM realpage_lease_expiration_renewal
+                    WHERE property_id = ?
+                      AND decision = 'Renewed'
+                      AND new_rent IS NOT NULL AND new_rent > 0
+                      {date_filter}
+                    ORDER BY new_lease_start DESC
+                """, params)
+                
+                for row in cursor.fetchall():
+                    unit, floorplan, actual_rent, new_rent, new_start, term, lease_end = row
+                    actual_rent = actual_rent or 0
+                    new_rent = new_rent or 0
+                    vs_prior = round(new_rent - actual_rent, 0)
+                    vs_prior_pct = round((new_rent - actual_rent) / actual_rent * 100, 1) if actual_rent > 0 else 0
+                    
+                    renewals.append({
+                        "unit_id": unit or "",
+                        "renewal_rent": new_rent,
+                        "prior_rent": actual_rent,
+                        "vs_prior": vs_prior,
+                        "vs_prior_pct": vs_prior_pct,
+                        "lease_start": new_start or "",
+                        "lease_term": f"{term} mo" if term else "",
+                        "floorplan": floorplan or "",
+                    })
+                    total_rent += new_rent
+                    total_prior += actual_rent
+            else:
+                # Fallback: realpage_leases (prior rent unreliable)
+                date_filter = ""
+                params = [site_id, site_id]
+                
+                if month:
+                    date_filter = """
+                      AND substr(c.lease_start_date,7,4) || '-' || substr(c.lease_start_date,1,2) = ?
+                    """
+                    params.append(month)
+                elif days:
+                    date_filter = """
+                      AND date(substr(c.lease_start_date,7,4) || '-' || substr(c.lease_start_date,1,2) || '-' || substr(c.lease_start_date,4,2))
+                          >= date('now', ?)
+                    """
+                    params.append(f'-{days} days')
+                
+                cursor.execute(f"""
+                    WITH prior_leases AS (
+                        SELECT unit_id, rent_amount as prior_rent,
+                               ROW_NUMBER() OVER (PARTITION BY unit_id ORDER BY lease_end_date DESC) as rn
+                        FROM realpage_leases
+                        WHERE site_id = ?
+                          AND rent_amount > 0
+                          AND (status_text IN ('Former', 'Current - Past') 
+                               OR (type_text != 'Renewal' AND status_text NOT IN ('Current', 'Current - Future')))
+                    )
+                    SELECT 
+                        COALESCE(u.unit_number, c.unit_number, c.unit_id) as unit_number,
+                        c.rent_amount as renewal_rent,
+                        p.prior_rent,
+                        ROUND(c.rent_amount - COALESCE(p.prior_rent, 0), 0) as vs_prior,
+                        CASE WHEN p.prior_rent > 0 
+                             THEN ROUND((c.rent_amount - p.prior_rent) / p.prior_rent * 100, 1)
+                             ELSE 0 END as vs_prior_pct,
+                        c.lease_start_date,
+                        c.lease_term_desc,
+                        rr.floorplan
+                    FROM realpage_leases c
+                    LEFT JOIN realpage_units u ON c.unit_id = u.unit_id AND c.site_id = u.site_id
+                    LEFT JOIN prior_leases p ON c.unit_id = p.unit_id AND p.rn = 1
+                    LEFT JOIN realpage_rent_roll rr 
+                        ON COALESCE(u.unit_number, c.unit_number, CAST(c.unit_id AS TEXT)) = rr.unit_number 
+                        AND c.site_id = rr.property_id
+                        AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = c.site_id)
+                    WHERE c.type_text = 'Renewal' 
+                      AND c.status_text IN ('Current', 'Current - Future')
+                      AND c.rent_amount > 0
+                      AND c.site_id = ?
+                      {date_filter}
+                    ORDER BY c.lease_start_date DESC
+                """, params)
+                
+                for row in cursor.fetchall():
+                    unit_number, renewal_rent, prior_rent, vs_prior, vs_prior_pct, start_date, term_desc, floorplan = row
+                    prior_rent = prior_rent or 0
+                    renewals.append({
+                        "unit_id": unit_number or "",
+                        "renewal_rent": renewal_rent,
+                        "prior_rent": prior_rent,
+                        "vs_prior": vs_prior or 0,
+                        "vs_prior_pct": vs_prior_pct or 0,
+                        "lease_start": start_date,
+                        "lease_term": term_desc or "",
+                        "floorplan": floorplan or "",
+                    })
+                    total_rent += renewal_rent
+                    total_prior += prior_rent
             
             conn.close()
             
@@ -653,12 +732,12 @@ class PricingService:
             summary = {
                 "count": count,
                 "avg_renewal_rent": round(total_rent / count, 0) if count > 0 else 0,
-                "avg_market_rent": round(total_market / count, 0) if count > 0 else 0,
-                "avg_vs_market": round((total_rent - total_market) / count, 0) if count > 0 else 0,
-                "avg_vs_market_pct": round((total_rent - total_market) / total_market * 100, 1) if total_market > 0 else 0,
+                "avg_prior_rent": round(total_prior / count, 0) if count > 0 else 0,
+                "avg_vs_prior": round((total_rent - total_prior) / count, 0) if count > 0 else 0,
+                "avg_vs_prior_pct": round((total_rent - total_prior) / total_prior * 100, 1) if total_prior > 0 else 0,
             }
             
-            logger.info(f"[PRICING] Found {count} renewals for site {site_id}")
+            logger.info(f"[PRICING] Found {count} renewals for site {site_id} (month={month}, days={days}, source={'4156' if use_4156 else 'leases'})")
             return {"renewals": renewals, "summary": summary}
             
         except Exception as e:

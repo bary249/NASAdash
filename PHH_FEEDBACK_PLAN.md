@@ -18,6 +18,8 @@
 | 5 | Dashboard Consolidation | MEDIUM | L | Not started |
 | 6 | Watch List Tab | MEDIUM | M | Not started |
 | 7 | Collections & AR Deep | WISH LIST | — | Deferred |
+| 8 | Custom AI Metrics (User-Defined) | HIGH | L | Not started |
+| 9 | Owner Views (Auth + Deploy) | FUTURE | XL | Not started |
 
 ---
 
@@ -71,12 +73,12 @@
 | 1.6 | `TradeOutSection.tsx` | Verify trade-out already uses prior rent (it does ✓) — no change needed |
 | 1.7 | `DashboardV3.tsx` | Update renewals tab: month selector (Apr/May/Jun/Jul...) replacing 30/60/90 |
 | 1.8 | New component | `RenewalsByMonth.tsx` — calendar month view with prior-rent comparison columns |
-| 1.9 | `schema.py` / sync | Handle Yardi "Selected" status: map to `renewal_selected` (terms chosen, paperwork pending) |
+| 1.9 | `schema.py` / sync | Handle "Selected" status from BOTH Yardi AND RealPage: map to `renewal_selected` (terms chosen, paperwork pending) |
 
 ### Definition changes
 - **Trade-out base**: Prior resident rent (ALREADY CORRECT ✓)
-- **Renewal comparison**: vs prior resident rent (NEW — currently vs market rent)
-- **"Selected" in Yardi**: Resident has chosen renewal terms but lease paperwork not yet completed → distinct from "Renewed"
+- **Renewal comparison**: vs prior resident rent — FULLY REPLACE market rent comparison
+- **"Selected" (Yardi + RealPage)**: Resident has chosen renewal terms but lease paperwork not yet completed → distinct from "Renewed"
 
 ---
 
@@ -147,7 +149,7 @@
 | 4.5 | New component | `ReviewPowerChart.tsx` — Scatter plot: X=review velocity, Y=avg rating, bubble=volume |
 | 4.6 | Service | Add review recency metric (% of reviews in last 30/90/180 days) |
 | 4.7 | Service | Add time-over-time performance (avg rating trailing 90d vs prior 90d) |
-| 4.8 | **BLOCKER** | Schedule working session with Andrew to review his metrics and align on which sites |
+| 4.8 | Nice-to-have | Schedule working session with Andrew to review his metrics — NOT a blocker, proceed with implementation |
 
 ---
 
@@ -178,7 +180,7 @@
 | Task | Where | Description |
 |------|-------|-------------|
 | 6.1 | `routes.py` or `portfolio.py` | New endpoint `GET /portfolio/watch-list` — properties below thresholds |
-| 6.2 | Backend | Define threshold config: min occupancy %, max aged vacancy, min conversion rate, max delinquency %, min ATR direction |
+| 6.2 | Backend | Define threshold config with sensible defaults (occ≥95%, aged_vacancy≤2, etc.) — users can override and persist their own |
 | 6.3 | `TabNavigation.tsx` | Add "Watch List" tab to portfolio view |
 | 6.4 | New component | `WatchListView.tsx` — Table of flagged properties with the metric(s) that triggered the flag |
 | 6.5 | Component | Red/yellow severity indicators, link to drill into each property |
@@ -194,14 +196,51 @@
 
 ---
 
+## WS8: Custom AI Metrics (User-Defined Watchpoints)
+
+> Users (e.g. PHH) should be able to add metrics they want the AI to monitor. The AI analyzes them continuously in the Red Flags / Ask Me Anything tabs.
+
+### Tasks
+
+| Task | Where | Description |
+|------|-------|-------------|
+| 8.1 | `schema.py` | New table `user_metric_watchpoints` — user_id, metric_key, threshold_value, direction (above/below), label |
+| 8.2 | `routes.py` | CRUD endpoints for watchpoints: `GET/POST/DELETE /user/watchpoints` |
+| 8.3 | `chat_service.py` | Inject user's custom watchpoints into AI system prompt so Claude always monitors them |
+| 8.4 | `ai_insights_service.py` | Auto-evaluate watchpoints against latest data → flag violations as red flags |
+| 8.5 | New component | `WatchpointEditor.tsx` — UI for users to add/remove custom metrics to watch |
+| 8.6 | `DashboardV3.tsx` | Show AI-generated red flags from custom watchpoints in dedicated section |
+| 8.7 | Backend | Persist watchpoints per-user (initially per property config, later per authenticated user) |
+
+---
+
+## WS9: Owner Views — Auth & Deployment (FUTURE)
+
+> After all features are done, separate views by owner login and deploy.
+
+### Tasks
+
+| Task | Where | Description |
+|------|-------|-------------|
+| 9.1 | Design | Define auth model: owner → properties mapping, role-based access |
+| 9.2 | Backend | Auth middleware (JWT or session-based), login endpoint |
+| 9.3 | Frontend | Login page, protected routes, owner-scoped property selector |
+| 9.4 | Backend | Filter all endpoints by owner's authorized properties |
+| 9.5 | Infra | Deployment plan: hosting, domain, SSL, CI/CD |
+| 9.6 | Infra | Environment separation (dev/staging/prod) |
+
+---
+
 ## Execution Order
 
 ```
-Phase 1 (Week 1): WS0 (Tests) — protect everything
-Phase 2 (Week 1-2): WS3 (AR Separation — quick win) + WS1 (Renewals — core)
-Phase 3 (Week 2-3): WS2 (Availability/ATR — core)
-Phase 4 (Week 3): WS4 (Reviews — scaffold + Andrew session)
-Phase 5 (Week 3-4): WS5 (Dashboard consolidation) + WS6 (Watch List)
+Phase 1 (Week 1):    WS0 (Tests) — protect everything
+Phase 2 (Week 1-2):  WS3 (AR Separation — quick win) + WS1 (Renewals — core)
+Phase 3 (Week 2-3):  WS2 (Availability/ATR — core)
+Phase 4 (Week 3):    WS4 (Reviews — ILS expansion, no blocker)
+Phase 5 (Week 3-4):  WS5 (Dashboard consolidation) + WS6 (Watch List)
+Phase 6 (Week 4):    WS8 (Custom AI Metrics)
+Phase 7 (Post-MVP):  WS9 (Owner Auth + Deployment)
 ```
 
 ---
@@ -209,5 +248,6 @@ Phase 5 (Week 3-4): WS5 (Dashboard consolidation) + WS6 (Watch List)
 ## Access & Follow-up
 
 - [ ] Peter: ongoing dashboard access for deeper review
-- [ ] Andrew: working session on review metrics, "Review Power" scatter plot
-- [ ] Define performance thresholds for Watch List (with PHH input)
+- [ ] Andrew: working session on review metrics, "Review Power" scatter plot (nice-to-have, not blocking)
+- [ ] Watch List thresholds: use existing defaults, let users customize and persist their own
+- [ ] Post-feature: owner-separated views by login + deployment planning

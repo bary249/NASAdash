@@ -13,7 +13,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { 
-  Filter, RefreshCw, Settings, Eye, EyeOff, 
+  RefreshCw, Settings, Eye, EyeOff, 
   Building2, DollarSign, TrendingUp, TrendingDown, Home, ChevronDown
 } from 'lucide-react';
 
@@ -23,11 +23,16 @@ import { KPICard, FunnelKPICard, VacantKPICard } from './KPICard';
 import { TabNavigation, TabId } from './TabNavigation';
 import { UnitMixPricing } from './UnitMixPricing';
 import { MarketCompsTable } from './MarketCompsTable';
-import { AIInsightsPanel } from './AIInsightsPanel';
+import { AIInsightsPanel, saveQuestion } from './AIInsightsPanel';
 import { GoogleReviewsSection } from './GoogleReviewsSection';
+import { ReputationOverview } from './ReputationOverview';
 import { RentableItemsSection } from './RentableItemsSection';
 import { DelinquencySection } from './DelinquencySection';
+import { AvailabilitySection } from './AvailabilitySection';
+import { BedroomConsolidatedView } from './BedroomConsolidatedView';
+import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
+import { WatchListTab } from './WatchListTab';
 import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
 import { PortfolioView } from './PortfolioView';
@@ -86,7 +91,9 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const [propertyName, setPropertyName] = useState('');
   const [scrambleMode, setScrambleMode] = useState<ScrambleMode>('off');
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [timeRange, setTimeRange] = useState<'ytd' | 'mtd' | 'l30' | 'l7'>('mtd');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+  const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>('PHH');
 
   // Active property IDs: when multiple checked, use those; otherwise use single clicked property
   const activePropertyIds = selectedPropertyIds.size > 1
@@ -94,7 +101,6 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     : propertyId ? [propertyId] : [];
   
   // AI state
-  const [isAIMode, setIsAIMode] = useState(false);
   const [aiLoading, setAILoading] = useState(false);
   const [aiModalOpen, setAIModalOpen] = useState(false);
   const [aiQuery, setAIQuery] = useState('');
@@ -110,6 +116,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const [pricing, setPricing] = useState<UnitPricingMetrics | null>(null);
   const [propertiesMap, setPropertiesMap] = useState<Record<string, PropertyInfo>>({});
   const [selectedPropertyInfo, setSelectedPropertyInfo] = useState<PropertyInfo | null>(null);
+  const [groupPropertyIds, setGroupPropertyIds] = useState<string[]>([]);
 
   // Fetch properties list once on mount for floor_count / google_rating
   useEffect(() => {
@@ -119,6 +126,16 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
       setPropertiesMap(map);
     }).catch(() => {});
   }, []);
+
+  // Fetch all property IDs for the selected owner group (for AI Insights fallback)
+  useEffect(() => {
+    api.getPortfolioProperties(selectedOwnerGroup || undefined)
+      .then(list => setGroupPropertyIds(list.map(p => p.id)))
+      .catch(() => setGroupPropertyIds([]));
+  }, [selectedOwnerGroup]);
+
+  // Property IDs for AI Insights: active selection > group fallback
+  const aiPropertyIds = activePropertyIds.length > 0 ? activePropertyIds : groupPropertyIds;
 
   // Property selection handler (single click on row)
   const handleSelectProperty = useCallback((id: string, name?: string) => {
@@ -161,6 +178,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const handleAISearch = async (query: string, isAI: boolean) => {
     if (!isAI) return;
     
+    saveQuestion(query);
     setAIQuery(query);
     setAILoading(true);
     setAIModalOpen(true);
@@ -283,8 +301,6 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
             <div className="py-2">
               <SearchBar
                 onSearch={handleAISearch}
-                isAIMode={isAIMode}
-                onModeChange={setIsAIMode}
                 isLoading={aiLoading}
               />
             </div>
@@ -292,26 +308,16 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
         </header>
 
         {/* AI Insights - Full width, above portfolio and tabs */}
-        {propertyId && (
+        {aiPropertyIds.length > 0 && (
           <div className="max-w-7xl mx-auto px-4 pt-2 pb-1">
-            <AIInsightsPanel propertyId={propertyId} propertyIds={activePropertyIds} />
+            <AIInsightsPanel propertyId={aiPropertyIds[0]} propertyIds={aiPropertyIds} />
           </div>
         )}
 
         {/* Sub-header: Property selector, timeframe, tabs */}
         <div className="bg-white border-b border-slate-200 sticky top-0 z-30">
           <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between">
-              {/* Left: Filters */}
-              <div className="flex items-center gap-3">
-                {/* More Filters */}
-                <button className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-                  <Filter className="w-4 h-4" />
-                  <span>More filters</span>
-                </button>
-              </div>
-
-              {/* Right: Tab Navigation */}
+            <div className="flex items-center justify-center">
               <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
             </div>
           </div>
@@ -319,6 +325,29 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
         {/* Main Content */}
         <main className="max-w-7xl mx-auto px-4 py-6">
+          {/* Watchpoints — shown when watchpoints tab active */}
+          {activeTab === 'watchpoints' && propertyId && (
+            <div className="mb-6">
+              <WatchpointsPanel propertyId={propertyId} />
+            </div>
+          )}
+
+          {/* Watchlist — portfolio-level, shown when watchlist tab active */}
+          {activeTab === 'watchlist' && (
+            <div className="mb-6">
+              <WatchListTab
+                onPropertyClick={(id) => {
+                  const info = propertiesMap[id];
+                  setPropertyId(id);
+                  setPropertyName(info?.name || id);
+                  setActiveTab('overview');
+                }}
+                ownerGroup={selectedOwnerGroup}
+                propertyIds={activePropertyIds}
+              />
+            </div>
+          )}
+
           {/* Portfolio Overview (collapsible) */}
           <div className="mb-6">
             <PortfolioView 
@@ -326,7 +355,32 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
               selectedPropertyId={propertyId}
               selectedPropertyIds={selectedPropertyIds}
               onSelectedPropertyIdsChange={handleSelectedPropertyIdsChange}
+              selectedOwnerGroup={selectedOwnerGroup}
+              onOwnerGroupChange={setSelectedOwnerGroup}
             />
+          </div>
+
+          {/* Time Selection Strip */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide mr-2">Period</span>
+            {([
+              { key: 'ytd' as const, label: 'YTD' },
+              { key: 'mtd' as const, label: 'MTD' },
+              { key: 'l30' as const, label: 'Last 30d' },
+              { key: 'l7' as const, label: 'Last 7d' },
+            ]).map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTimeRange(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  timeRange === t.key
+                    ? 'bg-slate-800 text-white shadow-sm'
+                    : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
           {/* Property Dashboard */}
@@ -345,7 +399,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
                 propertyInfo={selectedPropertyInfo}
               />
             </PropertyDataProvider>
-          ) : (
+          ) : activeTab !== 'watchlist' && activeTab !== 'watchpoints' ? (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
               <div className="w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center mx-auto mb-4">
                 <Building2 className="w-8 h-8 text-indigo-600" />
@@ -353,7 +407,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
               <h3 className="text-lg font-semibold text-slate-700 mb-2">Select a Property</h3>
               <p className="text-slate-500">Choose a property from the portfolio above to view detailed metrics</p>
             </div>
-          )}
+          ) : null}
         </main>
 
         {/* AI Response Modal */}
@@ -444,6 +498,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
   // New KPI data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [atrData, setAtrData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [showsL7, setShowsL7] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [tradeoutData, setTradeoutData] = useState<any>(null);
@@ -468,6 +524,23 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   useEffect(() => {
     if (!propertyIds.length) return;
     const ids = propertyIds;
+
+    // ATR: sum across properties
+    Promise.all(ids.map(id => api.getAvailability(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter((r: any) => r != null);
+        if (valid.length === 0) { setAtrData(null); return; }
+        const merged = {
+          atr: valid.reduce((s: number, r: any) => s + (r.atr || 0), 0),
+          total_units: valid.reduce((s: number, r: any) => s + (r.total_units || 0), 0),
+          vacant: valid.reduce((s: number, r: any) => s + (r.vacant || 0), 0),
+          on_notice: valid.reduce((s: number, r: any) => s + (r.on_notice || 0), 0),
+          preleased: valid.reduce((s: number, r: any) => s + (r.preleased || 0), 0),
+          atr_pct: 0,
+        };
+        merged.atr_pct = merged.total_units > 0 ? Math.round(merged.atr / merged.total_units * 1000) / 10 : 0;
+        setAtrData(merged);
+      }).catch(() => {});
 
     // Shows: sum across properties, merge details + by_date for drill-through
     Promise.all(ids.map(id => api.getShows(id, 7).catch(() => ({ total_shows: 0, details: [], by_date: [] }))))
@@ -570,16 +643,16 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       .then(results => {
         const allRenewals = results.flatMap((r: any) => r?.renewals || []);
         const totalRent = allRenewals.reduce((s: number, r: any) => s + (r.renewal_rent || 0), 0);
-        const totalMarket = allRenewals.reduce((s: number, r: any) => s + (r.market_rent || 0), 0);
+        const totalPrior = allRenewals.reduce((s: number, r: any) => s + (r.prior_rent || 0), 0);
         const count = allRenewals.length;
         setRenewalData({
           renewals: allRenewals,
           summary: {
             count,
             avg_renewal_rent: count > 0 ? Math.round(totalRent / count) : 0,
-            avg_market_rent: count > 0 ? Math.round(totalMarket / count) : 0,
-            avg_vs_market: count > 0 ? Math.round((totalRent - totalMarket) / count) : 0,
-            avg_vs_market_pct: totalMarket > 0 ? Math.round((totalRent - totalMarket) / totalMarket * 1000) / 10 : 0,
+            avg_prior_rent: count > 0 ? Math.round(totalPrior / count) : 0,
+            avg_vs_prior: count > 0 ? Math.round((totalRent - totalPrior) / count) : 0,
+            avg_vs_prior_pct: totalPrior > 0 ? Math.round((totalRent - totalPrior) / totalPrior * 1000) / 10 : 0,
           },
         });
       }).catch(() => {});
@@ -592,7 +665,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [drillData, setDrillData] = useState<any[]>([]);
   const [drillLoading, setDrillLoading] = useState(false);
-  const [drillFilter, setDrillFilter] = useState<'renewed' | 'expiring' | undefined>(undefined);
+  const [drillFilter, setDrillFilter] = useState<'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out' | undefined>(undefined);
 
   const UNIT_COLUMNS = [
     { key: 'unit', label: 'Unit' },
@@ -602,6 +675,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
     { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
     { key: 'lease_end', label: 'Lease End' },
+    { key: 'days_vacant', label: 'Days Vacant', format: (v: unknown) => v != null ? `${v}d` : '—' },
   ];
 
   const FORECAST_UNIT_COLUMNS = [
@@ -631,18 +705,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     { key: 'move_in_date', label: 'Move In' },
   ];
 
-  const SHOW_COLUMNS = [
-    { key: 'date', label: 'Date' },
-    { key: 'type', label: 'Type' },
-  ];
-
   const RENEWAL_COLUMNS = [
     { key: 'unit_id', label: 'Unit' },
     { key: 'floorplan', label: 'Floorplan' },
     { key: 'renewal_rent', label: 'Renewal Rent', format: (v: unknown) => `$${Number(v).toLocaleString()}` },
-    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => `$${Number(v).toLocaleString()}` },
-    { key: 'vs_market', label: 'vs Market', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}$${n.toLocaleString()}`; } },
-    { key: 'vs_market_pct', label: '% vs Market', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`; } },
+    { key: 'prior_rent', label: 'Prior Rent', format: (v: unknown) => `$${Number(v).toLocaleString()}` },
+    { key: 'vs_prior', label: 'vs Prior', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}$${n.toLocaleString()}`; } },
+    { key: 'vs_prior_pct', label: '% Change', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`; } },
     { key: 'lease_start', label: 'Start Date' },
     { key: 'lease_term', label: 'Term' },
   ];
@@ -719,12 +788,21 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         setKpiDrillTitle('Lease Trade-Outs — Unit Detail');
         setKpiDrillColumns(TRADEOUT_COLUMNS);
         setKpiDrillData(tradeoutData?.tradeouts || []);
-      } else if (type === 'shows') {
-        setKpiDrillTitle('Shows / Tours — Last 7 Days');
-        setKpiDrillColumns(SHOW_COLUMNS);
-        setKpiDrillData(showsL7?.details || []);
+      } else if (type === 'atr') {
+        setKpiDrillTitle('ATR Units — Vacant + On Notice');
+        setKpiDrillColumns(UNIT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id).catch(() => ({ units: [], count: 0 })))
+        );
+        const allUnits = results.flatMap((r: any) => r.units || []);
+        // Show Vacant + On Notice + Admin/Down (NOT Vacant-Leased — those are pre-leased and subtracted)
+        // Admin/Down included because box_score counts them within vacant_units (down=0)
+        const atrUnits = allUnits.filter((u: any) =>
+          ['Vacant', 'Occupied-NTV', 'Occupied-NTVL', 'Admin/Down'].includes(u.status)
+        );
+        setKpiDrillData(atrUnits);
       } else if (type === 'renewals') {
-        setKpiDrillTitle('Renewal Leases — Rent vs Market');
+        setKpiDrillTitle('Renewal Leases — Rent vs Prior');
         setKpiDrillColumns(RENEWAL_COLUMNS);
         setKpiDrillData(renewalData?.renewals || []);
       }
@@ -735,9 +813,17 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     }
   }, [propertyId, forecast, tradeoutData, showsL7, renewalData, filterUnitsByWeek]);
 
-  const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring') => {
+  const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out') => {
     setDrillFilter(filter);
-    const label = filter === 'renewed' ? 'Signed Renewals' : filter === 'expiring' ? 'Expiring (not renewed)' : 'All Leases';
+    const labels: Record<string, string> = {
+      renewed: 'Renewed Leases',
+      expiring: 'Expiring (not renewed)',
+      vacating: 'Vacating Leases',
+      pending: 'Pending Decision',
+      mtm: 'Month-to-Month Leases',
+      moved_out: 'Moved Out',
+    };
+    const label = filter ? labels[filter] || 'All Leases' : 'All Expiring Leases';
     setDrillTitle(`${label} — Next ${days} Days`);
     setDrillOpen(true);
     setDrillLoading(true);
@@ -802,7 +888,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   const renewalSummary = renewalData?.summary;
   const renewalCount = renewalSummary?.count ?? 0;
   const avgRenewalRent = renewalSummary?.avg_renewal_rent ?? 0;
-  const renewalVsMarketPct = renewalSummary?.avg_vs_market_pct ?? 0;
+  const renewalVsPriorPct = renewalSummary?.avg_vs_prior_pct ?? 0;
 
   // Format "as of" date for KPI labels (from context periodEnd)
   const asOfLabel = periodEnd
@@ -876,13 +962,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
             />
             
-            <button onClick={() => openKpiDrill('shows')} className="text-left w-full">
+            <button onClick={() => openKpiDrill('atr')} className="text-left w-full">
               <KPICard
-                title="Shows (L7)"
-                value={String(showsL7?.total_shows ?? '—')}
-                subtitle={`${showsL7?.by_date?.length ?? 0} active days`}
-                icon={<Eye className="w-4 h-4" />}
-                tooltip="Number of tours/showings in the last 7 days. Active days = days with at least one showing. Source: RealPage Leasing Activity."
+                title="ATR"
+                value={atrData ? String(atrData.atr) : '—'}
+                subtitle={atrData ? `${atrData.atr_pct}% of ${atrData.total_units} units` : ''}
+                icon={<Home className="w-4 h-4" />}
+                tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
               />
             </button>
 
@@ -899,10 +985,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               <KPICard
                 title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
                 value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
-                subtitle={renewalCount ? `vs Market ${renewalVsMarketPct >= 0 ? '+' : ''}${renewalVsMarketPct.toFixed(1)}%` : 'No data'}
+                subtitle={renewalCount ? `vs Prior ${renewalVsPriorPct >= 0 ? '+' : ''}${renewalVsPriorPct.toFixed(1)}%` : 'No data'}
                 timeLabel="Last 30 days"
                 icon={<TrendingDown className="w-4 h-4" />}
-                tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs market rent $${Math.round(renewalSummary?.avg_market_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases + Rent Roll.`}
+                tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases.`}
               />
             </button>
           </div>
@@ -912,125 +998,16 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       {/* Tab-specific content */}
       {activeTab === 'overview' && (
         <>
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-12 md:col-span-5">
-              <UnitMixPricing floorplans={floorplans} />
-            </div>
-            <div className="col-span-12 md:col-span-7">
-              <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
-            </div>
-          </div>
+          <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
 
-          {/* Availability by Floorplan */}
-          {availByFp && availByFp.floorplans.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <button onClick={() => setAvailCollapsed(c => !c)} className="flex items-center gap-2 w-full text-left">
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${availCollapsed ? '-rotate-90' : ''}`} />
-                <h3 className="text-lg font-semibold text-slate-800">Available Units by Floorplan</h3>
-              </button>
-              {!availCollapsed && <div className="overflow-x-auto mt-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
-                      <th className="pb-2 pr-4">Floorplan</th>
-                      <th className="pb-2 pr-4">Type</th>
-                      <th className="pb-2 pr-4 text-right">Total</th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vacant <InfoTooltip text="Units with no current occupant. Source: RealPage Box Score (latest report date)." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice <InfoTooltip text="Occupied units with a Notice-to-Vacate filed. Source: RealPage Box Score." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Not Leased <InfoTooltip text="Vacant units without a signed lease. Vacant Not Leased = Vacant − Vacant Leased. Source: RealPage Box Score." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Mkt Rent <InfoTooltip text="Average market rent for this floorplan. Source: RealPage Box Score." /></span></th>
-                      <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Occupancy % = Occupied Units ÷ Total Units × 100 for this floorplan. Source: RealPage Box Score." /></span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {availByFp.floorplans.map((fp: { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }) => (
-                      <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => openKpiDrill('availability', fp.floorplan)}>
-                        <td className="py-2 pr-4 font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</td>
-                        <td className="py-2 pr-4 text-slate-500">{fp.group}</td>
-                        <td className="py-2 pr-4 text-right">{fp.total_units}</td>
-                        <td className={`py-2 pr-4 text-right font-medium ${fp.vacant_units > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{fp.vacant_units}</td>
-                        <td className={`py-2 pr-4 text-right ${fp.on_notice > 0 ? 'text-rose-500 font-medium' : 'text-slate-400'}`}>{fp.on_notice}</td>
-                        <td className="py-2 pr-4 text-right text-emerald-600">{fp.vacant_leased}</td>
-                        <td className="py-2 pr-4 text-right text-amber-600">{fp.vacant_not_leased}</td>
-                        <td className="py-2 pr-4 text-right">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                        <td className="py-2 text-right">{fp.occupancy_pct.toFixed(1)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-300 font-semibold text-slate-800">
-                      <td className="pt-2" colSpan={2}>Total</td>
-                      <td className="pt-2 text-right">{availByFp.totals.total}</td>
-                      <td className="pt-2 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'vacant')}>{availByFp.totals.vacant}</td>
-                      <td className="pt-2 text-right text-rose-500 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'notice')}>{availByFp.totals.notice}</td>
-                      <td className="pt-2 text-right" colSpan={4}></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>}
-            </div>
-          )}
+          {/* Consolidated by Bedroom Type */}
+          <BedroomConsolidatedView propertyId={propertyId} propertyIds={propertyIds} />
 
-          {/* Occupancy Forecast */}
-          {forecast && forecast.forecast.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <button onClick={() => setForecastCollapsed(c => !c)} className="flex items-center gap-2 w-full text-left">
-                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${forecastCollapsed ? '-rotate-90' : ''}`} />
-                <h3 className="text-lg font-semibold text-slate-800">Occupancy Forecast</h3>
-              </button>
-              {!forecastCollapsed && <><div className="flex items-center gap-4 mb-4 mt-1">
-                <p className="text-xs text-slate-500">{forecast.current_occupied}/{forecast.total_units} currently occupied · 12-week projection</p>
-                {(forecast.vacant_leased > 0 || forecast.current_notice > 0) && (
-                  <div className="flex gap-3">
-                    {forecast.vacant_leased > 0 && (
-                      <button onClick={() => openKpiDrill('forecast_moveins')} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition">
-                        {forecast.vacant_leased} pre-leased{forecast.undated_move_ins > 0 ? ' (dates TBD)' : ''}
-                      </button>
-                    )}
-                    {forecast.current_notice > 0 && (
-                      <button onClick={() => openKpiDrill('forecast_notice')} className="text-xs bg-rose-50 text-rose-600 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition">
-                        {forecast.current_notice} on notice
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
-                      <th className="pb-2 pr-4">Week</th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Projected Occ <InfoTooltip text="Projected occupied units at week end. Source: RealPage Projected Occupancy Report (3842)." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Projected Occupied ÷ Total Units × 100. Source: RealPage Projected Occupancy Report." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Move Ins <InfoTooltip text="Scheduled move-ins for this week from the Projected Occupancy Report. Individual units cannot be identified per week (dates TBD). Click the 'pre-leased' badge above to see all pre-leased units." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice Outs <InfoTooltip text="Occupied units on notice-to-vacate with move-out date in this week. Source: RealPage Rent Roll. Click to see unit details." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Net <InfoTooltip text="Net = Scheduled Move Ins − Scheduled Move Outs from the Projected Occupancy Report. Matches the Occ% progression. May differ from Move Ins − Notice Outs because report includes all departures (transfers, skips, etc.)." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="All leases (Current + Current-Future/renewed) expiring this week. Source: RealPage Leases." /></span></th>
-                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Renewals <InfoTooltip text="Leases with status 'Current - Future' expiring this week — already renewed. Source: RealPage Leases." /></span></th>
-                      <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Net Exp <InfoTooltip text="Net Expirations = Expirations − Renewals. Positive = leases expiring without renewal yet." /></span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {forecast.forecast.map((w: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; scheduled_move_outs: number; notice_move_outs: number; lease_expirations: number; renewals: number; net_expirations: number; net_change: number }) => (
-                      <tr key={w.week} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="py-2 pr-4 text-slate-600">Wk {w.week} <span className="text-slate-400 text-xs">({w.week_start.slice(5)})</span></td>
-                        <td className="py-2 pr-4 text-right font-medium">{w.projected_occupied}</td>
-                        <td className="py-2 pr-4 text-right">{w.projected_occupancy_pct}%</td>
-                        <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => openKpiDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
-                        <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => openKpiDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
-                        <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
-                        <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
-                        <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
-                        <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>}
-            </div>
-          )}
+          {/* ATR & Availability Section */}
+          <AvailabilitySection propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
+
+          {/* Unit Mix & Pricing */}
+          <UnitMixPricing floorplans={floorplans} />
         </>
       )}
 
@@ -1046,14 +1023,44 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   <button onClick={() => openDrill(days)} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-slate-800">{p.expirations}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">expiring</span>
+                    <InfoTooltip text="Total leases with end dates in this period. Click to see all units." />
                   </button>
-                  <button onClick={() => openDrill(days, 'renewed')} className="flex items-baseline gap-2 mb-2 hover:opacity-70 transition-opacity cursor-pointer">
+                  <button onClick={() => openDrill(days, 'renewed')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-emerald-600">{p.renewals}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">renewed</span>
+                    <InfoTooltip text="Resident has signed a renewal lease. The unit is secured for another term." />
                   </button>
-                  <div className={`text-sm font-semibold inline-flex items-center gap-1 ${p.renewal_pct >= 50 ? 'text-emerald-600' : p.renewal_pct >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>
+                  {(p.vacating ?? 0) > 0 && (
+                    <button onClick={() => openDrill(days, 'vacating')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                      <span className="text-lg font-bold text-rose-500">{p.vacating}</span>
+                      <span className="text-xs text-slate-400 underline decoration-dotted">vacating</span>
+                      <InfoTooltip text="Resident has given notice to vacate. Unit will need to be turned and re-leased." />
+                    </button>
+                  )}
+                  {(p.unknown ?? 0) > 0 && (
+                    <button onClick={() => openDrill(days, 'pending')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                      <span className="text-lg font-bold text-amber-500">{p.unknown}</span>
+                      <span className="text-xs text-slate-400 underline decoration-dotted">pending</span>
+                      <InfoTooltip text="No decision recorded yet. Resident has not renewed or given notice — follow up needed." />
+                    </button>
+                  )}
+                  {(p.mtm ?? 0) > 0 && (
+                    <button onClick={() => openDrill(days, 'mtm')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                      <span className="text-lg font-bold text-slate-400">{p.mtm}</span>
+                      <span className="text-xs text-slate-400 underline decoration-dotted">MTM</span>
+                      <InfoTooltip text="Lease converted to month-to-month. Resident stays without a fixed-term renewal." />
+                    </button>
+                  )}
+                  {(p.moved_out ?? 0) > 0 && (
+                    <button onClick={() => openDrill(days, 'moved_out')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                      <span className="text-lg font-bold text-slate-500">{p.moved_out}</span>
+                      <span className="text-xs text-slate-400 underline decoration-dotted">moved out</span>
+                      <InfoTooltip text="Resident has already moved out. Unit is vacant or in turnover." />
+                    </button>
+                  )}
+                  <div className={`text-sm font-semibold inline-flex items-center gap-1 mt-1 ${p.renewal_pct >= 50 ? 'text-emerald-600' : p.renewal_pct >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>
                     {p.renewal_pct}% renewal rate
-                    <InfoTooltip text={`Expiring = leases (Current + Current-Future) ending within ${days} days. Renewed = status 'Current - Future'. Rate = Renewed ÷ Expiring × 100. Source: RealPage Leases.`} />
+                    <InfoTooltip text="Renewed ÷ Total expiring × 100. Higher is better — means more residents are staying." />
                   </div>
                 </div>
               );
@@ -1084,6 +1091,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       />
 
       {activeTab === 'leasing' && (
+        <>
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-800">Leasing Activity</h3>
@@ -1122,6 +1130,118 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             </div>
           </div>
         </div>
+
+        {/* Availability by Floorplan (moved from overview) */}
+        {availByFp && availByFp.floorplans.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <button onClick={() => setAvailCollapsed(c => !c)} className="flex items-center gap-2 w-full text-left">
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${availCollapsed ? '-rotate-90' : ''}`} />
+              <h3 className="text-lg font-semibold text-slate-800">Available Units by Floorplan</h3>
+            </button>
+            {!availCollapsed && <div className="overflow-x-auto mt-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
+                    <th className="pb-2 pr-4">Floorplan</th>
+                    <th className="pb-2 pr-4">Type</th>
+                    <th className="pb-2 pr-4 text-right">Total</th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vacant <InfoTooltip text="Units with no current occupant. Source: RealPage Box Score." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice <InfoTooltip text="Occupied units with a Notice-to-Vacate filed. Source: RealPage Box Score." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Not Leased <InfoTooltip text="Vacant units without a signed lease. Source: RealPage Box Score." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Mkt Rent <InfoTooltip text="Average market rent for this floorplan. Source: RealPage Box Score." /></span></th>
+                    <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Occupancy % for this floorplan. Source: RealPage Box Score." /></span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {availByFp.floorplans.map((fp: { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }) => (
+                    <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => openKpiDrill('availability', fp.floorplan)}>
+                      <td className="py-2 pr-4 font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</td>
+                      <td className="py-2 pr-4 text-slate-500">{fp.group}</td>
+                      <td className="py-2 pr-4 text-right">{fp.total_units}</td>
+                      <td className={`py-2 pr-4 text-right font-medium ${fp.vacant_units > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{fp.vacant_units}</td>
+                      <td className={`py-2 pr-4 text-right ${fp.on_notice > 0 ? 'text-rose-500 font-medium' : 'text-slate-400'}`}>{fp.on_notice}</td>
+                      <td className="py-2 pr-4 text-right text-emerald-600">{fp.vacant_leased}</td>
+                      <td className="py-2 pr-4 text-right text-amber-600">{fp.vacant_not_leased}</td>
+                      <td className="py-2 pr-4 text-right">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                      <td className="py-2 text-right">{fp.occupancy_pct.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-300 font-semibold text-slate-800">
+                    <td className="pt-2" colSpan={2}>Total</td>
+                    <td className="pt-2 text-right">{availByFp.totals.total}</td>
+                    <td className="pt-2 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'vacant')}>{availByFp.totals.vacant}</td>
+                    <td className="pt-2 text-right text-rose-500 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'notice')}>{availByFp.totals.notice}</td>
+                    <td className="pt-2 text-right" colSpan={4}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>}
+          </div>
+        )}
+
+        {/* Occupancy Forecast (moved from overview) */}
+        {forecast && forecast.forecast.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <button onClick={() => setForecastCollapsed(c => !c)} className="flex items-center gap-2 w-full text-left">
+              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${forecastCollapsed ? '-rotate-90' : ''}`} />
+              <h3 className="text-lg font-semibold text-slate-800">Occupancy Forecast</h3>
+            </button>
+            {!forecastCollapsed && <><div className="flex items-center gap-4 mb-4 mt-1">
+              <p className="text-xs text-slate-500">{forecast.current_occupied}/{forecast.total_units} currently occupied · 12-week projection</p>
+              {(forecast.vacant_leased > 0 || forecast.current_notice > 0) && (
+                <div className="flex gap-3">
+                  {forecast.vacant_leased > 0 && (
+                    <button onClick={() => openKpiDrill('forecast_moveins')} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition">
+                      {forecast.vacant_leased} pre-leased{forecast.undated_move_ins > 0 ? ' (dates TBD)' : ''}
+                    </button>
+                  )}
+                  {forecast.current_notice > 0 && (
+                    <button onClick={() => openKpiDrill('forecast_notice')} className="text-xs bg-rose-50 text-rose-600 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition">
+                      {forecast.current_notice} on notice
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
+                    <th className="pb-2 pr-4">Week</th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Projected Occ <InfoTooltip text="Projected occupied units at week end. Source: RealPage Projected Occupancy Report." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Projected Occupied ÷ Total Units × 100." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Move Ins <InfoTooltip text="Scheduled move-ins for this week." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice Outs <InfoTooltip text="Units on notice-to-vacate with move-out date in this week." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Net <InfoTooltip text="Net = Move Ins − Move Outs." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="Leases expiring this week." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Renewals <InfoTooltip text="Already renewed leases expiring this week." /></span></th>
+                    <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Net Exp <InfoTooltip text="Expirations − Renewals." /></span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(forecast.forecast as { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; net_change: number; lease_expirations: number; renewals: number; net_expirations: number }[]).map((w) => (
+                    <tr key={w.week} className="border-b border-slate-100 hover:bg-slate-50">
+                      <td className="py-2 pr-4 text-slate-600">Wk {w.week} <span className="text-slate-400 text-xs">({w.week_start.slice(5)})</span></td>
+                      <td className="py-2 pr-4 text-right font-medium">{w.projected_occupied}</td>
+                      <td className="py-2 pr-4 text-right">{w.projected_occupancy_pct}%</td>
+                      <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => openKpiDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
+                      <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => openKpiDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
+                      <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
+                      <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
+                      <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
+                      <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>}
+          </div>
+        )}
+        </>
       )}
 
       {activeTab === 'delinquencies' && (
@@ -1137,8 +1257,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       )}
 
       {activeTab === 'reviews' && (
-        <GoogleReviewsSection propertyId={propertyId} propertyIds={propertyIds} propertyName={propertyName} />
+        <>
+          <ReputationOverview propertyId={propertyId} propertyIds={propertyIds} />
+          <GoogleReviewsSection propertyId={propertyId} propertyIds={propertyIds} propertyName={propertyName} />
+        </>
       )}
+
+      {/* Watchlist is rendered at the top level in DashboardV3, above portfolio */}
     </div>
   );
 }

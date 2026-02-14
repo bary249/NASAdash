@@ -25,6 +25,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'activity'
         elif 'MONTHLY ACTIVITY SUMMARY' in row_text:
             return 'monthly_summary'
+        elif 'LEASE EXPIR' in row_text and 'RENEWAL' in row_text:
+            return 'lease_expiration_renewal'
         elif 'LEASE EXPIR' in row_text:
             return 'lease_expiration'
         elif 'DELINQUENT' in row_text or 'DELINQUENCY' in row_text:
@@ -939,6 +941,139 @@ def parse_projected_occupancy(file_path: str, property_id: str = None) -> List[D
     return records
 
 
+def parse_lease_expiration_renewal(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Lease Expiration Renewal Detail report (Report 4156).
+    .xls format (old Compound Document), needs engine='xlrd'.
+    
+    5 sheets: Table of Contents, Lease Expiration Detail, Renewal Detail,
+    Summary by Floorplan, Future by Floorplan, Summary by Leasing Consultant.
+    
+    Returns combined records from Expiration Detail + Summary by Floorplan.
+    """
+    from datetime import datetime
+    
+    try:
+        sheets = pd.read_excel(file_path, sheet_name=None, engine='xlrd', header=None)
+    except Exception:
+        # May be .xlsx format
+        sheets = pd.read_excel(file_path, sheet_name=None, header=None)
+    
+    report_date = datetime.now().strftime('%Y-%m-%d')
+    records = []
+    
+    def safe_float(val):
+        if pd.isna(val):
+            return 0.0
+        try:
+            s = str(val).replace(',', '').replace('(', '-').replace(')', '').strip()
+            return float(s) if s else 0.0
+        except:
+            return 0.0
+    
+    def safe_int(val):
+        try:
+            return int(float(val)) if pd.notna(val) else 0
+        except:
+            return 0
+    
+    def safe_date(val):
+        if pd.isna(val):
+            return None
+        s = str(val).strip()
+        # Handle "2/15/2026 12:00:00 AM" format
+        for fmt in ('%m/%d/%Y %I:%M:%S %p', '%m/%d/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(s, fmt).strftime('%m/%d/%Y')
+            except:
+                continue
+        return s.split(' ')[0] if ' ' in s else s
+    
+    # --- Parse Lease Expiration Detail sheet ---
+    exp_sheet = None
+    for name, df in sheets.items():
+        if 'expiration' in name.lower() and 'detail' in name.lower():
+            exp_sheet = df
+            break
+    
+    if exp_sheet is not None:
+        # Find header row (contains 'Bldg/Unit')
+        header_row = None
+        for i in range(min(10, len(exp_sheet))):
+            row_vals = [str(v).strip() for v in exp_sheet.iloc[i].tolist() if pd.notna(v)]
+            if any('bldg' in v.lower() or 'unit' in v.lower() for v in row_vals):
+                header_row = i
+                break
+        
+        if header_row is not None:
+            for i in range(header_row + 1, len(exp_sheet)):
+                row = exp_sheet.iloc[i].tolist()
+                unit = row[0] if len(row) > 0 else None
+                if pd.isna(unit) or str(unit).strip() == '' or 'total' in str(unit).lower():
+                    continue
+                
+                record = {
+                    '_type': 'detail',
+                    'property_id': property_id,
+                    'report_date': report_date,
+                    'unit_number': str(unit).strip(),
+                    'floorplan': str(row[1]).strip() if len(row) > 1 and pd.notna(row[1]) else None,
+                    'actual_rent': safe_float(row[3]) if len(row) > 3 else 0.0,
+                    'other_billings': safe_float(row[5]) if len(row) > 5 else 0.0,
+                    'last_increase_date': safe_date(row[7]) if len(row) > 7 else None,
+                    'last_increase_amount': safe_float(row[9]) if len(row) > 9 else 0.0,
+                    'market_rent': safe_float(row[10]) if len(row) > 10 else 0.0,
+                    'move_in_date': safe_date(row[12]) if len(row) > 12 else None,
+                    'lease_end_date': safe_date(row[14]) if len(row) > 14 else None,
+                    'decision': str(row[15]).strip() if len(row) > 15 and pd.notna(row[15]) else None,
+                    'new_lease_start': safe_date(row[16]) if len(row) > 16 else None,
+                    'new_lease_term': safe_int(row[17]) if len(row) > 17 else 0,
+                    'new_rent': safe_float(row[18]) if len(row) > 18 else 0.0,
+                    'new_other_billings': safe_float(row[19]) if len(row) > 19 else 0.0,
+                }
+                records.append(record)
+    
+    # --- Parse Summary by Floorplan sheet ---
+    summary_sheet = None
+    for name, df in sheets.items():
+        if 'summary' in name.lower() and 'floorplan' in name.lower():
+            summary_sheet = df
+            break
+    
+    if summary_sheet is not None:
+        header_row = None
+        for i in range(min(10, len(summary_sheet))):
+            row_vals = [str(v).strip().lower() for v in summary_sheet.iloc[i].tolist() if pd.notna(v)]
+            if any('floor' in v for v in row_vals):
+                header_row = i
+                break
+        
+        if header_row is not None:
+            for i in range(header_row + 1, len(summary_sheet)):
+                row = summary_sheet.iloc[i].tolist()
+                fp = row[0] if len(row) > 0 else None
+                if pd.isna(fp) or str(fp).strip() == '' or 'total' in str(fp).lower():
+                    continue
+                
+                record = {
+                    '_type': 'summary',
+                    'property_id': property_id,
+                    'report_date': report_date,
+                    'floorplan': str(fp).strip(),
+                    'total_possible': safe_int(row[1]) if len(row) > 1 else 0,
+                    'renewed': safe_int(row[2]) if len(row) > 2 else 0,
+                    'vacating': safe_int(row[3]) if len(row) > 3 else 0,
+                    'unknown': safe_int(row[4]) if len(row) > 4 else 0,
+                    'month_to_month': safe_int(row[5]) if len(row) > 5 else 0,
+                    'avg_term_renewed': safe_float(row[6]) if len(row) > 6 else 0.0,
+                    'avg_new_rent': safe_float(row[7]) if len(row) > 7 else 0.0,
+                    'avg_market_rent': safe_float(row[8]) if len(row) > 8 else 0.0,
+                }
+                records.append(record)
+    
+    return records
+
+
 def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
@@ -959,6 +1094,7 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'activity_report': 'activity',
             'monthly_activity_summary': 'monthly_summary',
             'projected_occupancy': 'projected_occupancy',
+            'lease_expiration_renewal': 'lease_expiration_renewal',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -974,6 +1110,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_lease_expiration(file_path, property_id)
     elif report_type == 'activity':
         records = parse_activity(file_path, property_id)
+    elif report_type == 'lease_expiration_renewal':
+        records = parse_lease_expiration_renewal(file_path, property_id)
     elif report_type == 'projected_occupancy':
         records = parse_projected_occupancy(file_path, property_id)
     else:

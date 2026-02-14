@@ -160,6 +160,7 @@ TABLE_MAP = {
     "monthly_activity_summary": "realpage_monthly_summary",
     "lease_expiration": "realpage_lease_expirations",
     "projected_occupancy": "realpage_projected_occupancy",
+    "lease_expiration_renewal": "realpage_lease_expiration_renewal",
 }
 
 
@@ -180,7 +181,9 @@ def cleanup_report_files():
 def build_payload(report_def, property_detail, date_offset=0):
     """Build the API payload. date_offset=0 means today, 1=yesterday, etc."""
     from datetime import timedelta
+    from dateutil.relativedelta import relativedelta
     target = datetime.now() - timedelta(days=date_offset)
+    exp_end = target + relativedelta(months=4)
     dates = {
         "start_date": f"01/01/{target.year}",
         "end_date": target.strftime("%m/%d/%Y"),
@@ -188,6 +191,10 @@ def build_payload(report_def, property_detail, date_offset=0):
         "start_month": target.strftime("%m/%Y"),
         "end_month": target.strftime("%m/%Y"),
         "fiscal_period": target.strftime("%m%Y"),
+        # Forward-looking dates for lease expiration reports
+        "exp_start_date": target.replace(day=1).strftime("%m/%d/%Y"),
+        "exp_end_date": exp_end.replace(day=1).strftime("%m/%d/%Y"),
+        "exp_end_month": exp_end.strftime("%m/%Y"),
     }
 
     parameters = []
@@ -245,7 +252,8 @@ def import_downloaded(downloads):
     from import_reports import (
         import_box_score, import_delinquency, import_rent_roll,
         import_monthly_summary, import_lease_expiration, import_activity,
-        import_projected_occupancy, init_report_tables,
+        import_projected_occupancy, import_lease_expiration_renewal,
+        init_report_tables,
     )
 
     conn = sqlite3.connect(DB_PATH)
@@ -261,6 +269,7 @@ def import_downloaded(downloads):
         "activity_report": import_activity,
         "activity": import_activity,
         "projected_occupancy": import_projected_occupancy,
+        "lease_expiration_renewal": import_lease_expiration_renewal,
     }
 
     total = 0

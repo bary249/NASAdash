@@ -1,38 +1,28 @@
 /**
- * SearchBar - Top search bar with Classic Search / AI Assist toggle
- * Matches design: centered search bar with mode toggle buttons
+ * SearchBar - AI-powered search bar
+ * Matches design: centered search bar with AI styling
  */
-import { useState, useRef, useEffect } from 'react';
-import { Search, Sparkles, X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Sparkles, X } from 'lucide-react';
 
 interface SearchBarProps {
   onSearch: (query: string, isAI: boolean) => void;
-  isAIMode: boolean;
-  onModeChange: (isAI: boolean) => void;
   isLoading?: boolean;
   placeholder?: string;
 }
 
 export function SearchBar({ 
   onSearch, 
-  isAIMode, 
-  onModeChange, 
   isLoading = false,
-  placeholder = "Search properties, metrics, or ask AI..."
+  placeholder = "Ask AI about your property data..."
 }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (isAIMode && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [isAIMode]);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim()) {
-      onSearch(query.trim(), isAIMode);
+      onSearch(query.trim(), true);
     }
   };
 
@@ -47,24 +37,17 @@ export function SearchBar({
     <div className="w-full max-w-2xl mx-auto">
       <form onSubmit={handleSubmit} className="relative">
         {/* Search Input Container */}
-        <div className={`
-          relative bg-white rounded-2xl shadow-lg border-2 transition-all duration-300
-          ${isAIMode ? 'border-indigo-400 shadow-indigo-100' : 'border-slate-200'}
-        `}>
+        <div className="relative bg-white rounded-2xl shadow-lg border-2 transition-all duration-300 border-indigo-400 shadow-indigo-100">
           {/* Input */}
           <div className="flex items-center px-4 py-3">
-            {isAIMode ? (
-              <Sparkles className="w-5 h-5 text-indigo-500 mr-3 flex-shrink-0" />
-            ) : (
-              <Search className="w-5 h-5 text-slate-400 mr-3 flex-shrink-0" />
-            )}
+            <Sparkles className="w-5 h-5 text-indigo-500 mr-3 flex-shrink-0" />
             <input
               ref={inputRef}
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={isAIMode ? "Ask AI about your property data..." : placeholder}
+              placeholder={placeholder}
               className="flex-1 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none bg-transparent"
               disabled={isLoading}
             />
@@ -79,35 +62,12 @@ export function SearchBar({
             )}
           </div>
 
-          {/* Mode Toggle Buttons - matching design: dark filled for Classic, white outlined for AI */}
+          {/* AI badge */}
           <div className="flex items-center gap-2 px-4 pb-3">
-            <button
-              type="button"
-              onClick={() => onModeChange(false)}
-              className={`
-                px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-200
-                ${!isAIMode 
-                  ? 'bg-slate-800 text-white' 
-                  : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
-                }
-              `}
-            >
-              Classic Search
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange(true)}
-              className={`
-                px-4 py-1.5 text-xs font-medium rounded-full transition-all duration-200 flex items-center gap-1.5
-                ${isAIMode 
-                  ? 'bg-slate-800 text-white' 
-                  : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
-                }
-              `}
-            >
+            <span className="px-3 py-1 text-xs font-medium rounded-full bg-slate-800 text-white flex items-center gap-1.5">
               <Sparkles className="w-3 h-3" />
               AI Assist
-            </button>
+            </span>
           </div>
         </div>
 

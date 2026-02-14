@@ -76,25 +76,41 @@
       "status": "complete"
     },
     "lease_expiration": {
-      "report_id": 3838,
-      "report_key": "89545A3A-C28A-49CC-8791-396AE71AB422",
-      "name": "Lease Expiration",
+      "report_id": 4299,
+      "report_key": "B289373B-F2EF-4391-B492-1BCBC89A4864",
+      "name": "Lease Expiration Detail - Excel (DEPRECATED - superseded by lease_expiration_renewal 4156)",
       "formats": {
-        "pdf": "1",
-        "word": "2",
-        "excel": "3"
+        "excel": "2153"
       },
       "parameters": [
-        {"name": "Custom_RangeType", "value": "Range"},
+        {"name": "custom_rangetype", "value": "Range"},
         {"name": "startmonth", "value": "{{start_month}}"},
-        {"name": "endmonth", "value": "{{end_month}}"},
+        {"name": "endmonth", "value": "{{exp_end_month}}"},
         {"name": "MarketRentType", "value": "Market + Addl."},
-        {"name": "renewals", "value": "Yes"},
-        {"name": "preleased", "value": "Yes"},
-        {"name": "pending", "value": "Yes"},
+        {"name": "renewals", "value": "1"},
+        {"name": "preleased", "value": "1"},
+        {"name": "pending", "value": "1"},
         {"name": "SortBy", "value": "Expiration Date"}
       ],
-      "status": "complete"
+      "status": "deprecated"
+    },
+    "lease_expiration_renewal": {
+      "report_id": 4156,
+      "report_key": "05E163C2-14E9-4A4E-B71F-328717ABF599",
+      "name": "Lease Expiration Renewal Detail (Excel)",
+      "formats": {
+        "excel": "1979"
+      },
+      "parameters": [
+        {"name": "IPVC_LEABEGINDATE", "value": "{{exp_start_date}}"},
+        {"name": "IPVC_LEAENDDATE", "value": "{{exp_end_date}}"},
+        {"name": "IPVC_SUBPROPERTIES", "value": "ALL"},
+        {"name": "IPVC_AlreadyRenewed", "value": "Yes"},
+        {"name": "IPVC_MTM", "value": "No"},
+        {"name": "IPVC_SORTORDER", "value": "Unit Number"}
+      ],
+      "status": "complete",
+      "notes": "Outputs .xls (old format), needs engine=xlrd. 5 sheets: Expiration Detail, Renewal Detail, Summary by Floorplan, Future by Floorplan, Summary by Leasing Consultant. Decision column: Vacating/Unknown/Renewed/Moved out."
     },
     "delinquency": {
       "report_id": 4260,

@@ -50,10 +50,10 @@ export const api = {
   getLeasingFunnel: (propertyId: string, timeframe: Timeframe = 'cm'): Promise<LeasingFunnelMetrics> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/leasing-funnel?timeframe=${timeframe}`),
 
-  getExpirations: (propertyId: string): Promise<{ periods: { label: string; expirations: number; renewals: number; renewal_pct: number }[] }> =>
+  getExpirations: (propertyId: string): Promise<{ periods: { label: string; expirations: number; renewals: number; signed: number; submitted: number; selected: number; renewal_pct: number; vacating?: number; unknown?: number; mtm?: number; moved_out?: number }[] }> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/expirations`),
 
-  getExpirationDetails: (propertyId: string, days: number = 90, filter?: 'renewed' | 'expiring'): Promise<{ leases: { unit: string; lease_end: string; market_rent: number; status: string; floorplan: string; sqft: number; move_in: string; lease_start: string }[]; count: number }> => {
+  getExpirationDetails: (propertyId: string, days: number = 90, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out'): Promise<{ leases: { unit: string; lease_end: string; market_rent: number; status: string; floorplan: string; sqft: number; move_in: string; lease_start: string }[]; count: number }> => {
     const params = new URLSearchParams({ days: String(days) });
     if (filter) params.set('filter', filter);
     return fetchJson(`${API_BASE}/properties/${propertyId}/expirations/details?${params}`);
@@ -254,13 +254,23 @@ export const api = {
     return fetchJson(url);
   },
 
-  getRenewals: (propertyId: string, days?: number): Promise<{
-    renewals: { unit_id: string; renewal_rent: number; market_rent: number; vs_market: number; vs_market_pct: number; lease_start: string; lease_term: string; floorplan: string }[];
-    summary: { count: number; avg_renewal_rent: number; avg_market_rent: number; avg_vs_market: number; avg_vs_market_pct: number };
+  getRenewals: (propertyId: string, days?: number, month?: string): Promise<{
+    renewals: { unit_id: string; renewal_rent: number; prior_rent: number; vs_prior: number; vs_prior_pct: number; lease_start: string; lease_term: string; floorplan: string }[];
+    summary: { count: number; avg_renewal_rent: number; avg_prior_rent: number; avg_vs_prior: number; avg_vs_prior_pct: number };
   }> => {
-    const url = days ? `${API_BASE}/properties/${propertyId}/renewals?days=${days}` : `${API_BASE}/properties/${propertyId}/renewals`;
-    return fetchJson(url);
+    const params = new URLSearchParams();
+    if (days) params.set('days', String(days));
+    if (month) params.set('month', month);
+    const qs = params.toString();
+    return fetchJson(`${API_BASE}/properties/${propertyId}/renewals${qs ? `?${qs}` : ''}`);
   },
+
+  getAvailability: (propertyId: string): Promise<{
+    property_id: string; total_units: number; occupied: number; vacant: number;
+    on_notice: number; preleased: number; atr: number; atr_pct: number; availability_pct: number;
+    buckets: { available_0_30: number; available_30_60: number; total: number };
+    trend: { direction: string; weeks: { week_ending: string; atr: number; atr_pct: number; occupancy_pct: number; move_ins: number; move_outs: number }[] };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/availability`),
 
   getOccupancyForecast: (propertyId: string, weeks = 12): Promise<{
     forecast: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; lease_expirations: number; net_change: number }[];
@@ -276,6 +286,25 @@ export const api = {
     loss_per_unit: number; total_loss_to_lease: number; loss_to_lease_pct: number;
     occupied_units: number; total_units: number; data_available: boolean;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/loss-to-lease`),
+
+  getConsolidatedByBedroom: (propertyId: string): Promise<{
+    bedrooms: {
+      bedroom_type: string; bedrooms: number; floorplan_count: number; floorplans: string[];
+      total_units: number; occupied: number; vacant: number; vacant_leased: number; vacant_not_leased: number; on_notice: number;
+      occupancy_pct: number; avg_market_rent: number; avg_in_place_rent: number; rent_delta: number;
+      expiring_90d: number; renewed_90d: number; renewal_pct_90d: number | null;
+    }[];
+    totals: {
+      total_units: number; occupied: number; vacant: number; vacant_leased: number; on_notice: number;
+      occupancy_pct: number; expiring_90d: number; renewed_90d: number; renewal_pct_90d: number | null;
+    };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/consolidated-by-bedroom`),
+
+  getReputation: (propertyId: string): Promise<{
+    property_id: string; overall_rating: number;
+    sources: { source: string; name: string; rating: number | null; review_count: number; url: string; star_distribution: Record<string, number> | null }[];
+    review_power: { response_rate: number; avg_response_hours: number | null; avg_response_label: string | null; needs_attention: number; responded: number; not_responded: number; total_reviews: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/reputation`),
 
   getReviews: (propertyId: string): Promise<{
     rating: number; review_count: number; place_id: string; google_maps_url: string;
@@ -319,6 +348,52 @@ export const api = {
     if (propertyIds && propertyIds.length > 0) params.set('property_ids', propertyIds.join(','));
     const q = params.toString();
     return fetchJson(`${PORTFOLIO_BASE}/risk-scores${q ? `?${q}` : ''}`);
+  },
+
+  // Watch List
+  getWatchlist: (params?: { owner_group?: string; occ_threshold?: number; delinq_threshold?: number; renewal_threshold?: number; review_threshold?: number }): Promise<{
+    total_properties: number; flagged_count: number;
+    thresholds: { occupancy_pct: number; delinquent_total: number; renewal_rate_90d: number; google_rating: number };
+    watchlist: {
+      id: string; name: string; owner_group: string; total_units: number;
+      occupancy_pct: number; vacant: number; on_notice: number; preleased: number;
+      delinquent_total: number; delinquent_units: number;
+      renewal_rate_90d: number | null; google_rating: number | null;
+      churn_score: number | null; at_risk_residents: number;
+      flags: { metric: string; label: string; severity: string; value: number; threshold: number }[];
+      flag_count: number;
+    }[];
+  }> => {
+    const qs = new URLSearchParams();
+    if (params?.owner_group) qs.set('owner_group', params.owner_group);
+    if (params?.occ_threshold != null) qs.set('occ_threshold', String(params.occ_threshold));
+    if (params?.delinq_threshold != null) qs.set('delinq_threshold', String(params.delinq_threshold));
+    if (params?.renewal_threshold != null) qs.set('renewal_threshold', String(params.renewal_threshold));
+    if (params?.review_threshold != null) qs.set('review_threshold', String(params.review_threshold));
+    const q = qs.toString();
+    return fetchJson(`${PORTFOLIO_BASE}/watchlist${q ? '?' + q : ''}`);
+  },
+
+  // Watchpoints (Custom AI Metrics)
+  getWatchpoints: (propertyId: string): Promise<{
+    property_id: string;
+    watchpoints: { id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean; created_at: string; status: string; current_value: number | null }[];
+    available_metrics: Record<string, { label: string; unit: string; direction: string }>;
+    current_metrics: Record<string, number>;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/watchpoints`),
+
+  createWatchpoint: async (propertyId: string, body: { metric: string; operator: string; threshold: number; label?: string }): Promise<{ id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean }> => {
+    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
+  },
+
+  deleteWatchpoint: async (propertyId: string, watchpointId: string): Promise<{ deleted: boolean }> => {
+    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints/${watchpointId}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
   },
 
   // AI Chat

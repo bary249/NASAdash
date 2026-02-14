@@ -193,4 +193,9 @@ def _build_data_summary(property_id: str, data: Dict[str, Any]) -> str:
     if shows:
         lines.append(f"\nSHOWS (L7): {shows.get('total_shows', 0)} tours in last 7 days")
 
+    # Custom watchpoints (WS8)
+    watchpoint_text = data.get("watchpoint_summary", "")
+    if watchpoint_text:
+        lines.append(watchpoint_text)
+
     return "\n".join(lines)

@@ -17,6 +17,9 @@ interface ExpirationPeriod {
   label: string;
   expirations: number;
   renewals: number;
+  signed: number;
+  submitted: number;
+  selected: number;
   renewal_pct: number;
 }
 
@@ -26,6 +29,7 @@ interface PropertySummary {
   exposure?: ExposureMetrics;
   funnel?: LeasingFunnelMetrics;
   expirations?: { periods: ExpirationPeriod[] };
+  atr?: { atr: number; atr_pct: number; vacant: number; on_notice: number; preleased: number };
   loading: boolean;
   error?: string;
   selected?: boolean;  // For multi-select
@@ -52,7 +56,7 @@ const healthDot: Record<HealthStatus, string> = {
   neutral: 'bg-slate-300',
 };
 
-type SortKey = 'property' | 'units' | 'occupancy' | 'leased' | 'expiring90' | 'renewals90' | 'vacant';
+type SortKey = 'property' | 'units' | 'occupancy' | 'leased' | 'expiring90' | 'renewals90' | 'vacant' | 'atr';
 type SortDir = 'asc' | 'desc';
 
 function getSortValue(p: PropertySummary, key: SortKey): number | string {
@@ -64,6 +68,7 @@ function getSortValue(p: PropertySummary, key: SortKey): number | string {
     case 'expiring90': return p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? -1;
     case 'renewals90': return p.expirations?.periods?.find(pr => pr.label === '90d')?.renewals ?? -1;
     case 'vacant': return p.occupancy?.vacant_units ?? -1;
+    case 'atr': return p.atr?.atr ?? -1;
     default: return 0;
   }
 }
@@ -73,9 +78,11 @@ interface PortfolioViewProps {
   selectedPropertyId?: string;
   selectedPropertyIds?: Set<string>;
   onSelectedPropertyIdsChange?: (ids: Set<string>) => void;
+  selectedOwnerGroup?: string;
+  onOwnerGroupChange?: (group: string) => void;
 }
 
-export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange }: PortfolioViewProps) {
+export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange }: PortfolioViewProps) {
   const [expanded, setExpanded] = useState(true);
   const [properties, setProperties] = useState<PropertySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,7 +102,12 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [ownerGroups, setOwnerGroups] = useState<string[]>([]);
-  const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>('PHH');
+  const [internalOwnerGroup, setInternalOwnerGroup] = useState<string>('PHH');
+  const selectedOwnerGroup = externalOwnerGroup ?? internalOwnerGroup;
+  const setSelectedOwnerGroup = (g: string) => {
+    if (onOwnerGroupChange) onOwnerGroupChange(g);
+    else setInternalOwnerGroup(g);
+  };
   const scramblePII = useScramble();
   const scrambleMode = useScrambleMode();
 
@@ -179,6 +191,15 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
               } catch {
                 // Funnel fetch failed, continue without it
               }
+
+              // Fetch ATR
+              let atr: PropertySummary['atr'] | undefined;
+              try {
+                const avail = await api.getAvailability(p.id);
+                if (avail) atr = { atr: avail.atr, atr_pct: avail.atr_pct, vacant: avail.vacant, on_notice: avail.on_notice, preleased: avail.preleased };
+              } catch {
+                // ATR fetch failed, continue without it
+              }
               
               setProperties(prev => {
                 const updated = [...prev];
@@ -188,6 +209,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                   exposure: exposure as ExposureMetrics,
                   expirations,
                   funnel,
+                  atr,
                   loading: false,
                 };
                 return updated;
@@ -429,7 +451,8 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                   { key: 'leased' as SortKey, label: 'Leased %', align: 'center' },
                   { key: 'expiring90' as SortKey, label: 'Expiring 90d', align: 'center' },
                   { key: 'renewals90' as SortKey, label: 'Renewals 90d', align: 'center' },
-                  { key: 'vacant' as SortKey, label: 'Total Vacant', align: 'center' },
+                  { key: 'atr' as SortKey, label: 'ATR', align: 'center' },
+                  { key: 'vacant' as SortKey, label: 'Vacant', align: 'center' },
                 ]).map(col => (
                   <th
                     key={col.key}
@@ -525,6 +548,13 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                           );
                         })()}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {p.loading ? '...' : p.atr ? (
+                          <span className={`font-semibold ${p.atr.atr > 5 ? 'text-rose-600' : p.atr.atr > 2 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {p.atr.atr} <span className="text-xs font-normal text-slate-400">({p.atr.atr_pct}%)</span>
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td className="px-4 py-3 text-center text-slate-600">
                         {p.loading ? '...' : p.occupancy?.vacant_units ?? '—'}
                       </td>
@@ -559,7 +589,19 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                     {selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? 0), 0)}
                   </td>
                   <td className="px-5 py-4 text-center text-venn-navy font-semibold">
-                    {selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.renewals ?? 0), 0)}
+                    {(() => {
+                      const totalRenewals = selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.renewals ?? 0), 0);
+                      const totalExpirations = selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? 0), 0);
+                      const pct = totalExpirations > 0 ? Math.round(totalRenewals / totalExpirations * 100 * 10) / 10 : 0;
+                      return <>{totalRenewals} <span className="text-xs font-normal text-slate-400">({pct}%)</span></>;
+                    })()}
+                  </td>
+                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">
+                    {(() => {
+                      const totalAtr = selectedProperties.reduce((sum, p) => sum + (p.atr?.atr ?? 0), 0);
+                      const atrPct = totals.totalUnits > 0 ? Math.round(totalAtr / totals.totalUnits * 1000) / 10 : 0;
+                      return <>{totalAtr} <span className="text-xs font-normal text-slate-400">({atrPct}%)</span></>;
+                    })()}
                   </td>
                   <td className="px-5 py-4 text-center text-venn-navy font-semibold">{totals.vacantUnits}</td>
                   <td className="px-5 py-4"></td>

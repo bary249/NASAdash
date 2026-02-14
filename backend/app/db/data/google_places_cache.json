@@ -18,7 +18,7 @@
     }
   },
   "7 east apartments": {
-    "cached_at": 1771001265.781201,
+    "cached_at": 1771087884.322207,
     "data": {
       "rating": 4.3,
       "review_count": 95,
@@ -27,7 +27,7 @@
     }
   },
   "aspire 7th and grant apartments": {
-    "cached_at": 1771001266.4358559,
+    "cached_at": 1771087885.1782541,
     "data": {
       "rating": 4.8,
       "review_count": 156,
@@ -36,25 +36,25 @@
     }
   },
   "block 44 apartments": {
-    "cached_at": 1771001267.16792,
+    "cached_at": 1771087885.994992,
     "data": {
       "rating": 3.9,
-      "review_count": 126,
+      "review_count": 127,
       "place_id": "ChIJ0enORAz1UocR9nXwLKshgkc",
       "address": "380 S 400 E, Salt Lake City, UT 84111, USA"
     }
   },
   "the broadleaf apartments": {
-    "cached_at": 1771001268.036074,
+    "cached_at": 1771087887.1028779,
     "data": {
-      "rating": 4.9,
-      "review_count": 69,
+      "rating": 4.8,
+      "review_count": 71,
       "place_id": "ChIJ_9kBZvxjbIcRMqHEcbLTWYQ",
       "address": "1380 N Uvalda St, Aurora, CO 80011, USA"
     }
   },
   "the confluence apartments": {
-    "cached_at": 1771001269.2666318,
+    "cached_at": 1771087888.00629,
     "data": {
       "rating": 4.4,
       "review_count": 247,
@@ -63,7 +63,7 @@
     }
   },
   "curate at orchard town center apartments": {
-    "cached_at": 1771001269.851413,
+    "cached_at": 1771087888.9237509,
     "data": {
       "rating": 4.6,
       "review_count": 216,
@@ -72,7 +72,7 @@
     }
   },
   "discovery at kingwood apartments": {
-    "cached_at": 1771001270.7023559,
+    "cached_at": 1771087889.702188,
     "data": {
       "rating": 4.4,
       "review_count": 291,
@@ -81,7 +81,7 @@
     }
   },
   "eden keller ranch apartments": {
-    "cached_at": 1771001271.618478,
+    "cached_at": 1771087890.526792,
     "data": {
       "rating": 4.1,
       "review_count": 155,
@@ -90,7 +90,7 @@
     }
   },
   "edison at rino apartments": {
-    "cached_at": 1771001272.5048761,
+    "cached_at": 1771087891.442423,
     "data": {
       "rating": 4.4,
       "review_count": 252,
@@ -99,7 +99,7 @@
     }
   },
   "harvest apartments": {
-    "cached_at": 1771001273.551311,
+    "cached_at": 1771087892.268985,
     "data": {
       "rating": 4,
       "review_count": 85,
@@ -108,16 +108,16 @@
     }
   },
   "heights at interlocken apartments": {
-    "cached_at": 1771001274.514722,
+    "cached_at": 1771087893.183,
     "data": {
       "rating": 3.6,
-      "review_count": 237,
+      "review_count": 239,
       "place_id": "ChIJXwjZuoKLa4cR4DZFYclcCQQ",
       "address": "401 Interlocken Blvd, Broomfield, CO 80021, USA"
     }
   },
   "izzy apartments": {
-    "cached_at": 1771001275.151951,
+    "cached_at": 1771087894.135885,
     "data": {
       "rating": 3.3,
       "review_count": 516,
@@ -126,7 +126,7 @@
     }
   },
   "kalaco apartments": {
-    "cached_at": 1771001276.085103,
+    "cached_at": 1771087894.934384,
     "data": {
       "rating": 5,
       "review_count": 63,
@@ -135,16 +135,16 @@
     }
   },
   "the links at plum creek apartments": {
-    "cached_at": 1771001276.9977548,
+    "cached_at": 1771087895.753567,
     "data": {
       "rating": 4.2,
-      "review_count": 185,
+      "review_count": 186,
       "place_id": "ChIJPam_fnqkbIcRZm-85onqgRs",
       "address": "1100 E Plum Creek Pkwy, Castle Rock, CO 80104, USA"
     }
   },
   "luna apartments": {
-    "cached_at": 1771001277.73236,
+    "cached_at": 1771087896.701248,
     "data": {
       "rating": 3.5,
       "review_count": 32,
@@ -153,7 +153,7 @@
     }
   },
   "nexus east apartments": {
-    "cached_at": 1771001278.703615,
+    "cached_at": 1771087897.547486,
     "data": {
       "rating": 3.9,
       "review_count": 240,
@@ -162,7 +162,7 @@
     }
   },
   "park 17 apartments": {
-    "cached_at": 1771001279.636987,
+    "cached_at": 1771087898.487286,
     "data": {
       "rating": 4.6,
       "review_count": 182,
@@ -171,16 +171,16 @@
     }
   },
   "parkside at round rock apartments": {
-    "cached_at": 1771001280.5492449,
+    "cached_at": 1771087899.281589,
     "data": {
       "rating": 3.9,
-      "review_count": 223,
+      "review_count": 225,
       "place_id": "ChIJkcLlpSzRRIYRQGZOXRDFlOA",
       "address": "5000 N Mays St, Round Rock, TX 78665, USA"
     }
   },
   "pearl lantana apartments": {
-    "cached_at": 1771001281.326098,
+    "cached_at": 1771087900.143154,
     "data": {
       "rating": 4.7,
       "review_count": 283,
@@ -189,16 +189,16 @@
     }
   },
   "ridian apartments": {
-    "cached_at": 1771001282.204662,
+    "cached_at": 1771087901.0260139,
     "data": {
       "rating": 4.8,
-      "review_count": 32,
+      "review_count": 33,
       "place_id": "ChIJGTBenbx5bIcRySucSOeL-Pw",
       "address": "3295 Eliot St, Denver, CO 80211, USA"
     }
   },
   "slate apartments": {
-    "cached_at": 1771001283.105875,
+    "cached_at": 1771087909.794106,
     "data": {
       "rating": 3.9,
       "review_count": 12,
@@ -207,7 +207,7 @@
     }
   },
   "sloane apartments": {
-    "cached_at": 1771001283.7207942,
+    "cached_at": 1771087919.248817,
     "data": {
       "rating": 4.7,
       "review_count": 83,
@@ -216,7 +216,7 @@
     }
   },
   "the station at riverfront park apartments": {
-    "cached_at": 1771001284.703613,
+    "cached_at": 1771087920.0609019,
     "data": {
       "rating": 4,
       "review_count": 302,
@@ -225,7 +225,7 @@
     }
   },
   "stonewood apartments": {
-    "cached_at": 1771001285.5866282,
+    "cached_at": 1771087920.843984,
     "data": {
       "rating": 4.1,
       "review_count": 208,
@@ -234,7 +234,7 @@
     }
   },
   "ten50 apartments": {
-    "cached_at": 1771001286.426337,
+    "cached_at": 1771087921.618413,
     "data": {
       "rating": 4.6,
       "review_count": 62,
@@ -243,16 +243,16 @@
     }
   },
   "the alcott apartments": {
-    "cached_at": 1771001287.4009001,
+    "cached_at": 1771087922.452922,
     "data": {
-      "rating": 4,
-      "review_count": 237,
-      "place_id": "ChIJde3w7mR5bIcRUbV9LJsc_Gw",
-      "address": "2424 Alcott St, Denver, CO 80211, USA"
+      "rating": 4.5,
+      "review_count": 79,
+      "place_id": "ChIJizlWb4fJxokRe4Lj789BUJU",
+      "address": "416 Spring Garden St, Philadelphia, PA 19123, USA"
     }
   },
   "the avant apartments": {
-    "cached_at": 1771001288.3451982,
+    "cached_at": 1771087923.2071638,
     "data": {
       "rating": 4.3,
       "review_count": 258,
@@ -261,7 +261,7 @@
     }
   },
   "the hunter apartments": {
-    "cached_at": 1771001289.250583,
+    "cached_at": 1771087924.0613031,
     "data": {
       "rating": 4.8,
       "review_count": 16,
@@ -270,7 +270,7 @@
     }
   },
   "the northern apartments": {
-    "cached_at": 1771001290.058689,
+    "cached_at": 1771087924.978391,
     "data": {
       "rating": 3.6,
       "review_count": 144,
@@ -279,7 +279,7 @@
     }
   },
   "thepearl apartments": {
-    "cached_at": 1771001291.007404,
+    "cached_at": 1771087925.766731,
     "data": {
       "rating": 4.4,
       "review_count": 13,
@@ -288,12 +288,30 @@
     }
   },
   "thequinci apartments": {
-    "cached_at": 1771001291.899554,
+    "cached_at": 1771087926.68205,
     "data": {
       "rating": 4.7,
       "review_count": 51,
       "place_id": "ChIJU7R3Rcn1UocRRP72IxxXzGY",
       "address": "1106 S Redwood Rd, Salt Lake City, UT 84104, USA"
+    }
+  },
+  "test property apartments": {
+    "cached_at": 1771064281.1552808,
+    "data": {
+      "rating": 4.2,
+      "review_count": 73,
+      "place_id": "ChIJF9bI7Q0H5xQRSypzu46Kh5A",
+      "address": "Iris Village, Dimitri Konstantinou 27-Block 11, Pafos 8048, Cyprus"
+    }
+  },
+  "test property apartments austin tx": {
+    "cached_at": 1771064382.09021,
+    "data": {
+      "rating": 4.7,
+      "review_count": 1284,
+      "place_id": "ChIJY10Ry1u1RIYRo3uf6UoWz8s",
+      "address": "1704 1/2 S Congress Ave Suite E, Austin, TX 78704, USA"
     }
   }
 }

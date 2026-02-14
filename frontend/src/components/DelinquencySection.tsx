@@ -102,7 +102,8 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<DelinquencyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showDetails, setShowDetails] = useState(false);
+  const [showCurrentDetails, setShowCurrentDetails] = useState(false);
+  const [showFormerDetails, setShowFormerDetails] = useState(false);
   const [showEvictions, setShowEvictions] = useState(false);
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
@@ -110,7 +111,8 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
   useEffect(() => {
     setData(null);
     setError(null);
-    setShowDetails(false);
+    setShowCurrentDetails(false);
+    setShowFormerDetails(false);
     setLoading(true);
 
     const fetchData = async () => {
@@ -217,10 +219,16 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
                         Math.abs(delinquency_aging.days_90_plus);
   const collections_0_30 = (collections.days_0_30 || 0) + (collections.current || 0);
 
-  // Get ALL delinquent residents (sorted by amount)
+  // Split delinquent residents into current vs former
   const allDelinquent = data.resident_details
     ?.filter(r => r.total_delinquent > 0)
     ?.sort((a, b) => b.total_delinquent - a.total_delinquent) || [];
+
+  const currentResidents = allDelinquent.filter(r => !r.is_former);
+  const formerResidents = allDelinquent.filter(r => r.is_former);
+
+  const currentTotal = currentResidents.reduce((s, r) => s + r.total_delinquent, 0);
+  const formerTotal = formerResidents.reduce((s, r) => s + r.total_delinquent, 0);
 
   // Eviction units from resident_details
   const evictionUnits = data.resident_details
@@ -412,24 +420,24 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
         </div>
       )}
 
-      {/* Delinquent Units - Expandable */}
-      {allDelinquent.length > 0 && (
-        <div className="border border-slate-200 rounded-xl overflow-hidden">
+      {/* Current Resident AR - Primary section */}
+      {currentResidents.length > 0 && (
+        <div className="border border-slate-200 rounded-xl overflow-hidden mb-4">
           <button
-            onClick={() => setShowDetails(!showDetails)}
+            onClick={() => setShowCurrentDetails(!showCurrentDetails)}
             className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors"
           >
             <span className="text-sm font-semibold text-slate-700">
-              Delinquent Units ({allDelinquent.length}) — {formatCurrency(allDelinquent.reduce((s, r) => s + r.total_delinquent, 0))}
+              Current Resident AR ({currentResidents.length}) — {formatCurrency(currentTotal)}
             </span>
-            {showDetails ? (
+            {showCurrentDetails ? (
               <ChevronUp className="w-4 h-4 text-slate-500" />
             ) : (
               <ChevronDown className="w-4 h-4 text-slate-500" />
             )}
           </button>
           
-          {showDetails && (
+          {showCurrentDetails && (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-100">
@@ -444,15 +452,12 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {allDelinquent.map((resident, idx) => (
-                    <tr key={idx} className={resident.is_eviction ? 'bg-red-50' : resident.is_former ? 'bg-amber-50' : 'hover:bg-slate-50'}>
+                  {currentResidents.map((resident, idx) => (
+                    <tr key={idx} className={resident.is_eviction ? 'bg-red-50' : 'hover:bg-slate-50'}>
                       <td className="px-4 py-2 font-medium">
                         {resident.unit}
                         {resident.is_eviction && (
                           <span className="ml-2 text-xs text-red-600 font-semibold">EVICTION</span>
-                        )}
-                        {resident.is_former && (
-                          <span className="ml-2 text-xs text-amber-600 font-semibold">FORMER</span>
                         )}
                       </td>
                       <td className="px-4 py-2 text-slate-600">{resident.status}</td>
@@ -476,12 +481,85 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-slate-300 font-semibold text-slate-800 bg-slate-50">
-                    <td className="px-4 py-2" colSpan={2}>Total ({allDelinquent.length} units)</td>
-                    <td className="px-4 py-2 text-right text-red-700">{formatCurrency(allDelinquent.reduce((s, r) => s + r.total_delinquent, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(allDelinquent.reduce((s, r) => s + r.days_30, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(allDelinquent.reduce((s, r) => s + r.days_60, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(allDelinquent.reduce((s, r) => s + (r.current || 0), 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(allDelinquent.reduce((s, r) => s + r.days_90_plus, 0))}</td>
+                    <td className="px-4 py-2" colSpan={2}>Total ({currentResidents.length} units)</td>
+                    <td className="px-4 py-2 text-right text-red-700">{formatCurrency(currentTotal)}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_30, 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_60, 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + (r.current || 0), 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_90_plus, 0))}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Former Resident AR - Secondary section */}
+      {formerResidents.length > 0 && (
+        <div className="border border-amber-200 rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowFormerDetails(!showFormerDetails)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-amber-50 hover:bg-amber-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-amber-600" />
+              <span className="text-sm font-semibold text-amber-700">
+                Former Resident AR ({formerResidents.length}) — {formatCurrency(formerTotal)}
+              </span>
+            </div>
+            {showFormerDetails ? (
+              <ChevronUp className="w-4 h-4 text-amber-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-amber-500" />
+            )}
+          </button>
+          
+          {showFormerDetails && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-amber-100">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase">Unit</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase">Status</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">Delinquent</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">0-30</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">31-60</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">61-90</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">90+</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {formerResidents.map((resident, idx) => (
+                    <tr key={idx} className="bg-amber-50 hover:bg-amber-100">
+                      <td className="px-4 py-2 font-medium text-amber-800">{resident.unit}</td>
+                      <td className="px-4 py-2 text-amber-600">{resident.status}</td>
+                      <td className="px-4 py-2 text-right font-medium text-amber-700">
+                        {formatCurrency(resident.total_delinquent)}
+                      </td>
+                      <td className="px-4 py-2 text-right text-amber-600">
+                        {resident.days_30 > 0 ? formatCurrency(resident.days_30) : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-amber-600">
+                        {resident.days_60 > 0 ? formatCurrency(resident.days_60) : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-amber-600">
+                        {(resident.current || 0) > 0 ? formatCurrency(resident.current || 0) : '-'}
+                      </td>
+                      <td className="px-4 py-2 text-right text-amber-600">
+                        {resident.days_90_plus > 0 ? formatCurrency(resident.days_90_plus) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-amber-300 font-semibold text-amber-800 bg-amber-50">
+                    <td className="px-4 py-2" colSpan={2}>Total ({formerResidents.length} units)</td>
+                    <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(formerTotal)}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_30, 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_60, 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + (r.current || 0), 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_90_plus, 0))}</td>
                   </tr>
                 </tfoot>
               </table>

@@ -1512,6 +1512,11 @@ class OccupancyService:
     async def get_lease_expirations(self, property_id: str) -> dict:
         """
         Get lease expiration and renewal metrics for 30/60/90 day periods.
+        
+        Primary source: realpage_lease_expiration_renewal (Report 4156) — has
+        Decision column: Renewed, Vacating, Unknown, Moved out, MTM.
+        Fallback: realpage_leases (Current / Current-Future status).
+        
         READ-ONLY operation.
         """
         import sqlite3
@@ -1528,34 +1533,97 @@ class OccupancyService:
             conn = sqlite3.connect(REALPAGE_DB_PATH)
             cursor = conn.cursor()
             
-            periods = []
-            for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
+            # Try report 4156 data first (has richer decision statuses)
+            use_4156 = False
+            try:
                 cursor.execute("""
-                    SELECT 
-                        COUNT(*) as expirations,
-                        SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewals
-                    FROM realpage_leases 
-                    WHERE site_id = ?
-                        AND status_text IN ('Current', 'Current - Future')
-                        AND lease_end_date != ''
-                        AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
-                            BETWEEN date('now') AND date('now', ? || ' days')
-                """, (site_id, f"+{days}"))
+                    SELECT COUNT(*) FROM realpage_lease_expiration_renewal
+                    WHERE property_id = ?
+                """, (site_id,))
+                if (cursor.fetchone()[0] or 0) > 0:
+                    use_4156 = True
+            except Exception:
+                pass
+            
+            periods = []
+            
+            if use_4156:
+                # Report 4156: lease_end_date is in MM/DD/YYYY format
+                date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
                 
-                row = cursor.fetchone()
-                expirations = row[0] or 0
-                renewals = row[1] or 0
-                renewal_pct = round((renewals / expirations * 100), 1) if expirations > 0 else 0
-                
-                periods.append({
-                    "label": label,
-                    "expirations": expirations,
-                    "renewals": renewals,
-                    "renewal_pct": renewal_pct
-                })
+                for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
+                    cursor.execute(f"""
+                        SELECT 
+                            COUNT(*) as total,
+                            SUM(CASE WHEN decision = 'Renewed' THEN 1 ELSE 0 END) as renewed,
+                            SUM(CASE WHEN decision = 'Vacating' THEN 1 ELSE 0 END) as vacating,
+                            SUM(CASE WHEN decision = 'Unknown' THEN 1 ELSE 0 END) as unknown,
+                            SUM(CASE WHEN decision = 'MTM' THEN 1 ELSE 0 END) as mtm,
+                            SUM(CASE WHEN decision = 'Moved out' THEN 1 ELSE 0 END) as moved_out
+                        FROM realpage_lease_expiration_renewal
+                        WHERE property_id = ?
+                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
+                          AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
+                    """, (site_id,))
+                    
+                    row = cursor.fetchone()
+                    total = row[0] or 0
+                    renewed = row[1] or 0
+                    vacating = row[2] or 0
+                    unknown = row[3] or 0
+                    mtm = row[4] or 0
+                    moved_out = row[5] or 0
+                    renewal_pct = round((renewed / total * 100), 1) if total > 0 else 0
+                    
+                    periods.append({
+                        "label": label,
+                        "expirations": total,
+                        "renewals": renewed,
+                        "signed": renewed,
+                        "vacating": vacating,
+                        "unknown": unknown,
+                        "mtm": mtm,
+                        "moved_out": moved_out,
+                        "submitted": 0,
+                        "selected": 0,
+                        "renewal_pct": renewal_pct
+                    })
+            else:
+                # Fallback: realpage_leases (no decision breakdown)
+                for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as expirations,
+                            SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
+                        FROM realpage_leases 
+                        WHERE site_id = ?
+                            AND status_text IN ('Current', 'Current - Future')
+                            AND lease_end_date != ''
+                            AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
+                                BETWEEN date('now') AND date('now', ? || ' days')
+                    """, (site_id, f"+{days}"))
+                    
+                    row = cursor.fetchone()
+                    expirations = row[0] or 0
+                    signed = row[1] or 0
+                    renewal_pct = round((signed / expirations * 100), 1) if expirations > 0 else 0
+                    
+                    periods.append({
+                        "label": label,
+                        "expirations": expirations,
+                        "renewals": signed,
+                        "signed": signed,
+                        "vacating": 0,
+                        "unknown": 0,
+                        "mtm": 0,
+                        "moved_out": 0,
+                        "submitted": 0,
+                        "selected": 0,
+                        "renewal_pct": renewal_pct
+                    })
             
             conn.close()
-            logger.info(f"[OCCUPANCY] Lease expirations for site {site_id}: {periods}")
+            logger.info(f"[OCCUPANCY] Lease expirations for site {site_id} (source={'4156' if use_4156 else 'leases'}): {periods}")
             return {"periods": periods}
             
         except Exception as e:

@@ -291,7 +291,7 @@ def smart_scan_and_match(instances: list, max_scan: int = 500) -> list:
 def import_to_database(instances: list) -> int:
     """Import downloaded reports to database."""
     from report_parsers import parse_report
-    from import_reports import import_box_score, import_delinquency, import_rent_roll, import_monthly_summary, import_lease_expiration, import_activity, import_projected_occupancy, init_report_tables
+    from import_reports import import_box_score, import_delinquency, import_rent_roll, import_monthly_summary, import_lease_expiration, import_activity, import_projected_occupancy, import_lease_expiration_renewal, init_report_tables
     
     conn = sqlite3.connect(DB_PATH)
     init_report_tables(conn)
@@ -326,6 +326,7 @@ def import_to_database(instances: list) -> int:
                     'activity': import_activity,
                     'activity_report': import_activity,
                     'projected_occupancy': import_projected_occupancy,
+                    'lease_expiration_renewal': import_lease_expiration_renewal,
                 }
                 importer = IMPORTERS.get(result['report_type'])
                 if importer:

@@ -378,6 +378,108 @@ def import_lease_expiration(conn: sqlite3.Connection, records: List[Dict], file_
     return imported
 
 
+def import_lease_expiration_renewal(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Lease Expiration Renewal Detail records (Report 4156)."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_lease_expiration_renewal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            unit_number TEXT,
+            floorplan TEXT,
+            actual_rent REAL,
+            other_billings REAL,
+            last_increase_date TEXT,
+            last_increase_amount REAL,
+            market_rent REAL,
+            move_in_date TEXT,
+            lease_end_date TEXT,
+            decision TEXT,
+            new_lease_start TEXT,
+            new_lease_term INTEGER,
+            new_rent REAL,
+            new_other_billings REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_lease_exp_renewal_summary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            floorplan TEXT,
+            total_possible INTEGER,
+            renewed INTEGER,
+            vacating INTEGER,
+            unknown INTEGER,
+            month_to_month INTEGER,
+            avg_term_renewed REAL,
+            avg_new_rent REAL,
+            avg_market_rent REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT
+        )
+    """)
+    imported = 0
+    for r in records:
+        try:
+            if r.get('_type') == 'detail':
+                cursor.execute("""
+                    INSERT INTO realpage_lease_expiration_renewal
+                    (property_id, report_date, unit_number, floorplan, actual_rent,
+                     other_billings, last_increase_date, last_increase_amount, market_rent,
+                     move_in_date, lease_end_date, decision, new_lease_start,
+                     new_lease_term, new_rent, new_other_billings, file_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r.get('property_id'),
+                    r.get('report_date'),
+                    r.get('unit_number'),
+                    r.get('floorplan'),
+                    r.get('actual_rent', 0),
+                    r.get('other_billings', 0),
+                    r.get('last_increase_date'),
+                    r.get('last_increase_amount', 0),
+                    r.get('market_rent', 0),
+                    r.get('move_in_date'),
+                    r.get('lease_end_date'),
+                    r.get('decision'),
+                    r.get('new_lease_start'),
+                    r.get('new_lease_term', 0),
+                    r.get('new_rent', 0),
+                    r.get('new_other_billings', 0),
+                    file_id
+                ))
+            elif r.get('_type') == 'summary':
+                cursor.execute("""
+                    INSERT INTO realpage_lease_exp_renewal_summary
+                    (property_id, report_date, floorplan, total_possible, renewed,
+                     vacating, unknown, month_to_month, avg_term_renewed,
+                     avg_new_rent, avg_market_rent, file_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r.get('property_id'),
+                    r.get('report_date'),
+                    r.get('floorplan'),
+                    r.get('total_possible', 0),
+                    r.get('renewed', 0),
+                    r.get('vacating', 0),
+                    r.get('unknown', 0),
+                    r.get('month_to_month', 0),
+                    r.get('avg_term_renewed', 0),
+                    r.get('avg_new_rent', 0),
+                    r.get('avg_market_rent', 0),
+                    file_id
+                ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting lease expiration renewal: {e}")
+    conn.commit()
+    return imported
+
+
 def import_activity(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
     """Import Activity Report records."""
     cursor = conn.cursor()

@@ -5,6 +5,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, User, Loader2, ChevronDown } from 'lucide-react';
 import { api } from '../api';
+import { saveQuestion } from './AIInsightsPanel';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -53,6 +54,7 @@ export function AIChatPanel({ propertyId, propertyName }: AIChatPanelProps) {
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
+    saveQuestion(userMessage);
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);

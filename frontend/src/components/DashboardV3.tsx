@@ -385,7 +385,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
           {/* Property Dashboard */}
           {propertyId ? (
-            <PropertyDataProvider propertyId={propertyId} propertyIds={activePropertyIds}>
+            <PropertyDataProvider propertyId={propertyId} propertyIds={activePropertyIds} timeframe={timeRange === 'mtd' ? 'cm' : timeRange === 'ytd' ? 'ytd' : timeRange === 'l30' ? 'l30' : 'l7'}>
               <PropertyDashboard
                 propertyId={propertyId}
                 propertyIds={activePropertyIds}
@@ -397,6 +397,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
                 marketComps={marketComps}
                 activeTab={activeTab}
                 propertyInfo={selectedPropertyInfo}
+                timeRange={timeRange}
               />
             </PropertyDataProvider>
           ) : activeTab !== 'watchlist' && activeTab !== 'watchpoints' ? (
@@ -438,6 +439,7 @@ interface PropertyDashboardProps {
   marketComps: MarketComp[];
   activeTab: TabId;
   propertyInfo?: PropertyInfo | null;
+  timeRange?: 'ytd' | 'mtd' | 'l30' | 'l7';
 }
 
 // Property image mapping
@@ -493,8 +495,10 @@ const RENEWAL_DRILL_COLUMNS = [
   { key: 'move_in', label: 'Move In' },
 ];
 
-function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo }: PropertyDashboardProps) {
+function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo, timeRange = 'mtd' }: PropertyDashboardProps) {
   const { occupancy, funnel, expirations, loading, error, periodEnd } = usePropertyData();
+
+  const periodLabel = timeRange === 'ytd' ? 'YTD' : timeRange === 'mtd' ? 'MTD' : timeRange === 'l30' ? 'Last 30 days' : 'Last 7 days';
 
   // New KPI data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -511,6 +515,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   const [renewalData, setRenewalData] = useState<any>(null);
   const [availCollapsed, setAvailCollapsed] = useState(false);
   const [forecastCollapsed, setForecastCollapsed] = useState(false);
+  const [renewalViewMode, setRenewalViewMode] = useState<'rolling' | 'monthly'>('rolling');
 
   // KPI drill-down state
   const [kpiDrillOpen, setKpiDrillOpen] = useState(false);
@@ -947,7 +952,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
                 value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
                 subtitle={prevTradeOut ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data'}
-                timeLabel="Last 30 days"
+                timeLabel={periodLabel}
                 icon={<DollarSign className="w-4 h-4" />}
                 tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
               />
@@ -979,6 +984,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               leasesSigned={funnel?.leaseSigns || 0}
               sightUnseen={funnel?.sightUnseen || 0}
               tourToApp={funnel?.tourToApp || 0}
+              timeLabel={periodLabel}
             />
             
             <button onClick={() => openKpiDrill('renewals')} className="text-left w-full">
@@ -986,7 +992,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
                 value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
                 subtitle={renewalCount ? `vs Prior ${renewalVsPriorPct >= 0 ? '+' : ''}${renewalVsPriorPct.toFixed(1)}%` : 'No data'}
-                timeLabel="Last 30 days"
+                timeLabel={periodLabel}
                 icon={<TrendingDown className="w-4 h-4" />}
                 tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases.`}
               />
@@ -1013,13 +1019,31 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
       {activeTab === 'renewals' && (
         <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Lease Renewals</h3>
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            {expirations?.periods?.map(p => {
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-800">Lease Renewals</h3>
+            <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setRenewalViewMode('rolling')}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  renewalViewMode === 'rolling' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >Rolling</button>
+              <button
+                onClick={() => setRenewalViewMode('monthly')}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                  renewalViewMode === 'monthly' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >Monthly</button>
+            </div>
+          </div>
+          <div className={`grid gap-4 mb-6 ${renewalViewMode === 'monthly' ? 'grid-cols-4' : 'grid-cols-3'}`}>
+            {expirations?.periods
+              ?.filter(p => renewalViewMode === 'rolling' ? p.label.endsWith('d') : !p.label.endsWith('d'))
+              .map(p => {
               const days = p.label === '30d' ? 30 : p.label === '60d' ? 60 : 90;
               return (
                 <div key={p.label} className="bg-slate-50 rounded-lg p-4 relative">
-                  <div className="text-xs font-medium text-slate-500 uppercase mb-3">{p.label === '30d' ? 'Next 30 Days' : p.label === '60d' ? 'Next 60 Days' : 'Next 90 Days'}</div>
+                  <div className="text-xs font-medium text-slate-500 uppercase mb-3">{p.label.endsWith('d') ? (p.label === '30d' ? 'Next 30 Days' : p.label === '60d' ? 'Next 60 Days' : 'Next 90 Days') : p.label}</div>
                   <button onClick={() => openDrill(days)} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-slate-800">{p.expirations}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">expiring</span>
@@ -1095,7 +1119,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-slate-800">Leasing Activity</h3>
-            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">Last 30 days</span>
+            <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">{periodLabel}</span>
           </div>
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="bg-indigo-50 rounded-lg p-4">

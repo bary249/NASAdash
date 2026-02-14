@@ -30,34 +30,24 @@ def _set_cached(property_id: str, data: dict):
     _cache[property_id] = {"ts": time.time(), "data": data}
 
 
-INSIGHTS_PROMPT = """You are an expert asset manager analyzing a multifamily property. Based on the data below, produce EXACTLY this JSON structure (no markdown, no code fences, just raw JSON):
+INSIGHTS_PROMPT = """You are a senior multifamily asset manager with 15 years of experience. You think in terms of NOI impact, not platitudes. You are reviewing a property for an owner who already knows the basics — they can see their own dashboard. Your job is to surface what they'd MISS.
 
-{
-  "alerts": [
-    {
-      "severity": "high" | "medium" | "low",
-      "title": "Short alert title (max 8 words)",
-      "fact": "One sentence with specific numbers from the data.",
-      "risk": "One sentence explaining the financial/operational risk.",
-      "action": "One sentence with a concrete recommended action."
-    }
-  ],
-  "qna": [
-    {
-      "question": "A question an owner/manager would ask",
-      "answer": "A concise answer with specific numbers from the data (2-3 sentences max)."
-    }
-  ]
-}
+Produce EXACTLY this JSON (no markdown, no fences):
 
-RULES:
-- Generate 2-4 alerts based on REAL issues in the data (not generic advice). Prioritize by severity.
-- Generate 3 Q&A pairs covering: (1) a financial/occupancy question, (2) a leasing/pipeline question, (3) a risk/resident question.
-- Use ONLY the numbers from the provided data. Never invent data.
-- Never include resident names or PII.
-- Keep each field concise. No paragraphs.
-- If data is limited, generate fewer alerts but never fabricate.
-- Output valid JSON only. No explanation text before or after.
+{"alerts":[{"severity":"high"|"medium"|"low","title":"Max 8 words","fact":"One sentence with specific numbers AND explicit time period (e.g. 'in L30', 'for Feb 2026').","risk":"Quantify the financial impact in $/month or $/year where possible.","action":"A specific, non-obvious action. Not 'monitor closely' or 'review trends'."}],"qna":[{"question":"...","answer":"2-3 sentences with numbers and explicit time periods."}]}
+
+BANNED WORDS (never use these — replace with the exact timeframe from the data):
+"recent", "recently", "lately", "currently", "current", "ongoing", "at this time", "as of now", "presently"
+
+ANALYST RULES — this is what separates you from a junior:
+1. CROSS-CORRELATE: If occupancy is low AND tours are low, that's a marketing/pricing problem. If occupancy is low but tours are high, that's a conversion problem. Say which.
+2. QUANTIFY IN DOLLARS: "5 vacant units at $1,400/mo = $7,000/mo revenue gap" not "vacancy is concerning."
+3. SKIP THE OBVIOUS: Never say "occupancy is X%" as an alert if it's already on the dashboard. Only flag it if it's anomalous (vs 94% benchmark) or combined with another signal.
+4. BENCHMARK: Physical occupancy <93% is below market. Response rate <80% is below standard. Lead-to-lease <10% needs investigation. Delinquency >3% of gross rent is elevated.
+5. FIND THE STORY: Connect 2-3 data points into a narrative. E.g., "High churn risk + expiring leases + negative trade-outs = potential revenue cliff in 60 days."
+6. ACTIONS MUST BE SPECIFIC: "Offer $500 concession on 2BR units priced above $1,600" not "consider adjusting pricing." "Call the 5 residents with 90+ day delinquency balances" not "follow up on delinquencies."
+7. EXPLICIT TIMEFRAMES: Never say "recent", "lately", "currently". Always state the exact period: "in the last 30 days", "for May 2026", "as of Feb 2026", "in the L30 leasing funnel". Match the timeframe labels from the data (L30 = last 30 days, CM = current month, etc.).
+8. Generate 2-4 alerts (only real issues) and 3 Q&A pairs. Use ONLY provided numbers. No PII. No fabrication.
 
 PROPERTY DATA:
 """
@@ -82,7 +72,7 @@ async def generate_insights(property_id: str, property_data: Dict[str, Any]) -> 
     try:
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=2048,
+            max_tokens=1500,
             messages=[{
                 "role": "user",
                 "content": INSIGHTS_PROMPT + data_summary
@@ -102,6 +92,9 @@ async def generate_insights(property_id: str, property_data: Dict[str, Any]) -> 
         if "qna" not in result:
             result["qna"] = []
 
+        # Post-process: scrub banned vague timeframe words
+        result = _scrub_vague_timeframes(result)
+
         _set_cached(property_id, result)
         logger.info(f"[AI-INSIGHTS] Generated {len(result['alerts'])} alerts, {len(result['qna'])} Q&A for {property_id}")
         return result
@@ -114,9 +107,51 @@ async def generate_insights(property_id: str, property_data: Dict[str, Any]) -> 
         return {"alerts": [], "qna": [], "error": str(e)}
 
 
+import re
+
+_BANNED_REPLACEMENTS = [
+    # Pattern → replacement (case-insensitive)
+    (r'\brecent trade-outs\b', 'L30 trade-outs'),
+    (r'\brecent leases\b', 'L30 leases'),
+    (r'\brecent renewals\b', 'L30 renewals'),
+    (r'\brecent months?\b', 'the last 30 days'),
+    (r'\brecently\b', 'in the last 30 days'),
+    (r'\brecent\b', 'L30'),
+    (r'\blately\b', 'in the last 30 days'),
+    (r'\bcurrently\b', 'as of this report'),
+    (r'\bcurrent month\b', 'CM'),
+    (r'\bcurrent\b', 'as of this report'),
+    (r'\bongoing\b', 'as of this report'),
+    (r'\bat this time\b', 'as of this report'),
+    (r'\bas of now\b', 'as of this report'),
+    (r'\bpresently\b', 'as of this report'),
+]
+
+
+def _scrub_vague_timeframes(result: dict) -> dict:
+    """Replace banned vague timeframe words in all text fields."""
+    def _scrub(text: str) -> str:
+        for pattern, replacement in _BANNED_REPLACEMENTS:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text
+
+    for alert in result.get("alerts", []):
+        for key in ("title", "fact", "risk", "action"):
+            if key in alert and isinstance(alert[key], str):
+                alert[key] = _scrub(alert[key])
+    for qa in result.get("qna", []):
+        for key in ("question", "answer"):
+            if key in qa and isinstance(qa[key], str):
+                qa[key] = _scrub(qa[key])
+    return result
+
+
 def _build_data_summary(property_id: str, data: Dict[str, Any]) -> str:
     """Build a compact text summary of all property data for the AI prompt."""
-    lines = [f"Property: {data.get('property_name', property_id)} ({property_id})"]
+    from datetime import datetime
+    now = datetime.now()
+    lines = [f"Property: {data.get('property_name', property_id)} ({property_id})",
+             f"Report date: {now.strftime('%B %d, %Y')} | CM = {now.strftime('%B %Y')} | L30 = last 30 days | L7 = last 7 days"]
 
     # Occupancy
     occ = data.get("occupancy", {})
@@ -163,14 +198,32 @@ def _build_data_summary(property_id: str, data: Dict[str, Any]) -> str:
                       f"{funnel.get('lease_signs', 0)} leases signed, "
                       f"Lead-to-lease {funnel.get('lead_to_lease_rate', 0)}%")
 
-    # Trade-outs
+    # Trade-outs (filter to YTD to match dashboard view)
     tradeouts = data.get("tradeouts", {})
-    summary = tradeouts.get("summary", {})
-    if summary and summary.get("count", 0) > 0:
-        lines.append(f"\nTRADE-OUTS: {summary['count']} recent, "
-                      f"avg prior ${summary.get('avg_prior_rent', 0):,.0f} → "
-                      f"new ${summary.get('avg_new_rent', 0):,.0f} "
-                      f"({summary.get('avg_pct_change', 0):+.1f}%)")
+    all_tradeouts = tradeouts.get("tradeouts", [])
+    if all_tradeouts:
+        from datetime import datetime
+        year_start = datetime(now.year, 1, 1) if 'now' in dir() else datetime(datetime.now().year, 1, 1)
+        ytd = []
+        for t in all_tradeouts:
+            try:
+                mid = t.get("move_in_date", "")
+                d = datetime.strptime(mid, "%m/%d/%Y") if mid else None
+                if d and d >= year_start:
+                    ytd.append(t)
+            except Exception:
+                pass
+        if ytd:
+            avg_prior = sum(t.get("prior_rent", 0) for t in ytd) / len(ytd)
+            avg_new = sum(t.get("new_rent", 0) for t in ytd) / len(ytd)
+            avg_pct = sum(t.get("pct_change", 0) for t in ytd) / len(ytd)
+            lines.append(f"\nTRADE-OUTS (YTD {now.year if 'now' in dir() else datetime.now().year}): {len(ytd)} trade-outs, "
+                          f"avg prior ${avg_prior:,.0f} → new ${avg_new:,.0f} ({avg_pct:+.1f}%)")
+        elif tradeouts.get("summary", {}).get("count", 0) > 0:
+            s = tradeouts["summary"]
+            lines.append(f"\nTRADE-OUTS (all-time, {s['count']} total): "
+                          f"avg prior ${s.get('avg_prior_rent', 0):,.0f} → "
+                          f"new ${s.get('avg_new_rent', 0):,.0f} ({s.get('avg_pct_change', 0):+.1f}%)")
 
     # Loss to lease
     ltl = data.get("loss_to_lease", {})
@@ -192,6 +245,19 @@ def _build_data_summary(property_id: str, data: Dict[str, Any]) -> str:
     shows = data.get("shows", {})
     if shows:
         lines.append(f"\nSHOWS (L7): {shows.get('total_shows', 0)} tours in last 7 days")
+
+    # Reputation / Reviews
+    google_rev = data.get("google_reviews", {})
+    apt_rev = data.get("apartments_reviews", {})
+    if google_rev or apt_rev:
+        parts = []
+        if google_rev:
+            parts.append(f"Google {google_rev.get('rating')}★ ({google_rev.get('review_count',0)} reviews, "
+                         f"{google_rev.get('response_rate',0)}% responded, {google_rev.get('needs_response',0)} need reply)")
+        if apt_rev:
+            parts.append(f"Apartments.com {apt_rev.get('rating')}★ ({apt_rev.get('review_count',0)} reviews, "
+                         f"{apt_rev.get('response_rate',0)}% responded, {apt_rev.get('needs_response',0)} need reply)")
+        lines.append(f"\nREPUTATION: " + " | ".join(parts))
 
     # Custom watchpoints (WS8)
     watchpoint_text = data.get("watchpoint_summary", "")

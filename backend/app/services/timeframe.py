@@ -51,6 +51,12 @@ def get_date_range(timeframe: Timeframe, reference_date: date = None) -> Tuple[d
         start = reference_date - timedelta(days=30)
         end = reference_date
     
+    elif timeframe == Timeframe.L7:
+        # Last 7 Days: 7 days ago to now
+        from datetime import timedelta
+        start = reference_date - timedelta(days=7)
+        end = reference_date
+    
     elif timeframe == Timeframe.YTD:
         # Year-to-Date: Jan 1st to now
         start = date(reference_date.year, 1, 1)

@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.portfolio import router as portfolio_router
 from app.api.imports import router as imports_router
+from app.api.auth import router as auth_router
 from app.config import get_settings
 
 app = FastAPI(
@@ -62,6 +63,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api", tags=["Auth"])
 app.include_router(router, prefix="/api/v2", tags=["Dashboard V2"])
 app.include_router(portfolio_router)  # Portfolio endpoints at /api/portfolio
 app.include_router(imports_router, prefix="/api", tags=["Excel Imports"])

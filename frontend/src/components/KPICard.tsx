@@ -140,10 +140,11 @@ interface FunnelKPICardProps {
   leasesSigned: number;
   sightUnseen?: number;
   tourToApp?: number;
+  timeLabel?: string;
   onClick?: () => void;
 }
 
-export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen = 0, tourToApp = 0, onClick }: FunnelKPICardProps) {
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen = 0, tourToApp = 0, timeLabel, onClick }: FunnelKPICardProps) {
   const stages = [
     { label: 'Leads', value: leads },
     { label: 'Tours', value: tours },
@@ -163,7 +164,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide inline-flex items-center gap-0.5">
           Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
         </span>
-        <span className="text-[10px] text-slate-400">Last 30 days</span>
+        <span className="text-[10px] text-slate-400">{timeLabel || 'Last 30 days'}</span>
       </div>
 
       <div className="flex items-center justify-around mt-3">

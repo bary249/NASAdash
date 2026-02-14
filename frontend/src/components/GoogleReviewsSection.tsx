@@ -40,12 +40,39 @@ interface ReviewsData {
   error?: string;
 }
 
+interface ApartmentsReview {
+  review_id: string;
+  author: string;
+  rating: number;
+  text: string;
+  time_desc: string;
+  has_response: boolean;
+  response_text: string | null;
+  response_date: string | null;
+}
+
+interface ApartmentsData {
+  rating: number | null;
+  review_count: number;
+  reviews: ApartmentsReview[];
+  star_distribution: Record<string, number>;
+  reviews_fetched: number;
+  responded: number;
+  not_responded: number;
+  needs_response: number;
+  response_rate: number;
+  source: string;
+  url: string;
+  error?: string;
+}
+
 interface GoogleReviewsSectionProps {
   propertyId: string;
   propertyIds?: string[];
   propertyName: string;
 }
 
+type ReviewSource = 'google' | 'apartments';
 type ResponseFilterType = 'all' | 'responded' | 'not_responded' | 'needs_attention';
 type SortType = 'newest' | 'oldest' | 'rating_high' | 'rating_low';
 
@@ -217,7 +244,9 @@ function StarBar({ star, count, total }: { star: number; count: number; total: n
 
 export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _propertyName }: GoogleReviewsSectionProps) {
   const [data, setData] = useState<ReviewsData | null>(null);
+  const [aptData, setAptData] = useState<ApartmentsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeSource, setActiveSource] = useState<ReviewSource>('google');
   const [starFilter, setStarFilter] = useState<number | null>(null);
   const [responseFilter, setResponseFilter] = useState<ResponseFilterType>('all');
   const [sortBy, setSortBy] = useState<SortType>('newest');
@@ -227,6 +256,31 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
   useEffect(() => {
     if (!effectiveIds.length) return;
     setLoading(true);
+    // Fetch Apartments.com reviews in parallel
+    Promise.all(effectiveIds.map(id => api.getApartmentsReviews(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(r => r && !r.error) as ApartmentsData[];
+        if (valid.length === 1) { setAptData(valid[0]); }
+        else if (valid.length > 1) {
+          // Merge multiple
+          const allReviews = valid.flatMap(r => r.reviews || []);
+          const mergedStarDist: Record<string, number> = {};
+          for (const v of valid) { for (const [star, count] of Object.entries(v.star_distribution || {})) { mergedStarDist[star] = (mergedStarDist[star] || 0) + count; } }
+          const totalFetched = valid.reduce((s, r) => s + (r.reviews_fetched || 0), 0);
+          const totalResponded = valid.reduce((s, r) => s + (r.responded || 0), 0);
+          const totalReviewCount = valid.reduce((s, r) => s + (r.review_count || 0), 0);
+          const weightedRating = totalReviewCount > 0 ? valid.reduce((s, r) => s + (r.rating || 0) * (r.review_count || 0), 0) / totalReviewCount : null;
+          setAptData({
+            rating: weightedRating, review_count: totalReviewCount, reviews: allReviews,
+            star_distribution: mergedStarDist, reviews_fetched: totalFetched,
+            responded: totalResponded, not_responded: totalFetched - totalResponded,
+            needs_response: valid.reduce((s, r) => s + (r.needs_response || 0), 0),
+            response_rate: totalFetched > 0 ? Math.round((totalResponded / totalFetched) * 100) : 0,
+            source: 'zembra/apartments.com', url: valid[0].url,
+          });
+        }
+      }).catch(() => {});
+    // Fetch Google reviews
     Promise.all(effectiveIds.map(id => api.getReviews(id).catch(() => null)))
       .then(results => {
         const valid = results.filter(Boolean) as ReviewsData[];
@@ -271,6 +325,7 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveIds.join(',')]);
 
   const hasFullData = data?.source === 'serpapi' || data?.source === 'playwright';
@@ -320,20 +375,82 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
   const responded = data.responded ?? 0;
   const notResponded = data.not_responded ?? 0;
 
+  // Apartments.com derived values
+  const aptResponseRate = aptData?.response_rate ?? 0;
+  const aptResponded = aptData?.responded ?? 0;
+  const aptNotResponded = aptData?.not_responded ?? 0;
+
+  const aptFilteredReviews = (() => {
+    if (!aptData) return [];
+    let reviews: ApartmentsReview[] = aptData.reviews;
+    if (starFilter !== null) reviews = reviews.filter(r => r.rating === starFilter);
+    if (responseFilter === 'responded') reviews = reviews.filter(r => r.has_response);
+    else if (responseFilter === 'not_responded') reviews = reviews.filter(r => !r.has_response);
+    else if (responseFilter === 'needs_attention') reviews = reviews.filter(r => !r.has_response && r.rating <= 3);
+    reviews = [...reviews].sort((a, b) => {
+      switch (sortBy) {
+        case 'newest': return new Date(b.time_desc || 0).getTime() - new Date(a.time_desc || 0).getTime();
+        case 'oldest': return new Date(a.time_desc || 0).getTime() - new Date(b.time_desc || 0).getTime();
+        case 'rating_high': return b.rating - a.rating;
+        case 'rating_low': return a.rating - b.rating;
+        default: return 0;
+      }
+    });
+    return reviews;
+  })();
+
   return (
     <div className="space-y-6">
+      {/* Source Tabs */}
+      <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => { setActiveSource('google'); setStarFilter(null); setResponseFilter('all'); }}
+          className={`px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+            activeSource === 'google'
+              ? 'bg-white text-slate-800 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Google {data.rating ? `(${data.rating.toFixed(1)}★)` : ''}
+        </button>
+        {aptData && aptData.rating && (
+          <button
+            onClick={() => { setActiveSource('apartments'); setStarFilter(null); setResponseFilter('all'); }}
+            className={`px-4 py-2 text-xs font-semibold rounded-md transition-all ${
+              activeSource === 'apartments'
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Apartments.com {aptData.rating ? `(${aptData.rating.toFixed?.(1) ?? aptData.rating}★)` : ''}
+          </button>
+        )}
+      </div>
       {/* Top Row: Rating Summary + Response Metrics + Star Distribution */}
       <div className="grid grid-cols-12 gap-6">
         {/* Overall Rating */}
         <div className="col-span-12 md:col-span-3">
           <div className="bg-white rounded-xl border border-slate-200 p-6 text-center">
-            <div className="text-5xl font-bold text-slate-900">{data.rating?.toFixed(1) || '—'}</div>
-            <StarRating rating={Math.round(data.rating || 0)} size="lg" />
-            <p className="text-sm text-slate-500 mt-2">{data.review_count.toLocaleString()} reviews on Google</p>
-            <p className="text-[10px] text-slate-400 mt-1">
-              {data.reviews_fetched} fetched{data.source ? ` via ${data.source}` : ''}
+            <div className="text-5xl font-bold text-slate-900">
+              {activeSource === 'google'
+                ? (data.rating?.toFixed(1) || '—')
+                : (aptData?.rating?.toFixed?.(1) ?? aptData?.rating ?? '—')
+              }
+            </div>
+            <StarRating rating={Math.round(activeSource === 'google' ? (data.rating || 0) : (aptData?.rating || 0))} size="lg" />
+            <p className="text-sm text-slate-500 mt-2">
+              {activeSource === 'google'
+                ? `${data.review_count.toLocaleString()} reviews on Google`
+                : `${aptData?.review_count?.toLocaleString() ?? 0} reviews on Apartments.com`
+              }
             </p>
-            {data.google_maps_url && (
+            <p className="text-[10px] text-slate-400 mt-1">
+              {activeSource === 'google'
+                ? `${data.reviews_fetched} fetched${data.source ? ` via ${data.source}` : ''}`
+                : `${aptData?.reviews_fetched ?? 0} fetched via Zembra`
+              }
+            </p>
+            {activeSource === 'google' && data.google_maps_url && (
               <a
                 href={data.google_maps_url}
                 target="_blank"
@@ -341,6 +458,16 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
                 className="inline-flex items-center gap-1 mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
               >
                 View on Google Maps <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+            {activeSource === 'apartments' && aptData?.url && (
+              <a
+                href={aptData.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+              >
+                View on Apartments.com <ExternalLink className="w-3 h-3" />
               </a>
             )}
           </div>
@@ -352,80 +479,85 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
             <div className="flex items-center gap-2 mb-4">
               <MessageSquare className="w-4 h-4 text-slate-500" />
               <h3 className="text-sm font-semibold text-slate-700">Response Tracking</h3>
-              {hasFullData && (
+              {(hasFullData || activeSource === 'apartments') && (
                 <span className="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 rounded">live</span>
               )}
             </div>
 
-            {hasFullData ? (
-              <>
-                <div className="grid grid-cols-4 gap-3 mb-4">
-                  <button onClick={() => setResponseFilter('all')} className="text-center">
-                    <div className="text-2xl font-bold text-slate-900">{data.reviews_fetched}</div>
-                    <div className="text-[10px] text-slate-500 uppercase">Total</div>
-                  </button>
-                  <button onClick={() => setResponseFilter('responded')} className="text-center">
-                    <div className="text-2xl font-bold text-emerald-600">{responded}</div>
-                    <div className="text-[10px] text-slate-500 uppercase">Responded</div>
-                  </button>
-                  <button onClick={() => setResponseFilter('not_responded')} className="text-center">
-                    <div className={`text-2xl font-bold ${notResponded > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
-                      {notResponded}
+            {(() => {
+              const showFull = hasFullData || activeSource === 'apartments';
+              const dTotal = activeSource === 'google' ? data.reviews_fetched : (aptData?.reviews_fetched ?? 0);
+              const dResponded = activeSource === 'google' ? responded : aptResponded;
+              const dNotResponded = activeSource === 'google' ? notResponded : aptNotResponded;
+              const dNeedsResponse = activeSource === 'google' ? data.needs_response : (aptData?.needs_response ?? 0);
+              const dRate = activeSource === 'google' ? responseRate : aptResponseRate;
+              if (showFull) return (
+                <>
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    <button onClick={() => setResponseFilter('all')} className="text-center">
+                      <div className="text-2xl font-bold text-slate-900">{dTotal}</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Total</div>
+                    </button>
+                    <button onClick={() => setResponseFilter('responded')} className="text-center">
+                      <div className="text-2xl font-bold text-emerald-600">{dResponded}</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Responded</div>
+                    </button>
+                    <button onClick={() => setResponseFilter('not_responded')} className="text-center">
+                      <div className={`text-2xl font-bold ${dNotResponded > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                        {dNotResponded}
+                      </div>
+                      <div className="text-[10px] text-slate-500 uppercase">No Reply</div>
+                    </button>
+                    <button onClick={() => setResponseFilter('needs_attention')} className="text-center">
+                      <div className={`text-2xl font-bold ${dNeedsResponse > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {dNeedsResponse}
+                      </div>
+                      <div className="text-[10px] text-slate-500 uppercase">≤3★ No Reply</div>
+                    </button>
+                  </div>
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-slate-500">Response Rate</span>
+                      <span className={`text-sm font-bold ${dRate >= 80 ? 'text-emerald-600' : dRate >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>
+                        {dRate}%
+                      </span>
                     </div>
-                    <div className="text-[10px] text-slate-500 uppercase">No Reply</div>
-                  </button>
-                  <button onClick={() => setResponseFilter('needs_attention')} className="text-center">
-                    <div className={`text-2xl font-bold ${data.needs_response > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {data.needs_response}
+                    <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${dRate >= 80 ? 'bg-emerald-500' : dRate >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                        style={{ width: `${dRate}%` }}
+                      />
                     </div>
-                    <div className="text-[10px] text-slate-500 uppercase">≤3★ No Reply</div>
-                  </button>
+                  </div>
+                  {activeSource === 'google' && data.avg_response_label && (
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Avg response time: <span className="font-semibold text-slate-700">{data.avg_response_label}</span></span>
+                    </div>
+                  )}
+                </>
+              );
+              return (
+                <div className="grid grid-cols-3 gap-4 mb-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-slate-900">{dTotal}</div>
+                    <div className="text-[10px] text-slate-500 uppercase">Reviews Loaded</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${dNeedsResponse > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {dNeedsResponse}
+                    </div>
+                    <div className="text-[10px] text-slate-500 uppercase">≤3★ Reviews</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-slate-400">—</div>
+                    <div className="text-[10px] text-slate-500 uppercase">Response Rate</div>
+                  </div>
                 </div>
+              );
+            })()}
 
-                {/* Response Rate Bar */}
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs text-slate-500">Response Rate</span>
-                    <span className={`text-sm font-bold ${responseRate >= 80 ? 'text-emerald-600' : responseRate >= 50 ? 'text-amber-600' : 'text-rose-600'}`}>
-                      {responseRate}%
-                    </span>
-                  </div>
-                  <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${responseRate >= 80 ? 'bg-emerald-500' : responseRate >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
-                      style={{ width: `${responseRate}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Avg Response Time */}
-                {data.avg_response_label && (
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>Avg response time: <span className="font-semibold text-slate-700">{data.avg_response_label}</span></span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="grid grid-cols-3 gap-4 mb-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-900">{data.reviews_fetched}</div>
-                  <div className="text-[10px] text-slate-500 uppercase">Reviews Loaded</div>
-                </div>
-                <div className="text-center">
-                  <div className={`text-2xl font-bold ${data.needs_response > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                    {data.needs_response}
-                  </div>
-                  <div className="text-[10px] text-slate-500 uppercase">≤3★ Reviews</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-slate-400">—</div>
-                  <div className="text-[10px] text-slate-500 uppercase">Response Rate</div>
-                </div>
-              </div>
-            )}
-
-            {!hasFullData && (
+            {activeSource === 'google' && !hasFullData && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-3">
                 <p className="text-[11px] text-amber-700">
                   Add <span className="font-mono font-semibold">SERPAPI_API_KEY</span> to .env for full response tracking
@@ -440,24 +572,28 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
         <div className="col-span-12 md:col-span-4">
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <h3 className="text-sm font-semibold text-slate-700 mb-3">Star Distribution</h3>
-            <p className="text-[10px] text-slate-400 mb-3">Based on {data.reviews_fetched} reviews fetched</p>
+            <p className="text-[10px] text-slate-400 mb-3">Based on {activeSource === 'google' ? data.reviews_fetched : (aptData?.reviews_fetched ?? 0)} reviews fetched</p>
             <div className="space-y-2">
-              {[5, 4, 3, 2, 1].map(s => (
-                <button
-                  key={s}
-                  onClick={() => setStarFilter(starFilter === s ? null : s)}
-                  className={`w-full rounded transition-colors ${starFilter === s ? 'bg-yellow-50 ring-1 ring-yellow-300' : 'hover:bg-slate-50'}`}
-                >
-                  <StarBar star={s} count={data.star_distribution[String(s)] || 0} total={data.reviews_fetched} />
-                </button>
-              ))}
+              {[5, 4, 3, 2, 1].map(s => {
+                const dist = activeSource === 'google' ? data.star_distribution : (aptData?.star_distribution ?? {});
+                const total = activeSource === 'google' ? data.reviews_fetched : (aptData?.reviews_fetched ?? 0);
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStarFilter(starFilter === s ? null : s)}
+                    className={`w-full rounded transition-colors ${starFilter === s ? 'bg-yellow-50 ring-1 ring-yellow-300' : 'hover:bg-slate-50'}`}
+                  >
+                    <StarBar star={s} count={dist[String(s)] || 0} total={total} />
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Monthly Trend Chart */}
-      <MonthlyTrendChart reviews={data.reviews} />
+      {/* Monthly Trend Chart (Google only — apartments uses absolute dates) */}
+      {activeSource === 'google' && <MonthlyTrendChart reviews={data.reviews} />}
 
       {/* Filters + Reviews List */}
       <div className="bg-white rounded-xl border border-slate-200">
@@ -465,12 +601,12 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-slate-400" />
             <h3 className="text-sm font-semibold text-slate-700">
-              Reviews {starFilter ? `(${starFilter}★)` : ''} — {filteredReviews.length} shown
+              Reviews {starFilter ? `(${starFilter}★)` : ''} — {activeSource === 'google' ? filteredReviews.length : aptFilteredReviews.length} shown
             </h3>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {hasFullData && (
+            {(hasFullData || activeSource === 'apartments') && (
               <>
                 <button
                   onClick={() => setResponseFilter(responseFilter === 'responded' ? 'all' : 'responded')}
@@ -523,81 +659,131 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
         </div>
 
         <div className="divide-y divide-slate-100">
-          {filteredReviews.length === 0 && (
-            <div className="p-6 text-center text-sm text-slate-400">No reviews match the current filter</div>
-          )}
-          {filteredReviews.map((review, i) => (
-            <div key={i} className={`px-6 py-4 ${review.rating <= 3 && !review.has_response ? 'bg-rose-50/50' : ''}`}>
-              <div className="flex items-start gap-3">
-                {/* Author Avatar */}
-                <div className="flex-shrink-0">
-                  {review.author_photo ? (
-                    <img src={review.author_photo} alt="" className="w-10 h-10 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-500">
-                      {review.author.charAt(0).toUpperCase()}
+          {activeSource === 'google' && (
+            <>
+              {filteredReviews.length === 0 && (
+                <div className="p-6 text-center text-sm text-slate-400">No reviews match the current filter</div>
+              )}
+              {filteredReviews.map((review, i) => (
+                <div key={i} className={`px-6 py-4 ${review.rating <= 3 && !review.has_response ? 'bg-rose-50/50' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      {review.author_photo ? (
+                        <img src={review.author_photo} alt="" className="w-10 h-10 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-sm font-bold text-slate-500">
+                          {review.author.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-
-                {/* Review Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-slate-800">{review.author}</span>
-                    <StarRating rating={review.rating} />
-                    <span className="text-xs text-slate-400">{review.time_desc}</span>
-                    {hasFullData && review.has_response && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-700 rounded uppercase">
-                        <CheckCircle2 className="w-2.5 h-2.5" /> replied
-                      </span>
-                    )}
-                    {hasFullData && !review.has_response && review.rating <= 3 && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700 rounded uppercase">
-                        <XCircle className="w-2.5 h-2.5" /> needs reply
-                      </span>
-                    )}
-                    {hasFullData && !review.has_response && review.rating > 3 && (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-slate-100 text-slate-500 rounded uppercase">
-                        no reply
-                      </span>
-                    )}
-                    {!hasFullData && review.rating <= 3 && (
-                      <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700 rounded uppercase">
-                        needs attention
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{review.text}</p>
-
-                  {/* Owner Reply (SerpAPI only) */}
-                  {review.has_response && review.response_text && (
-                    <div className="mt-3 ml-4 pl-3 border-l-2 border-indigo-200 bg-indigo-50/50 rounded-r-lg p-3">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <MessageSquare className="w-3 h-3 text-indigo-500" />
-                        <span className="text-[11px] font-semibold text-indigo-700">Owner Response</span>
-                        {review.response_date && (
-                          <span className="text-[10px] text-indigo-400">· {review.response_date}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-800">{review.author}</span>
+                        <StarRating rating={review.rating} />
+                        <span className="text-xs text-slate-400">{review.time_desc}</span>
+                        {hasFullData && review.has_response && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-700 rounded uppercase">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> replied
+                          </span>
+                        )}
+                        {hasFullData && !review.has_response && review.rating <= 3 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700 rounded uppercase">
+                            <XCircle className="w-2.5 h-2.5" /> needs reply
+                          </span>
+                        )}
+                        {hasFullData && !review.has_response && review.rating > 3 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-slate-100 text-slate-500 rounded uppercase">
+                            no reply
+                          </span>
+                        )}
+                        {!hasFullData && review.rating <= 3 && (
+                          <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700 rounded uppercase">
+                            needs attention
+                          </span>
                         )}
                       </div>
-                      <p className="text-[12px] text-slate-600 leading-relaxed">{review.response_text}</p>
+                      <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{review.text}</p>
+                      {review.has_response && review.response_text && (
+                        <div className="mt-3 ml-4 pl-3 border-l-2 border-indigo-200 bg-indigo-50/50 rounded-r-lg p-3">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <MessageSquare className="w-3 h-3 text-indigo-500" />
+                            <span className="text-[11px] font-semibold text-indigo-700">Owner Response</span>
+                            {review.response_date && (
+                              <span className="text-[10px] text-indigo-400">· {review.response_date}</span>
+                            )}
+                          </div>
+                          <p className="text-[12px] text-slate-600 leading-relaxed">{review.response_text}</p>
+                        </div>
+                      )}
+                      {review.google_maps_uri && (
+                        <a
+                          href={review.google_maps_uri}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                        >
+                          {!review.has_response && review.rating <= 3 ? 'Respond on Google' : 'View on Google'} <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
                     </div>
-                  )}
-
-                  {/* Action link */}
-                  {review.google_maps_uri && (
-                    <a
-                      href={review.google_maps_uri}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 mt-2 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
-                    >
-                      {!review.has_response && review.rating <= 3 ? 'Respond on Google' : 'View on Google'} <ExternalLink className="w-3 h-3" />
-                    </a>
-                  )}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              ))}
+            </>
+          )}
+
+          {activeSource === 'apartments' && (
+            <>
+              {aptFilteredReviews.length === 0 && (
+                <div className="p-6 text-center text-sm text-slate-400">No reviews match the current filter</div>
+              )}
+              {aptFilteredReviews.map((review, i) => (
+                <div key={i} className={`px-6 py-4 ${review.rating <= 3 && !review.has_response ? 'bg-rose-50/50' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center text-sm font-bold text-orange-600">
+                        {review.author ? review.author.charAt(0).toUpperCase() : 'A'}
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-slate-800">{review.author || 'Verified Resident'}</span>
+                        <StarRating rating={review.rating} />
+                        <span className="text-xs text-slate-400">
+                          {review.time_desc ? new Date(review.time_desc).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                        </span>
+                        {review.has_response && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-100 text-emerald-700 rounded uppercase">
+                            <CheckCircle2 className="w-2.5 h-2.5" /> replied
+                          </span>
+                        )}
+                        {!review.has_response && review.rating <= 3 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700 rounded uppercase">
+                            <XCircle className="w-2.5 h-2.5" /> needs reply
+                          </span>
+                        )}
+                        {!review.has_response && review.rating > 3 && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-semibold bg-slate-100 text-slate-500 rounded uppercase">
+                            no reply
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-slate-600 mt-1.5 leading-relaxed">{review.text}</p>
+                      {review.has_response && review.response_text && (
+                        <div className="mt-3 ml-4 pl-3 border-l-2 border-orange-200 bg-orange-50/50 rounded-r-lg p-3">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <MessageSquare className="w-3 h-3 text-orange-500" />
+                            <span className="text-[11px] font-semibold text-orange-700">Management Response</span>
+                          </div>
+                          <p className="text-[12px] text-slate-600 leading-relaxed">{review.response_text}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -1,0 +1,90 @@
+[
+  {
+    "model": "claude-3-5-haiku-20241022",
+    "elapsed": 6.89,
+    "input_tokens": 661,
+    "output_tokens": 345,
+    "alerts": [
+      {
+        "severity": "medium",
+        "title": "Online Reputation Management Needed",
+        "fact": "18 total online reviews require management response.",
+        "risk": "Potential $50-100 per unreplied review in lost lead conversion",
+        "action": "Develop personalized response strategy within 5 business days"
+      },
+      {
+        "severity": "low",
+        "title": "Concentrated Short-Term Delinquency Risk",
+        "fact": "30-day delinquency of $3,956 represents potential revenue exposure.",
+        "risk": "$3,956/month at risk if not proactively managed",
+        "action": "Execute targeted payment plan outreach for 30-day delinquent residents"
+      }
+    ],
+    "qna": [
+      {
+        "question": "What's the primary online reputation challenge?",
+        "answer": "Inconsistent review response rates across platforms. Google shows 90.7% response rate, while Apartments.com is at 81.0%, indicating an uneven communication strategy."
+      },
+      {
+        "question": "How significant is the current delinquency situation?",
+        "answer": "Total delinquency is $23,051, with most concentration in 30-day bucket at $3,956. Current strategy appears to prevent long-term delinquency escalation."
+      }
+    ],
+    "label": "Haiku 3.5",
+    "grade": {
+      "specificity": 5,
+      "dollar_impact": 4,
+      "cross_correlation": 4,
+      "actionability": 5,
+      "non_obviousness": 4,
+      "total": 22,
+      "reasoning": "Precise data-driven analysis with quantified risks, clear actions, and nuanced insights connecting reputation and financial metrics"
+    }
+  },
+  {
+    "model": "claude-sonnet-4-20250514",
+    "elapsed": 12.37,
+    "input_tokens": 661,
+    "output_tokens": 465,
+    "alerts": [
+      {
+        "severity": "high",
+        "title": "Concentrated 30-day delinquency cluster emerging",
+        "fact": "$3,956 of the $23,051 total delinquency sits in 30-day bucket across 29 units.",
+        "risk": "If 30-day accounts progress to 60+ days, expect $3,956/month ongoing collection losses plus legal costs.",
+        "action": "Immediately contact all 30-day delinquent residents with payment plans before month-end to prevent 60+ day migration."
+      },
+      {
+        "severity": "medium",
+        "title": "Google review response rate lagging standard",
+        "fact": "Google shows 90.7% response rate with 13 reviews still needing replies.",
+        "risk": "Unresponded reviews compound negative perception, potentially reducing tour conversion by 5-10%.",
+        "action": "Respond to all 13 outstanding Google reviews within 48 hours, prioritizing any 1-2 star reviews first."
+      }
+    ],
+    "qna": [
+      {
+        "question": "Is the delinquency level concerning for a property this size?",
+        "answer": "With 29 units delinquent totaling $23,051, the average delinquent balance is $795 per unit. The concentration in 30-day buckets suggests recent payment issues rather than chronic non-payment, making recovery more likely with immediate intervention."
+      },
+      {
+        "question": "How does the reputation management compare across platforms?",
+        "answer": "Apartments.com shows stronger engagement with 81% response rate and only 5 pending replies versus Google's 90.7% rate with 13 pending. The 4.3\u2605 rating on Apartments.com versus 3.9\u2605 on Google suggests different resident experiences or review timing."
+      },
+      {
+        "question": "What's the financial impact if current 30-day delinquencies become uncollectable?",
+        "answer": "The $3,956 in 30-day delinquency represents immediate risk if these accounts progress to write-off status. Combined with potential eviction costs averaging $1,500 per unit, total exposure could reach $5,456 if payment plans aren't established quickly."
+      }
+    ],
+    "label": "Sonnet 4",
+    "grade": {
+      "specificity": 5,
+      "dollar_impact": 5,
+      "cross_correlation": 5,
+      "actionability": 5,
+      "non_obviousness": 5,
+      "total": 25,
+      "reasoning": "Exceptional analysis with precise financial quantification, interconnected insights, specific actions, and nuanced observations beyond surface metrics"
+    }
+  }
+]

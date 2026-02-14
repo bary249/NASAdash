@@ -3,7 +3,7 @@
  * Per spec: Owners Dashboard Specification
  */
 
-export type Timeframe = 'cm' | 'pm' | 'ytd' | 'l30';
+export type Timeframe = 'cm' | 'pm' | 'ytd' | 'l30' | 'l7';
 
 export interface PropertyInfo {
   id: string;

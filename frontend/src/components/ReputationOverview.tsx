@@ -4,7 +4,7 @@
  * Per PHH design partner feedback.
  */
 import { useState, useEffect } from 'react';
-import { Star, MessageSquare, Clock, AlertTriangle, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Star, MessageSquare, AlertTriangle, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { SectionHeader } from './SectionHeader';
 import { api } from '../api';
 
@@ -94,7 +94,7 @@ export function ReputationOverview({ propertyId, propertyIds }: Props) {
 
   const { sources, review_power } = data;
   const activeSources = sources.filter(s => s.rating !== null);
-  const pendingSources = sources.filter(s => s.rating === null);
+  const pendingSources: ReputationSource[] = [];
 
   return (
     <div className="venn-section">
@@ -166,17 +166,6 @@ export function ReputationOverview({ propertyId, propertyIds }: Props) {
               <div className="flex justify-between text-xs text-slate-400 mt-1">
                 <span>{review_power.responded} responded</span>
                 <span>{review_power.not_responded} pending</span>
-              </div>
-            </div>
-
-            {/* Avg Response Time */}
-            <div className="flex items-center gap-3 bg-white rounded-lg p-3 border border-slate-200">
-              <Clock className="w-5 h-5 text-blue-500" />
-              <div>
-                <div className="text-xs text-slate-500">Avg Response Time</div>
-                <div className="text-sm font-bold text-slate-800">
-                  {review_power.avg_response_label || '—'}
-                </div>
               </div>
             </div>
 

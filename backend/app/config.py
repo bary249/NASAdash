@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # Claude AI API
     anthropic_api_key: str = ""
     
+    # Zembra API (Apartments.com reviews)
+    zembra_api_key: str = ""
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

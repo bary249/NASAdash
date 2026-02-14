@@ -2440,13 +2440,30 @@ async def get_reputation(property_id: str):
     except Exception:
         pass
     
-    # Placeholder ILS sources — ready for future integration
-    # When Apartments.com / Zillow APIs are added, populate these:
-    ils_placeholders = [
-        {"source": "apartments_com", "name": "Apartments.com", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
-        {"source": "zillow", "name": "Zillow", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
-        {"source": "yelp", "name": "Yelp", "rating": None, "review_count": 0, "url": "", "star_distribution": None},
-    ]
+    # Apartments.com reviews (via Zembra API cache)
+    try:
+        from app.services.apartments_reviews_service import get_apartments_reviews
+        apt_data = get_apartments_reviews(property_id)
+        if apt_data and apt_data.get("rating"):
+            sources.append({
+                "source": "apartments_com",
+                "name": "Apartments.com",
+                "rating": apt_data.get("rating"),
+                "review_count": apt_data.get("review_count", 0),
+                "url": apt_data.get("url", ""),
+                "star_distribution": apt_data.get("star_distribution"),
+            })
+            # Aggregate review power across sources
+            apt_responded = apt_data.get("responded", 0)
+            apt_not_responded = apt_data.get("not_responded", 0)
+            review_power["responded"] += apt_responded
+            review_power["not_responded"] += apt_not_responded
+            review_power["total_reviews"] += apt_data.get("reviews_fetched", 0)
+            review_power["needs_attention"] += apt_data.get("needs_response", 0)
+            total_resp = review_power["responded"] + review_power["not_responded"]
+            review_power["response_rate"] = round((review_power["responded"] / total_resp) * 100, 1) if total_resp > 0 else 0
+    except Exception:
+        pass
     
     # Overall rating = weighted average of sources with data
     active_sources = [s for s in sources if s["rating"] is not None]
@@ -2459,7 +2476,7 @@ async def get_reputation(property_id: str):
     return {
         "property_id": property_id,
         "overall_rating": round(overall, 2),
-        "sources": sources + ils_placeholders,
+        "sources": sources,
         "review_power": review_power,
     }
 
@@ -2478,6 +2495,19 @@ async def get_reviews(property_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/properties/{property_id}/apartments-reviews")
+async def get_apartments_reviews_endpoint(property_id: str):
+    """
+    GET: Apartments.com reviews for a property (via Zembra API cache).
+    Run fetch_apartments_reviews.py to refresh the cache.
+    """
+    from app.services.apartments_reviews_service import get_apartments_reviews
+    data = get_apartments_reviews(property_id)
+    if not data:
+        return {"error": "No Apartments.com reviews found", "reviews": [], "source": "none"}
+    return data
+
+
 # =========================================================================
 # AI Insights (Auto-generated Red Flags & Q&A)
 # =========================================================================
@@ -2494,42 +2524,65 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
         _cache.pop(property_id, None)
 
     try:
+        import asyncio
+
         # Gather all available data for the property
         property_data: dict = {"property_id": property_id}
 
-        try:
-            occ = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
-            property_data["property_name"] = occ.property_name
-            property_data["occupancy"] = occ.model_dump() if hasattr(occ, 'model_dump') else {}
-        except Exception:
-            pass
+        # Parallel async fetches (biggest speed win — these were sequential before)
+        async def _fetch_occ():
+            try:
+                occ = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+                return ("occupancy", occ.model_dump() if hasattr(occ, 'model_dump') else {}, occ.property_name)
+            except Exception:
+                return None
 
-        try:
-            p = await pricing_service.get_unit_pricing(property_id)
-            property_data["pricing"] = p.model_dump() if hasattr(p, 'model_dump') else {}
-        except Exception:
-            pass
+        async def _fetch_pricing():
+            try:
+                p = await pricing_service.get_unit_pricing(property_id)
+                return ("pricing", p.model_dump() if hasattr(p, 'model_dump') else {})
+            except Exception:
+                return None
 
-        try:
-            f = await get_leasing_funnel(property_id, Timeframe.L30)
-            property_data["funnel"] = f.model_dump() if hasattr(f, 'model_dump') else {}
-        except Exception:
-            pass
+        async def _fetch_funnel():
+            try:
+                f = await get_leasing_funnel(property_id, Timeframe.L30)
+                return ("funnel", f.model_dump() if hasattr(f, 'model_dump') else {})
+            except Exception:
+                return None
 
-        try:
-            property_data["expirations"] = await occupancy_service.get_lease_expirations(property_id)
-        except Exception:
-            pass
+        async def _fetch_expirations():
+            try:
+                return ("expirations", await occupancy_service.get_lease_expirations(property_id))
+            except Exception:
+                return None
 
-        try:
-            property_data["tradeouts"] = await pricing_service.get_lease_tradeouts(property_id)
-        except Exception:
-            pass
+        async def _fetch_tradeouts():
+            try:
+                return ("tradeouts", await pricing_service.get_lease_tradeouts(property_id))
+            except Exception:
+                return None
 
-        try:
-            property_data["loss_to_lease"] = await pricing_service.get_loss_to_lease(property_id)
-        except Exception:
-            pass
+        async def _fetch_ltl():
+            try:
+                return ("loss_to_lease", await pricing_service.get_loss_to_lease(property_id))
+            except Exception:
+                return None
+
+        results = await asyncio.gather(
+            _fetch_occ(), _fetch_pricing(), _fetch_funnel(),
+            _fetch_expirations(), _fetch_tradeouts(), _fetch_ltl(),
+            return_exceptions=True
+        )
+
+        for r in results:
+            if r is None or isinstance(r, Exception):
+                continue
+            if r[0] == "occupancy":
+                property_data["occupancy"] = r[1]
+                property_data["property_name"] = r[2]
+            else:
+                property_data[r[0]] = r[1]
 
         # Delinquency from unified DB (same source as the Delinquency tab)
         try:
@@ -2611,6 +2664,32 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
                 row = c.fetchone()
                 conn.close()
                 property_data["shows"] = {"total_shows": row[0] if row else 0}
+        except Exception:
+            pass
+
+        # Reputation data (Google + Apartments.com)
+        try:
+            from app.services.google_reviews_service import get_property_reviews
+            google_rev = await get_property_reviews(property_id)
+            if google_rev and not google_rev.get("error"):
+                property_data["google_reviews"] = {
+                    "rating": google_rev.get("rating"),
+                    "review_count": google_rev.get("review_count", 0),
+                    "response_rate": google_rev.get("response_rate", 0),
+                    "needs_response": google_rev.get("needs_response", 0),
+                }
+        except Exception:
+            pass
+        try:
+            from app.services.apartments_reviews_service import get_apartments_reviews
+            apt_rev = get_apartments_reviews(property_id)
+            if apt_rev and apt_rev.get("rating"):
+                property_data["apartments_reviews"] = {
+                    "rating": apt_rev.get("rating"),
+                    "review_count": apt_rev.get("review_count", 0),
+                    "response_rate": apt_rev.get("response_rate", 0),
+                    "needs_response": apt_rev.get("needs_response", 0),
+                }
         except Exception:
             pass
 

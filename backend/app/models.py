@@ -13,11 +13,14 @@ class Timeframe(str, Enum):
     - CM: Current Month (1st of current month to now)
     - PM: Previous Month (1st to last day of previous month)
     - YTD: Year-to-Date (Jan 1st to now, with averaging for occupancy)
+    - L30: Last 30 days
+    - L7: Last 7 days
     """
     CM = "cm"
     PM = "pm"
     YTD = "ytd"
     L30 = "l30"
+    L7 = "l7"
 
 
 class OccupancyMetrics(BaseModel):

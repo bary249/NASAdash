@@ -158,6 +158,14 @@ function getDateRange(timeframe: Timeframe): [Date, Date] {
     case 'ytd': // Year to Date: Jan 1 to today
       start = new Date(today.getFullYear(), 0, 1);
       break;
+    case 'l30': // Last 30 days
+      start = new Date(today);
+      start.setDate(start.getDate() - 30);
+      break;
+    case 'l7': // Last 7 days
+      start = new Date(today);
+      start.setDate(start.getDate() - 7);
+      break;
     default:
       start = new Date(today.getFullYear(), today.getMonth(), 1);
   }
@@ -471,10 +479,11 @@ const PropertyDataContext = createContext<PropertyDataContextValue | null>(null)
 interface PropertyDataProviderProps {
   propertyId: string;
   propertyIds?: string[];  // For multi-property mode
+  timeframe?: Timeframe;   // Passed from parent (DashboardV3 time filter)
   children: ReactNode;
 }
 
-export function PropertyDataProvider({ propertyId, propertyIds, children }: PropertyDataProviderProps) {
+export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propTimeframe, children }: PropertyDataProviderProps) {
   // Effective IDs: use propertyIds array if provided, otherwise single propertyId
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
   const effectiveKey = effectiveIds.sort().join(',');
@@ -483,7 +492,15 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
   const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [timeframe, setTimeframe] = useState<Timeframe>('cm');
+  const [timeframe, setTimeframe] = useState<Timeframe>(propTimeframe || 'cm');
+  
+  // Sync timeframe from parent prop
+  useEffect(() => {
+    if (propTimeframe && propTimeframe !== timeframe) {
+      setTimeframe(propTimeframe);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propTimeframe]);
   
   // Fetch all raw data for the property (or multiple properties)
   const fetchRawData = useCallback(async () => {
@@ -544,7 +561,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
       let prospects: ProspectRaw[] = [];
       await Promise.all(effectiveIds.map(async (pid) => {
         try {
-          const p = await api.getRawProspects(pid, undefined, 'ytd');
+          const p = await api.getRawProspects(pid, undefined, timeframe);
           prospects = prospects.concat(p);
         } catch {
           // RealPage doesn't have prospect data yet
@@ -598,7 +615,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
       if (prospects.length === 0) {
         try {
           const allFunnels = await Promise.all(
-            effectiveIds.map(pid => api.getLeasingFunnel(pid, 'l30').catch(() => null))
+            effectiveIds.map(pid => api.getLeasingFunnel(pid, timeframe).catch(() => null))
           );
           const merged = allFunnels.reduce((acc, f) => {
             if (f && f.leads > 0) {
@@ -644,7 +661,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, children }: Prop
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveKey]);
+  }, [effectiveKey, timeframe]);
   
   useEffect(() => {
     fetchRawData();

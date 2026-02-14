@@ -1547,10 +1547,30 @@ class OccupancyService:
             
             periods = []
             
+            # Build list of next 4 calendar months for monthly view
+            from calendar import monthrange as _monthrange
+            today = date.today()
+            month_ranges = []
+            for offset in range(4):
+                m = today.month + offset
+                y = today.year
+                while m > 12:
+                    m -= 12
+                    y += 1
+                _, last_day = _monthrange(y, m)
+                m_start = date(y, m, 1)
+                m_end = date(y, m, last_day)
+                # For current month, start from today
+                if offset == 0:
+                    m_start = today
+                month_label = m_start.strftime('%b')  # e.g. "Feb", "Mar"
+                month_ranges.append((month_label, m_start.isoformat(), m_end.isoformat()))
+            
             if use_4156:
                 # Report 4156: lease_end_date is in MM/DD/YYYY format
                 date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
                 
+                # --- Rolling day periods (30d/60d/90d) ---
                 for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
                     cursor.execute(f"""
                         SELECT 
@@ -1588,6 +1608,45 @@ class OccupancyService:
                         "selected": 0,
                         "renewal_pct": renewal_pct
                     })
+                
+                # --- Monthly periods ---
+                for m_label, m_start, m_end in month_ranges:
+                    cursor.execute(f"""
+                        SELECT 
+                            COUNT(*) as total,
+                            SUM(CASE WHEN decision = 'Renewed' THEN 1 ELSE 0 END) as renewed,
+                            SUM(CASE WHEN decision = 'Vacating' THEN 1 ELSE 0 END) as vacating,
+                            SUM(CASE WHEN decision = 'Unknown' THEN 1 ELSE 0 END) as unknown,
+                            SUM(CASE WHEN decision = 'MTM' THEN 1 ELSE 0 END) as mtm,
+                            SUM(CASE WHEN decision = 'Moved out' THEN 1 ELSE 0 END) as moved_out
+                        FROM realpage_lease_expiration_renewal
+                        WHERE property_id = ?
+                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
+                          AND {date_expr} BETWEEN ? AND ?
+                    """, (site_id, m_start, m_end))
+                    
+                    row = cursor.fetchone()
+                    total = row[0] or 0
+                    renewed = row[1] or 0
+                    vacating = row[2] or 0
+                    unknown = row[3] or 0
+                    mtm = row[4] or 0
+                    moved_out = row[5] or 0
+                    renewal_pct = round((renewed / total * 100), 1) if total > 0 else 0
+                    
+                    periods.append({
+                        "label": m_label,
+                        "expirations": total,
+                        "renewals": renewed,
+                        "signed": renewed,
+                        "vacating": vacating,
+                        "unknown": unknown,
+                        "mtm": mtm,
+                        "moved_out": moved_out,
+                        "submitted": 0,
+                        "selected": 0,
+                        "renewal_pct": renewal_pct
+                    })
             else:
                 # Fallback: realpage_leases (no decision breakdown)
                 for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
@@ -1610,6 +1669,39 @@ class OccupancyService:
                     
                     periods.append({
                         "label": label,
+                        "expirations": expirations,
+                        "renewals": signed,
+                        "signed": signed,
+                        "vacating": 0,
+                        "unknown": 0,
+                        "mtm": 0,
+                        "moved_out": 0,
+                        "submitted": 0,
+                        "selected": 0,
+                        "renewal_pct": renewal_pct
+                    })
+                
+                # --- Monthly periods (fallback) ---
+                for m_label, m_start, m_end in month_ranges:
+                    cursor.execute("""
+                        SELECT 
+                            COUNT(*) as expirations,
+                            SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
+                        FROM realpage_leases 
+                        WHERE site_id = ?
+                            AND status_text IN ('Current', 'Current - Future')
+                            AND lease_end_date != ''
+                            AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
+                                BETWEEN ? AND ?
+                    """, (site_id, m_start, m_end))
+                    
+                    row = cursor.fetchone()
+                    expirations = row[0] or 0
+                    signed = row[1] or 0
+                    renewal_pct = round((signed / expirations * 100), 1) if expirations > 0 else 0
+                    
+                    periods.append({
+                        "label": m_label,
                         "expirations": expirations,
                         "renewals": signed,
                         "signed": signed,

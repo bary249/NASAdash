@@ -1,0 +1,810 @@
+{
+  "parkside": {
+    "ts": 1771091603.0101418,
+    "data": {
+      "reviews": [
+        {
+          "review_id": "gz1hzqy",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Beautiful complex! Clean, great amenities, pleasant team!! Casey was very helpful with my move in process and answering all my questions.",
+          "time_desc": "2025-07-09 03:19:54",
+          "has_response": true,
+          "response_text": "Yay! Glad you are having a great time! If you ever need anything we have your back!",
+          "response_date": "2025-07-11 15:33:41"
+        },
+        {
+          "review_id": "q8fjqmz",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "You guys were very understanding and helpful with living arrangements but I do believe the situation could’ve been handled better :/",
+          "time_desc": "2025-06-29 18:36:43",
+          "has_response": true,
+          "response_text": "Hey! So sorry you had some complications but would love to hear how we can do better! parksidemgr@greystar.com",
+          "response_date": "2025-07-07 15:43:14"
+        },
+        {
+          "review_id": "kmsgrs8",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Management team professional, helpful, and welcoming.  Strives to create a\nhospitable and qualified environment for community.",
+          "time_desc": "2025-06-27 16:43:22",
+          "has_response": true,
+          "response_text": "Great to hear you are having a great time! Anything you need we are always here for you.",
+          "response_date": "2025-07-07 15:44:03"
+        },
+        {
+          "review_id": "24y1yy8",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Excelente apartamento y servicio muy cómodo y se vive tranquilo",
+          "time_desc": "2025-06-23 01:18:51",
+          "has_response": true,
+          "response_text": "¡Muchas gracias! ¡Esta reseña es muy importante para mí!",
+          "response_date": "2025-06-24 21:18:54"
+        },
+        {
+          "review_id": "0zd08q3",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside at Round Rock is an excellent place to live. It’s clean, the staff is excellent, it’s close to many restaurants, and retail stores, and the neighbors are quiet.",
+          "time_desc": "2025-05-20 23:39:04",
+          "has_response": true,
+          "response_text": "Thank you for the great review! Hope you have a great day!",
+          "response_date": "2025-05-23 17:34:08"
+        },
+        {
+          "review_id": "dkz6x7h",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Lo único que  no me agrada es que el edificio, las escaleras y el ascensor viven muy sucios. Sería bueno que hicieran más seguido el aseo en general y controlar que los residentes saquen la basura el día que corresponde por que a veces se acumula demasiada basura en los pasillos y dal mal aspecto al edificio,  además esto genera contaminación he infecciones.",
+          "time_desc": "2025-05-19 20:18:20",
+          "has_response": true,
+          "response_text": "¡Gracias por la reseña! ¡Que tengas un día bendecido!",
+          "response_date": "2025-05-21 14:09:45"
+        },
+        {
+          "review_id": "3s8hmyd",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I recently moved in and from the start of the process everyone has been so accommodating and helpful. Thanks for a great start! ??",
+          "time_desc": "2025-05-14 23:56:07",
+          "has_response": true,
+          "response_text": "Thank you! So glad it has been amazing so far! Anything you need just let us know!",
+          "response_date": "2025-05-16 17:18:50"
+        },
+        {
+          "review_id": "rrdf5c0",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I love Parkside! It’s very well maintained, feels very safe, and the staff are amazing!",
+          "time_desc": "2025-05-07 15:13:07",
+          "has_response": true,
+          "response_text": "Thank you so much for the 5 star! We love making people happy!",
+          "response_date": "2025-05-13 17:45:14"
+        },
+        {
+          "review_id": "yl6zldv",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside Round Rock Apartment has some of the best floor plans and the staff is stellar. They are very welcoming and patient. They have no problem answering all questions and concerns and they are extremely friendly. For the first time in years, I finally feel at home!",
+          "time_desc": "2025-05-04 20:27:14",
+          "has_response": true,
+          "response_text": "Thank you so much! We are so glad you're here and we always work hard to make this place amazing!",
+          "response_date": "2025-05-07 19:23:08"
+        },
+        {
+          "review_id": "s95nt86",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "No hay suficiente aseo dentro de los edificios y ascensores..",
+          "time_desc": "2025-02-22 01:02:46",
+          "has_response": true,
+          "response_text": "HI! Thank you and we will work to be a 5 star soon for you!",
+          "response_date": "2025-02-26 15:00:22"
+        },
+        {
+          "review_id": "f4c7qft",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I love the location of Parkside Round Rock. It’s close to my job, there are numerous places to visit and restaurants to dine nearby. And the staff is awesome! Any maintenance issues are solved quickly. I have been here since September of 2020 and I hope I never have to move.",
+          "time_desc": "2024-12-20 08:32:01",
+          "has_response": true,
+          "response_text": "Thank you so much for the kind review! We are happy you love the community our team takes pride in our work!",
+          "response_date": "2024-12-24 17:08:19"
+        },
+        {
+          "review_id": "tk17xj9",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "A  pleasure living here.  Management is helpful and professional.  Amenities are outstanding.",
+          "time_desc": "2024-11-13 20:10:16",
+          "has_response": true,
+          "response_text": "We're honored by your review! Feedback like this helps us stay motivated to give you the best possible experience - every single time.",
+          "response_date": "2024-11-22 14:45:16"
+        },
+        {
+          "review_id": "blqwr5b",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Sería importante que también la aplicación viniera en el  idioma Español, así como viene la encuesta de satisfacción.",
+          "time_desc": "2024-11-08 14:17:58",
+          "has_response": true,
+          "response_text": "¡Muchas gracias por la reseña! ¡Estamos muy contentos de que el equipo y la propiedad hayan sido excelentes con usted!",
+          "response_date": "2024-11-25 17:58:06"
+        },
+        {
+          "review_id": "x8w3j0m",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Very polite and helpful staff and management would recommend as a luxury apartment well within affordable range for housing of a calm and clean manner.",
+          "time_desc": "2024-10-16 16:17:05",
+          "has_response": true,
+          "response_text": "Thank you! Parkside strives to be great and love you enjoy it too!",
+          "response_date": "2024-10-28 15:18:34"
+        },
+        {
+          "review_id": "dh31pqj",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "We've enjoyed living here.  Management is excellent and nice to work with.  Amenities are great.",
+          "time_desc": "2024-10-07 15:55:07",
+          "has_response": true,
+          "response_text": "Awww, thanks friend! We really appreciate your kind words about Parkside at Round Rock!",
+          "response_date": "2024-10-24 18:47:34"
+        },
+        {
+          "review_id": "bdve45b",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "Don't. Rent is to high for problems property has and can never get anyone on the phone to resolve.",
+          "time_desc": "2024-09-01 14:33:59",
+          "has_response": true,
+          "response_text": "Hi! Please email me at parksiderrmgr@greystar.com and I can help you!",
+          "response_date": "2024-09-17 14:58:45"
+        },
+        {
+          "review_id": "dg1nc2k",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I’ve really enjoyed living here. I love how pet friendly it is and all the different events management puts on. You can tell they work hard to keep the property beautiful and safe. I would stay longer if I didn’t have the opportunity to rent a house that I just can’t pass up.",
+          "time_desc": "2024-08-22 16:43:15",
+          "has_response": true,
+          "response_text": "Wow! Thank you! The team has been here for so long and really enjoys this property and the residents!",
+          "response_date": "2024-09-09 15:29:22"
+        },
+        {
+          "review_id": "4c2xbpj",
+          "author": "Jennifer A.",
+          "rating": 5,
+          "text": "Everything about Parkside is amazing! The office staff is always cheery, the maintenance team go above and beyond, the amenities are great! Definitely recommend Parkside as a place to live!",
+          "time_desc": "2024-07-03 16:09:54",
+          "has_response": true,
+          "response_text": "Thank you for the kind words! This is a great place to live!",
+          "response_date": "2024-07-08 12:23:26"
+        },
+        {
+          "review_id": "gpvd0mz",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Parkside at Round Rock is an awesome community. They are very welcoming and friendly. Providing resources and support to their residents with an unmatched rigor. Living at Parkside is/has been an awesome experience.",
+          "time_desc": "2024-04-21 17:33:45",
+          "has_response": true,
+          "response_text": "Awww, thanks friend! We really appreciate your kind words about Parkside at Round Rock!",
+          "response_date": "2024-04-24 16:30:20"
+        },
+        {
+          "review_id": "98znzy6",
+          "author": "Chanita N.",
+          "rating": 1,
+          "text": "I am a 4th floor resident that work 12 hr shifts and this is what I have come home to, and it's an ongoing problem.... 4 story parking garage that is at max capacity, having to park a 5+ min walk away just to get to my building in 40 degree weather (this was 1 of 2 remaining spots on the ENTIRE property... front & back)\nI have went to the leasing office, voicing my concerns & requested a walk through of the parking garage this past week, as there are many abandoned vehicles and vehicles with expired registrations & I am looking forward to a cleanup. It has been 2 days and the vehicles are still there, so we shall see.\nMeanwhile, I have had a vehicle towed due to the only spot being available was a handicap spot and had to pay a $350 private property impound out of pocket as they offer no waiver when the complex was at max capacity for regular parking, and the PORR management has decided to take no ownership over the issue.\nIt's a shame because I truly enjoyed living here up until this point. I shouldn't have to worry, as a paying resident, if I will find parking on my way home from work everyday. Tow abandoned vehicles! Stop letting guests park for a max of 3 days! Where am I to park the next time it is full again? The hotel parking lot down the street? Bass Pro Shops? Take your hard earned money to a complex that truly cares about their residents.",
+          "time_desc": "2024-02-22 14:39:58",
+          "has_response": true,
+          "response_text": "Hi - I'm disappointed to hear you had a negative experience at our community. If there's anything else you'd like to share, please don't hesitate to contact us directly.",
+          "response_date": "2024-02-26 18:03:57"
+        },
+        {
+          "review_id": "4n92k5l",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Move in experience was good! Thanks to Bella, Alyssa, and Valerie all my questions were answered and any maintenance issues I’ve had were taken care of quickly!",
+          "time_desc": "2024-02-20 16:03:17",
+          "has_response": true,
+          "response_text": "Hi - thank you so much for the positive review! We'll be sure to let the rest of the team know, too. At Parkside at Round Rock, it's our pleasure to serve. Hope we can be off assistance to you in the future! Best wishes from Parkside at Round Rock.",
+          "response_date": "2024-02-22 15:14:07"
+        },
+        {
+          "review_id": "962rz84",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I've been here for over 3 years. I have been pleased and grateful from the very start. I highly recommend this place.",
+          "time_desc": "2024-02-11 18:28:21",
+          "has_response": true,
+          "response_text": "Thank you so much!  We love our location and team!",
+          "response_date": "2024-02-15 16:19:44"
+        },
+        {
+          "review_id": "9ges666",
+          "author": "Destini W.",
+          "rating": 3,
+          "text": "The property is beautiful with nice amenities. The gym is very big with lots of variety. The units are quite expensive compared to other apartments around and the patio space is fairly small. I was not a fan of paying extra for storage especially with it being far from my unit. The area is also pretty loud and busy. I had an issue with a break in, but keep in mind the are.There is a tight parking garage with the occasional homeless people nearby. The complex has potential but the circumstances are rough.",
+          "time_desc": "2024-01-10 20:06:17",
+          "has_response": true,
+          "response_text": "Hi, we regret to hear that you had a negative experience with us but would appreciate the chance to turn your experience around. We would like to work towards a resolution, so if you are willing, please reach out to us at (512) 388-5000 to discuss this further.",
+          "response_date": "2024-01-11 15:48:22"
+        },
+        {
+          "review_id": "28wbzjb",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "Not the best first day experience, apartment was not move in ready despite moving in a week after lease start date, water damage to three windows and their respective walls due to them being left open, not cleaned at all and missing appliances. I do appreciate the quick response of management and maintenance but still very unsatisfied that even a week later, the apartment looks that bad.",
+          "time_desc": "2023-12-08 15:20:26",
+          "has_response": true,
+          "response_text": "Hello, I am so sorry about your experience. That is not our expectation at all! I am happy we were able to address all of your concerns. I would love the opportunity to speak with you to see how we can make this a better experience for you. We look forward to hearing from you. We appreciate you giving us the opportunity to make things right for you.",
+          "response_date": "2023-12-14 15:24:46"
+        },
+        {
+          "review_id": "mmcgfnl",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "The current management is friendly, professional, efficient.  Easy to talk to and takes care of requests promptly.  We have enjoyed living here.",
+          "time_desc": "2023-11-17 19:28:48",
+          "has_response": true,
+          "response_text": "Thanks for the wonderful review of Parkside at Round Rock!  We appreciate you taking the time to leave your feedback.  Have a wonderful week!",
+          "response_date": "2023-11-27 15:29:05"
+        },
+        {
+          "review_id": "xvvl91n",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside Round Rock is an excellent place to live. It’s close to where I work and where I go for entertainment. I hope I never have to move.",
+          "time_desc": "2023-11-01 17:00:01",
+          "has_response": true,
+          "response_text": "Thank you so much for the amazing review! We are so happy you love it here at Parkside! We hope you never move either!",
+          "response_date": "2023-11-06 15:38:05"
+        },
+        {
+          "review_id": "mhhxjgl",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "We have enjoyed living here. Current management has been great to work with.",
+          "time_desc": "2023-10-03 21:43:27",
+          "has_response": true,
+          "response_text": "Hi, we are so happy to read such a great review about Parkside at Round Rock!  Please don't hesitate to reach out if there's anything we can do for you!",
+          "response_date": "2023-10-05 16:54:03"
+        },
+        {
+          "review_id": "nq5n0nn",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside is a great community with a very attentive management staff. Very pet friendly. Highly recommend.",
+          "time_desc": "2023-09-11 15:38:14",
+          "has_response": true,
+          "response_text": "Thanks so much for the great review and recommendation!  We will work hard to continue to earn your approval!",
+          "response_date": "2023-09-13 14:44:09"
+        },
+        {
+          "review_id": "gmrxgkx",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "There is a serious ant issue that the community was aware of.",
+          "time_desc": "2023-08-31 14:36:04",
+          "has_response": true,
+          "response_text": "Thank you for taking the time to leave us a review. We would love the opportunity to speak with you. Please contact the office at parksiderr@greystar.com to let us know when the best time is to call or set up a meeting.",
+          "response_date": "2023-09-05 16:37:05"
+        },
+        {
+          "review_id": "xm49f3m",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Nuestra experiencia en Round Rock ha sido muy buena.",
+          "time_desc": "2023-08-07 15:02:38",
+          "has_response": true,
+          "response_text": "Thank you again for taking the time to let us know how we did. We hope you have a great day! We look forward to your next visit! Take care!",
+          "response_date": "2023-08-29 20:01:44"
+        },
+        {
+          "review_id": "3w8rxwg",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Love this community and its staff. They do everything in great timing.",
+          "time_desc": "2023-07-22 14:26:59",
+          "has_response": true,
+          "response_text": "Hi there, we are very happy to have provided you with such a positive experience! Please let us know if there is anything else we can do for you; we are more than happy to help!",
+          "response_date": "2023-08-29 19:59:56"
+        },
+        {
+          "review_id": "00vfzt0",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Greystar took over management last fall and so far have been excellent ...professional, prompt, and friendly",
+          "time_desc": "2023-07-11 19:18:08",
+          "has_response": true,
+          "response_text": "We appreciate your positive review about your recent experience with us!",
+          "response_date": "2023-08-29 21:06:45"
+        },
+        {
+          "review_id": "dwtmbzk",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Love the place, area, and the staff. Sweet personalities.",
+          "time_desc": "2023-07-05 14:11:04",
+          "has_response": true,
+          "response_text": "Hi, we are so happy to read such a great review about Parkside at Round Rock!",
+          "response_date": "2023-08-29 21:07:12"
+        },
+        {
+          "review_id": "0wpdb12",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "En general estoy contenta, solo que me gustaría que las áreas comunes mantuvieran limpias más seguido, como por ejemplo las escaleras.",
+          "time_desc": "2023-06-16 15:35:05",
+          "has_response": true,
+          "response_text": "¡Gracias por su comentarios!  ¡Que tenga un buen día!",
+          "response_date": "2023-06-22 04:48:22"
+        },
+        {
+          "review_id": "20pqj1b",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I have resided at Parkside Round Rock since September of 2020. I love it here. My job is close as are many retail stores and restaurants. The staff here is quick to kindly answer any questions or to take care of any issues should they arise. I highly recommend Parkside at Round Rock.",
+          "time_desc": "2023-05-25 21:40:30",
+          "has_response": true,
+          "response_text": "Thank you so much for the 5 star review!  We appreciate you taking the time to let us know about your experience and are ecstatic that we have exceeded your expectations!  We hope you have a wonderful day!",
+          "response_date": "2023-06-01 16:01:17"
+        },
+        {
+          "review_id": "px647tv",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside is such an amazing place to live the staff really care from the leasing office to maintenance",
+          "time_desc": "2023-05-11 14:43:50",
+          "has_response": true,
+          "response_text": "Thanks for such a great review about our team!  We are always more than happy to assist you if anything comes up. Take care!",
+          "response_date": "2023-05-16 20:40:36"
+        },
+        {
+          "review_id": "785g0gw",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside at Round Rock is a nice clean apartment community close to the outlet mall and I35.",
+          "time_desc": "2023-04-07 14:52:54",
+          "has_response": true,
+          "response_text": "Hi, we are so happy to read such a great review about Parkside at Round Rock!  We are always more than happy to assist you if anything comes up. Take care!",
+          "response_date": "2023-04-12 16:03:42"
+        },
+        {
+          "review_id": "r2hq3b0",
+          "author": "Aspyn L.",
+          "rating": 1,
+          "text": "I lived here for a year and a half and the previous company before greystar took over was pretty good. They were attentive and responsive. Greystar has ruined this complex. They never answer their phones or seem to know whats going on. They sent me a letter asking if I wanted to renew my lease after I had sent in my notice a month before. Run the other way! I had my car towed 4x and also the walls are primed but not painted? Which leaves weird marks on them often. STAY AWAY!!!!",
+          "time_desc": "2023-03-23 19:59:37",
+          "has_response": true,
+          "response_text": "Hi, we regret to hear that you had a negative experience with us, but would appreciate the chance to turn your experience around.  If you are willing to give us another chance, please reach out to us at (512) 388-5000 to speak to one of our managers directly.",
+          "response_date": "2023-03-28 20:00:55"
+        },
+        {
+          "review_id": "4jbl11h",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Nice location, amenities, and apartment buildings.",
+          "time_desc": "2023-03-16 22:35:41",
+          "has_response": true,
+          "response_text": "Thanks for taking the time to give your feedback about Parkside!  We hope you have a great rest of your day!",
+          "response_date": "2023-03-21 14:06:52"
+        },
+        {
+          "review_id": "kgn9tnb",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I’m very happy with Parkside at Round Rock!  I viewed many other communities and those that were comparable were over $200   with outdated fixtures, appliances, and curb appeal.",
+          "time_desc": "2023-02-21 13:36:54",
+          "has_response": true,
+          "response_text": "Thanks for the wonderful feedback on Parkside at Round Rock!  We appreciate the high praise and are happy that we could exceed your expectations!  Have a great day!",
+          "response_date": "2023-02-23 16:06:27"
+        },
+        {
+          "review_id": "hlb4cc3",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "Our experience has been quality overall, the management and maintenance techs as of 2-14-23 are awesome to work with",
+          "time_desc": "2023-02-14 19:42:47",
+          "has_response": true,
+          "response_text": "Thanks so much for the review!  We are happy that you have had a great experience with the staff at Parkside!  We would love to know how we can earn those two extra stars.  Please feel free to reach out to us at 512.388.5000 to provide more details!",
+          "response_date": "2023-02-20 17:56:19"
+        },
+        {
+          "review_id": "9775pw7",
+          "author": "Verified R.",
+          "rating": 2,
+          "text": "If you are a messy person this is the place for you. Make sure not to invite your friends or they will get their car towed with no warning even if you register them as your guest on your resident portal.",
+          "time_desc": "2023-02-07 21:41:51",
+          "has_response": true,
+          "response_text": "Hi, we truly appreciate your honest feedback.  Our guest parking instructions are posted throughout the community on how to register as well as where they can park, and we are happy to provide this to you directly if you wish.  Please feel free to reach out to parksiderr@greystar.com for more information!  Thanks!",
+          "response_date": "2023-02-10 20:51:46"
+        },
+        {
+          "review_id": "62x13ms",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Estoy muy contenta viviendo en Parkside, tiene amplias zonas, todo es limpio, organizado y la calidez del personal administrativo es impecable.",
+          "time_desc": "2023-01-02 16:50:30",
+          "has_response": true,
+          "response_text": "¡Gracias por tu comentario!  Agradecemos sus comentarios sobre su experiencia con nuestra comunidad.  ¡Que tengas un gran día!",
+          "response_date": "2023-01-13 21:24:24"
+        },
+        {
+          "review_id": "8tqcnq2",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "A great place to call home. The entire staff always greets everyone with a smile and are very helpful to my needs, and are quick to attend to any problems. The grounds and facilities are kept clean every day. The workout rooms are open 24//7 are rarely crowded and the pool area is beautiful. I love the convenience of the elevator and four story covered parking garage. It could not be better located and is surrounded by lots of shopping plaza’s, restaurants, hospitals, and schools. I just love it here!",
+          "time_desc": "2022-04-14 18:42:44",
+          "has_response": true,
+          "response_text": "Hey User, Thanks for choosing us and leaving such a great review! It is truly touching to know you think so highly of us! We look forward to providing you with more great experiences in the near future. Sincerely, Parkside at Round Rock Staff.",
+          "response_date": "2022-06-16 21:15:10"
+        },
+        {
+          "review_id": "jl3wh35",
+          "author": "Jeremiah W.",
+          "rating": 1,
+          "text": "My wife and I have lived here for 2 years now. The first year was fine but then the complex was bought by avenue 5. They replaced some of the staff and immediately turned off the security system that locks the exterior doors and tons of other terrible policy changes. I recommend staying far away.",
+          "time_desc": "2022-03-30 22:32:30",
+          "has_response": true,
+          "response_text": "User, Thanks for sharing your experience. We sincerely apologize for the frustration you experienced at our location. In order to learn more about what happened we would appreciate if you reached out to us at your earliest convenience by sending us an email at parksideroundrock@avenue5apt.com. Sincerely, Parkside at Round Rock Staff.",
+          "response_date": "2022-06-16 21:16:51"
+        },
+        {
+          "review_id": "spfbze7",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "The entire process of leasing to move in was easy. The complex is nice and clean for the most part and it’s a great place to be if you like a good location with all of the stores and restaurants you need right around the corner. The staff seems nice and helpful. All is well so far!",
+          "time_desc": "2022-03-27 18:23:35",
+          "has_response": true,
+          "response_text": "User, We appreciate the time you took to give us positive review! It's feedback like yours that reminds us why we do what we do. We hope to become one of your favorites. Let us know what we need to do to earn your continued loyalty. See you next time!",
+          "response_date": "2022-06-16 21:18:37"
+        },
+        {
+          "review_id": "pbq3hcr",
+          "author": "Alma N.",
+          "rating": 1,
+          "text": "I am more than positive that all the five star reviews and positive talk about this apartment complex are fake. The management must be submitting them to counteract all the negative reviews. \nBy far the worst apartment complex with management staff that can exist. For the love of everything holy, do not move here. The key fob system is broken and they are doing absolutely nothing to fix it. Homeless people and others under the influences walk into this apartment to seek refuge, which can cause grave danger to the residents. Do not, DO NOT move here!",
+          "time_desc": "2022-02-28 14:58:33",
+          "has_response": true,
+          "response_text": "Hello, We appreciate the time you took to leave us feedback. We pride ourselves on maintaining the highest quality standards for our customers but we didn't measure up. We would appreciate another chance to correct the issues you and your neighbors are having. Please reach out to our team as soon as possible at (512) 388-5000. Kindest regards, Parkside Management",
+          "response_date": "2022-03-07 23:56:06"
+        },
+        {
+          "review_id": "8d9ynr0",
+          "author": "Verified R.",
+          "rating": 2,
+          "text": "Apartments are okay. Workmanship was poor upon move in, felt like the office didn't really care, since move in there's been a lot of turnover and feels as if staff cares less. Getting mail or packages is a mess. Maintenance guys are friendly but busy and haven't resolved any of my requests. Like having a yard for my dog.",
+          "time_desc": "2022-01-26 17:58:36",
+          "has_response": true,
+          "response_text": "User, We want to thank you for taking the time to give feedback about your recent experience. Please accept our most sincerest apologies. In order to learn more about what happened we would appreciate if you reached out to us at your earliest convenience. Sincerely, Parkside at Round Rock Staff",
+          "response_date": "2022-06-16 21:30:06"
+        },
+        {
+          "review_id": "9h0kxc6",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "The Parkside at Round Rock is good place to reside and enjoy the proximity to several places.",
+          "time_desc": "2022-01-16 19:39:51",
+          "has_response": true,
+          "response_text": "Hi User, Thanks so much for taking the time to share your positive experience! We'll be sure to share your experience with the rest of our team members as inspiration! Thanks again and we look forward to seeing you again soon.",
+          "response_date": "2022-06-16 21:30:27"
+        },
+        {
+          "review_id": "le7fgsd",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "Would not recommend. Management is awful. Complex is dirty. Feels incredibly unsafe considering RRPD or swat is there frequently.",
+          "time_desc": "2021-12-31 15:28:24",
+          "has_response": true,
+          "response_text": "Hello User, Thanks for rating your experience. Allow me to apologize on behalf of our team. We hope you will consider visiting us again so we can turn your experience around. Sincerely, Parkside at Round Rock Staff",
+          "response_date": "2022-06-16 21:31:50"
+        },
+        {
+          "review_id": "w4j042j",
+          "author": "Verified R.",
+          "rating": 2,
+          "text": "I discovered after move that there is constant exposure to dog excrements, in the elevator, hallways, entryways, & grass area. This includes odor. Yes, there are property rules regarding pets. However, I have observed most tenants w/dogs, completely ignore those rules. They let their pets do their business wherever they want, and of course, they don't clean it up. This property simply has no logical way to control all of these dogs, and their owners disregard for rules. Yes, I do think the property works hard to do so, but in my view, it is not working. They're outnumbered. Perhaps in time, it will straighten out. The same is true for the garbage situation. Currently, there is a trash valet service. However, when I first moved in, people were just throwing their garbage wherever they felt like on the property. (I'm dead serious.) Now, with the valet service, it's the same thing. Tenants just haul their smelly, disgusting garbage bags out into the hallway. This causes smells within the hall. (I can't even imagine what it's going to be like in the hot weather.) Worse yet, tenants are throwing their full garbage bags out into the hall, onto the floor,  some 23  hours in advance, or days in advance, before any valet pick up. Truly disgusting. So one is just inches from these garbage bags, when walking down the hall. In this age of covid, it is not healthy. Anything could be in those trash bags - human body fluids, or chemicals. Hazardous fumes can come out of the bags. So can bacteria. The trash cans provided are completely ignored by tenants. No one uses them & puts the lid on, like they're supposed to for their garbage. Again, it's the same scenario. Management is outnumbered. There are just too many tenants doing it, and not enough monitoring. So, if you decide to rent here, just know that you have to have a strong stomach. There's a lot of bad smells from garbage & pet waste. Other than that, I feel my apartment is truly gorgeous, and that the amenities are beyond reproach.The staff are all amazing, wonderful, hard-working individuals. It is a gorgeous property --- yet could certainly be better, if tenants took better care of it. Mgmnt. is here to govern the paperwork, to lease these beautiful apartment homes to folks. They are NOT here to babysit your pets, or police your garbage. This is not adult daycare. Tenants should have enough common decency AND brains, to know how to behave w/their garbage and pets. However, they do not.~",
+          "time_desc": "2021-12-23 15:22:11",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "lph9l6f",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Parkside is definitely a spot to live if you love simplicity, but also updated luxury living. It is very quiet, very clean, and upkept even as a newer complex. You will enjoy the smoke free facility and the simple walk across the street to the Round Rock premium outlets, as well as Bass Pro Shops a block away. The leasing staff is very formative and are willing to help accommodate your every need.",
+          "time_desc": "2021-12-19 18:15:14",
+          "has_response": true,
+          "response_text": "Hello User, Thank you for the awesome feedback. It's feedback like yours that reminds us why we do what we do. If you ever need anything please don't hesitate to reach out to our team. Please let us know what we can do for you in the future.",
+          "response_date": "2022-06-16 21:33:33"
+        },
+        {
+          "review_id": "eg9lfbq",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Easy move-in process with the help of staff. The complex amenities look great, I love the gym area! The location itself is overall a quiet community, Id highly recommend!",
+          "time_desc": "2021-11-27 16:02:41",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "63rc9qv",
+          "author": "Z C.",
+          "rating": 1,
+          "text": "Since purchased by Avenue5, this property has fallen more into disrepair and poor management.  Mail room is overflowing, noise is too much from other apts, and the traffic is horrible.",
+          "time_desc": "2021-10-25 21:07:39",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "2jmf8d8",
+          "author": "Sojourner S.",
+          "rating": 5,
+          "text": "I have almost no words to describe how fantastic this apartment complex is. From the great amenities, to the quiet, easy  living, fresh walking breeeways, beautiful grounds, & large parking garage to keep cars out of the elements -  I was truly impressed. The leasing agents are professional and super nice to work with. The entire staff makes everything so easy for move-in. Great online \"space\" to pay rent and request work orders. Beautiful apt, with wood floors. (no messy, dusty carpet.) I definitely recommend these apartments.",
+          "time_desc": "2021-10-20 20:19:39",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "4mmkdzk",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "The best apartment living experience I have had in my entire life. Phenomenal amenities, clean, pretty grounds. Easy living. Professional leasing agents. Quiet. You cannot hear noises from other apts, probably due to layout and perhaps building materials? Location is centralized to shopping. Phenomenal apt living!",
+          "time_desc": "2021-10-20 18:01:12",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "tpp48mc",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "Living here is the second worst place Ive ever lived all the doors are broken. The key fob entry remains a joke. My storage unit was stolen from a previous employer that kept a master key. And my AC is being controlled by the office. It shuts off or gets turned up in the middle of the night.  Yet, I pay my bill, not them. The front desk person (Antwon) might be the most absolute worst customer service rep I have ever encountered. Hes completely dismissive of any concerns. All he wants to do is ignore any complaints or concerns. He acts as if its his first day every day. Not to mention that nobody ever replies to emails nor answers the phones.   I dont know what any of them do all day, but its not help their residents or get property issues resolved.",
+          "time_desc": "2021-10-13 19:20:13",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "krxyk68",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "The location is ideal and the apartment is a very nice value for the amenities in place. As a new complex (bout a year maybe less), the growing pains have been addressed adequately. Workout room is amazing and pool is very nice.",
+          "time_desc": "2021-10-06 18:14:43",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "njk6lcm",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "It is a beautiful property but it is clear the few people who don't want to live here and follow the rules and try to keep the property in the best condition and respect their neighbors it is ruining the quality of life here. Until these issues are addressed there's no reason to refer or commend this property. The owners need to allow the PM to manage this property. Provide resources to clean this up and maintain.",
+          "time_desc": "2021-09-16 13:12:03",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "gczmdxx",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "I love this place. It perfectly meets my needs. I feel safe in this community. I recommend it to any one looking for a home.",
+          "time_desc": "2021-07-31 15:04:12",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "rzfshn0",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Its convenient for its closeness to where I work; and there are plenty of places to shop nearby as well as many restaurants.",
+          "time_desc": "2021-07-20 22:18:52",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "1kttx15",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Its a good place to reside. I have been here for 10 months and really am not considering moving anytime soon.",
+          "time_desc": "2021-07-17 15:43:45",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        },
+        {
+          "review_id": "rz6lp50",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "Do not live here unless you love dogs. They are everywhere. Pooping and barking everywhere. And the new management could care less.",
+          "time_desc": "2021-06-23 15:15:23",
+          "has_response": false,
+          "response_text": null,
+          "response_date": null
+        }
+      ],
+      "star_distribution": {
+        "1": 10,
+        "2": 3,
+        "3": 6,
+        "4": 13,
+        "5": 31
+      },
+      "reviews_fetched": 63,
+      "responded": 51,
+      "not_responded": 12,
+      "needs_response": 5,
+      "response_rate": 81.0,
+      "source": "zembra/apartments.com",
+      "rating": 4.3,
+      "review_count": 63,
+      "url": "https://www.apartments.com/parkside-at-round-rock-round-rock-tx/xe8kehq/",
+      "zembra_job_id": "def5689d-f1e9-456a-9db1-576d4b926b88"
+    }
+  },
+  "nexus_east": {
+    "ts": 1771091606.916608,
+    "data": {
+      "reviews": [
+        {
+          "review_id": "jck4n85",
+          "author": "Ryan Michael J.",
+          "rating": 1,
+          "text": "I had several people warn me about moving into this complex before I moved in. During my first few weeks here, I also noticed that even residents who live here seemed hesitant when walking me through the community. I tried to stay optimistic, but things have continued to go wrong.\n\nThey have repeatedly messed up my rent, and I’ve had to go into the office multiple times to get it corrected. The hot water regularly goes out. Trash valet does not run nearly as smoothly as advertised. There are homeless individuals living in the dumpster area, and until very recently, there was no nighttime security at all. To be clear, they just hired nighttime security a couple of days ago, after months of ongoing issues reported by residents.\n\nThere are no security cameras in the hallways or parking lots because management claims it would be an “infringement of privacy,” even though residents have repeatedly asked for basic safety measures. Packages go missing almost daily, despite management insisting their mail delivery system is “foolproof.” It isn’t. Someone’s car was stolen (not towed—stolen) from inside the gated parking lot.\n\nThe parking areas are constantly littered with residents’ dog poop. I personally had a package stolen from the mailroom, and management admitted they have video footage of a homeless man entering and stealing packages. On top of that, my rental vehicle was towed even though I had a valid visitor permit.\n\nI’ve lived here for less than two months and have experienced an unbelievable number of issues. There is an entire resident group chat that is nothing but daily complaints about how poorly this place is managed. I truly tried to stay positive and go with the flow, but I’m exhausted by the constant problems and the lack of meaningful action from management.\n\nI do not recommend moving here.",
+          "time_desc": "2026-01-02 18:00:59",
+          "has_response": true,
+          "response_text": "We are concerned to hear about these ongoing issues. Your safety and satisfaction matter deeply. Please contact us at (888) 219-9471 to discuss solutions.",
+          "response_date": "2026-01-14 22:55:10"
+        },
+        {
+          "review_id": "hx561e2",
+          "author": "Valerie F.",
+          "rating": 5,
+          "text": "Great location, amenities, and staff. Would definitely recommend",
+          "time_desc": "2025-05-19 21:45:07",
+          "has_response": true,
+          "response_text": "We are delighted to hear about your positive experience. Thank you for highlighting our location, amenities, and staff.",
+          "response_date": "2025-05-20 14:10:33"
+        },
+        {
+          "review_id": "787qhly",
+          "author": "Rachel H.",
+          "rating": 5,
+          "text": "Just moved in and was welcomed with a pup cup and a cookie which was a nice surprise. My apartment had one issue with the garage disposal but a maintenance man was able to come the same day to fix it. Nice office staff and the neighbors seem nice!",
+          "time_desc": "2025-04-15 15:24:51",
+          "has_response": true,
+          "response_text": "We are overjoyed to hear about your positive experience at Nexus East! Thank you for sharing your feedback.",
+          "response_date": "2025-04-30 14:22:21"
+        },
+        {
+          "review_id": "wfbp05j",
+          "author": "Verified R.",
+          "rating": 3,
+          "text": "One of the coolest pool areas in East Austin. I have been to a lot, and none are as beautiful as here. The landscaping and maintenance of the pool is great. Pool is huge. 2 grill areas. Lots of seating. Cleaning crew comes early in the mornings to deep clean everything. Pool is consistently vacuumed and cleaned. Most apartment pools in Austin get pretty gross. Not the case here. Good sun exposure during the summer months from about 11am to 7pm. My girlfriend and I are at the pool pretty much everyday from June - September.",
+          "time_desc": "2024-12-29 16:48:16",
+          "has_response": true,
+          "response_text": "Your feedback is incredibly valuable. Thank you for sharing your experience with the pool area at Nexus East. We are glad to hear that you enjoy the landscaping and maintenance of the pool.",
+          "response_date": "2025-05-18 17:40:25"
+        },
+        {
+          "review_id": "p01lzpr",
+          "author": "AJ W.",
+          "rating": 1,
+          "text": "I moved in and within days was having problems with my ac which they were slow to fix. Shortly after that there was a rain storm that leaked through my ceiling and created a huge mold stain. It took them\na couple days to get the leak sealed up but nothing got done about the mold. They said I could wait weeks for a new unit and then dragged their feet trying to move me into something else within a reasonable amount of time. I was eventually allowed to terminate my lease after a week of being lied to and pushed to the side. They tried to tell me I owed them money and kept my deposit and I had to cover all move out expenses. Management never once made me feel like more than just a number.",
+          "time_desc": "2024-11-27 16:24:40",
+          "has_response": true,
+          "response_text": "We regret to learn about your experience with us. Please contact us at (888) 219-9471 to discuss this further.",
+          "response_date": "2025-05-18 17:41:15"
+        },
+        {
+          "review_id": "59v4rkp",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Nexus east is in the perfect location on the east side. The apartments are very cute and up-to-date, Along with a very friendly community.",
+          "time_desc": "2024-09-13 17:36:05",
+          "has_response": true,
+          "response_text": "Hello -\n\nThank you so much for your feedback! We strive to provide a great experience here at Nexus East and are happy that we've been able to provide one for you, including with our maintenance team! Please feel free to reach out to us again in the future with additional feedback!",
+          "response_date": "2024-12-11 19:58:48"
+        },
+        {
+          "review_id": "sshkyc6",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "The managent dragged their feet implementing a new gate system which allowed a homeless man to enter the complex and bang on doors trying to get in. Packages are stolen. There are roaches everywhere. And there is a widespread mold issue. Every unit is humid and there is no hot water.",
+          "time_desc": "2024-08-25 19:24:14",
+          "has_response": true,
+          "response_text": "Apologies for any inconvenience. Your feedback is valuable to us. Please contact us at (888) 219-9471 to discuss your concerns further.",
+          "response_date": "2025-05-18 17:41:51"
+        },
+        {
+          "review_id": "vpxc8ke",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "The complex is well kept, great amenities, provides a few welcoming areas to meet people in the complex. Easy access to gates and doors with the app.",
+          "time_desc": "2024-04-23 15:01:20",
+          "has_response": true,
+          "response_text": "You're the best! We really appreciate the positive review. Thanks again for taking some time to provide feedback about Nexus East. If there is anything we can assist you will please feel free to contact us we are here to help! - Nakeiya",
+          "response_date": "2024-04-24 19:40:09"
+        },
+        {
+          "review_id": "49407yj",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "Love it at Nexus East! It's got a great vibe and in a good location!",
+          "time_desc": "2024-03-29 15:40:37",
+          "has_response": true,
+          "response_text": "Hey - what a lovely thing to say! We appreciate you so much. Can't wait to see you again. Take care!",
+          "response_date": "2024-04-03 19:01:43"
+        },
+        {
+          "review_id": "y4qr79r",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Truly feels like home! Management team has been awesome and it’s such a great community to be apart of.",
+          "time_desc": "2024-01-25 14:43:03",
+          "has_response": true,
+          "response_text": "So good to hear from you! Thanks for letting us know. Have a great day! Thanks again for taking some time to about your visit to Nexus East. Be well!",
+          "response_date": "2024-01-29 16:14:18"
+        },
+        {
+          "review_id": "qb29g7w",
+          "author": "Verified R.",
+          "rating": 5,
+          "text": "Nexus is a wonderful community and the staff is always helpful.",
+          "time_desc": "2023-12-20 14:31:18",
+          "has_response": true,
+          "response_text": "Thank you again for taking the time to let us know how we did. We hope you have a great day!",
+          "response_date": "2023-12-26 20:11:08"
+        },
+        {
+          "review_id": "n73lvmp",
+          "author": "Verified R.",
+          "rating": 1,
+          "text": "Nexus does the absolute bare minimum. Being negligently reactive instead of proactive about problems residents are dealing with. Where is our money going towards??",
+          "time_desc": "2023-11-20 14:24:57",
+          "has_response": true,
+          "response_text": "We would like to have a better understanding about your experience. Please reach out to us at (512) 389-5369 at your earliest convenience and we will do our best to resolve this with you.",
+          "response_date": "2023-11-25 15:29:35"
+        },
+        {
+          "review_id": "110str5",
+          "author": "Verified R.",
+          "rating": 4,
+          "text": "It’s a lovely complex in a great location. I just wish it was guest-friendly. I work 12-hr days Emergency Management Services and love having friends and family visit for a few days at a time but I’m not available to be with them their whole visit to unlock and lock my unit door and to leave it unlocked like I what was suggested by the leasing agent, doesn’t feel right. I do not want my guests to feel like they are an inconvenience when that shouldn’t even be an issue. Butterfly app is great to gain entry in the property but not my unit. I want my guests to feel welcomed and I know they do not/will not.",
+          "time_desc": "2023-11-08 21:35:47",
+          "has_response": true,
+          "response_text": "Hello, we really appreciate your feedback! Please feel free to contact the leasing office to discuss with the community manager. Have a great weekend.",
+          "response_date": "2023-11-10 21:43:20"
+        }
+      ],
+      "star_distribution": {
+        "1": 4,
+        "2": 0,
+        "3": 1,
+        "4": 4,
+        "5": 4
+      },
+      "reviews_fetched": 13,
+      "responded": 13,
+      "not_responded": 0,
+      "needs_response": 0,
+      "response_rate": 100.0,
+      "source": "zembra/apartments.com",
+      "rating": 3.9,
+      "review_count": 13,
+      "url": "https://www.apartments.com/nexus-east-austin-tx/nbnfysp/",
+      "zembra_job_id": "7a476969-de40-4fa6-b02c-1764b32bc72a"
+    }
+  }
+}

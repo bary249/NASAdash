@@ -315,6 +315,16 @@ export const api = {
     source?: string; error?: string;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/reviews`),
 
+  getApartmentsReviews: (propertyId: string): Promise<{
+    rating: number | null; review_count: number;
+    reviews: { review_id: string; author: string; rating: number; text: string; time_desc: string; has_response: boolean; response_text: string | null; response_date: string | null }[];
+    star_distribution: Record<string, number>;
+    reviews_fetched: number; responded: number; not_responded: number;
+    needs_response: number; response_rate: number;
+    source: string; url: string;
+    error?: string;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/apartments-reviews`),
+
   getAIInsights: (propertyId: string): Promise<{
     alerts: { severity: string; title: string; fact: string; risk: string; action: string }[];
     qna: { question: string; answer: string }[];

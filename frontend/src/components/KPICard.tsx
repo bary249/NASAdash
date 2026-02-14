@@ -26,6 +26,7 @@ interface KPICardProps {
   variant?: CardVariant;
   onClick?: () => void;
   icon?: ReactNode;
+  tooltip?: string;
   children?: ReactNode;
   isMock?: boolean; // Show "mock" tag for hardcoded values
   isCalc?: boolean; // Show "calc" tag for calculated values
@@ -41,6 +42,7 @@ export function KPICard({
   variant = 'default',
   onClick,
   icon,
+  tooltip,
   children,
   isMock = false,
   isCalc = false,
@@ -93,7 +95,10 @@ export function KPICard({
             </span>
           )}
         </div>
-        {icon && <div className="text-slate-400">{icon}</div>}
+        <div className="flex items-center gap-1.5">
+          {icon && <div className="text-slate-400">{icon}</div>}
+          {tooltip && <InfoTooltip text={tooltip} />}
+        </div>
       </div>
 
       {/* Main Value */}
@@ -131,16 +136,18 @@ export function KPICard({
 interface FunnelKPICardProps {
   leads: number;
   tours: number;
-  proposals: number;
+  applications: number;
   leasesSigned: number;
+  sightUnseen?: number;
+  tourToApp?: number;
   onClick?: () => void;
 }
 
-export function FunnelKPICard({ leads, tours, proposals, leasesSigned, onClick }: FunnelKPICardProps) {
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen = 0, tourToApp = 0, onClick }: FunnelKPICardProps) {
   const stages = [
     { label: 'Leads', value: leads },
     { label: 'Tours', value: tours },
-    { label: 'Proposals', value: proposals },
+    { label: 'Apps', value: applications },
     { label: 'Signed', value: leasesSigned },
   ];
 
@@ -154,7 +161,7 @@ export function FunnelKPICard({ leads, tours, proposals, leasesSigned, onClick }
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide inline-flex items-center gap-0.5">
-          Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Applications = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
+          Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
         </span>
         <span className="text-[10px] text-slate-400">Last 30 days</span>
       </div>
@@ -176,6 +183,7 @@ export function FunnelKPICard({ leads, tours, proposals, leasesSigned, onClick }
           </div>
         ))}
       </div>
+
     </div>
   );
 }
@@ -188,10 +196,11 @@ interface VacantKPICardProps {
   ready: number;
   agedCount?: number;
   timeLabel?: string;
+  tooltip?: string;
   onClick?: () => void;
 }
 
-export function VacantKPICard({ total, ready, agedCount, timeLabel, onClick }: VacantKPICardProps) {
+export function VacantKPICard({ total, ready, agedCount, timeLabel, tooltip, onClick }: VacantKPICardProps) {
   return (
     <div
       onClick={onClick}
@@ -200,15 +209,18 @@ export function VacantKPICard({ total, ready, agedCount, timeLabel, onClick }: V
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
       `}
     >
-      <div className="flex items-center gap-1">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-          Vacant
-        </span>
-        {timeLabel && (
-          <span className="text-[9px] text-slate-400 font-normal normal-case tracking-normal">
-            {timeLabel}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+            Vacant
           </span>
-        )}
+          {timeLabel && (
+            <span className="text-[9px] text-slate-400 font-normal normal-case tracking-normal">
+              {timeLabel}
+            </span>
+          )}
+        </div>
+        {tooltip && <InfoTooltip text={tooltip} />}
       </div>
 
       <div className="text-3xl font-bold text-slate-900 mt-2">{total}</div>

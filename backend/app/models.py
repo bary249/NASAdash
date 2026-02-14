@@ -88,6 +88,8 @@ class LeasingFunnelMetrics(BaseModel):
     applications: int   # Submitted applications
     lease_signs: int    # Signed leases (countersigned)
     denials: int        # Denied applications
+    sight_unseen: int = 0    # Leased without any tour/visit
+    tour_to_app: int = 0     # Prospects who toured AND applied
     
     # Conversion rates
     lead_to_tour_rate: float     # Tours / Leads %

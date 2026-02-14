@@ -71,14 +71,26 @@ function getSortValue(p: PropertySummary, key: SortKey): number | string {
 interface PortfolioViewProps {
   onSelectProperty: (propertyId: string, propertyName?: string) => void;
   selectedPropertyId?: string;
+  selectedPropertyIds?: Set<string>;
+  onSelectedPropertyIdsChange?: (ids: Set<string>) => void;
 }
 
-export function PortfolioView({ onSelectProperty, selectedPropertyId }: PortfolioViewProps) {
+export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange }: PortfolioViewProps) {
   const [expanded, setExpanded] = useState(true);
   const [properties, setProperties] = useState<PropertySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [aggregationMode, setAggregationMode] = useState<AggregationMode>('row_metrics');
-  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+  const [internalSelectedIds, setInternalSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Use external state if provided, otherwise internal
+  const selectedPropertyIds = externalSelectedIds ?? internalSelectedIds;
+  const setSelectedPropertyIds = (ids: Set<string>) => {
+    if (onSelectedPropertyIdsChange) {
+      onSelectedPropertyIdsChange(ids);
+    } else {
+      setInternalSelectedIds(ids);
+    }
+  };
   const [showModeInfo, setShowModeInfo] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -119,9 +131,13 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
         await Promise.all(
           props.map(async (p, idx) => {
             try {
-              // Use portfolio API to get occupancy for this property
-              const occupancyResult = await api.getPortfolioOccupancy([p.id], aggregationMode);
+              // Fetch portfolio occupancy and per-property occupancy (for aged vacancy) in parallel
+              const [occupancyResult, perPropertyOcc] = await Promise.all([
+                api.getPortfolioOccupancy([p.id], aggregationMode),
+                api.getOccupancy(p.id).catch(() => null),
+              ]);
               const propertyOccupancy = occupancyResult.property_breakdown?.[0];
+              const agedCount = (perPropertyOcc as any)?.aged_vacancy_90_plus || 0;
               
               const occupancy: Partial<OccupancyMetrics> = propertyOccupancy ? {
                 total_units: propertyOccupancy.total_units,
@@ -130,7 +146,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                 leased_units: propertyOccupancy.leased_units,
                 physical_occupancy: propertyOccupancy.physical_occupancy,
                 leased_percentage: propertyOccupancy.leased_percentage,
-                aged_vacancy_90_plus: 0,
+                aged_vacancy_90_plus: agedCount,
                 preleased_vacant: propertyOccupancy.preleased_vacant || 0,
                 vacant_ready: propertyOccupancy.vacant_ready || 0,
                 vacant_not_ready: propertyOccupancy.vacant_not_ready || 0,
@@ -201,15 +217,13 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
 
   // Toggle property selection for multi-select
   const togglePropertySelection = (propertyId: string) => {
-    setSelectedPropertyIds(prev => {
-      const next = new Set(prev);
-      if (next.has(propertyId)) {
-        next.delete(propertyId);
-      } else {
-        next.add(propertyId);
-      }
-      return next;
-    });
+    const next = new Set(selectedPropertyIds);
+    if (next.has(propertyId)) {
+      next.delete(propertyId);
+    } else {
+      next.add(propertyId);
+    }
+    setSelectedPropertyIds(next);
   };
 
   // Select/deselect all
@@ -280,15 +294,11 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
       ? Math.round((totals.occupiedUnits / totals.totalUnits) * 100 * 10) / 10 
       : 0;
   } else {
-    // Weighted Average: Average of per-property occupancy weighted by units
-    const weightedSum = selectedProperties.reduce((sum, p) => {
-      if (p.occupancy) {
-        return sum + (p.occupancy.physical_occupancy * p.occupancy.total_units);
-      }
-      return sum;
-    }, 0);
-    portfolioOccupancy = totals.totalUnits > 0
-      ? Math.round((weightedSum / totals.totalUnits) * 10) / 10
+    // Weighted Average: Simple average of per-property occupancy percentages
+    const propsWithOcc = selectedProperties.filter(p => p.occupancy && p.occupancy.total_units > 0);
+    const avgSum = propsWithOcc.reduce((sum, p) => sum + (p.occupancy!.physical_occupancy), 0);
+    portfolioOccupancy = propsWithOcc.length > 0
+      ? Math.round((avgSum / propsWithOcc.length) * 10) / 10
       : 0;
   }
 
@@ -310,26 +320,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
             </span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          {/* Portfolio summary badges */}
-          <div className="flex items-center gap-2 text-sm">
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium ${
-              getOccupancyHealth(portfolioOccupancy) === 'good' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-              getOccupancyHealth(portfolioOccupancy) === 'warning' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-              'bg-rose-50 text-rose-700 border border-rose-200'
-            }`}>
-              {portfolioOccupancy}% Occ
-            </span>
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full font-medium ${
-              getAgedVacancyHealth(totals.agedVacancy) === 'good' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-              getAgedVacancyHealth(totals.agedVacancy) === 'warning' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-              'bg-rose-50 text-rose-700 border border-rose-200'
-            }`}>
-              {totals.agedVacancy} Aged
-            </span>
-          </div>
-          {expanded ? <ChevronUp className="w-5 h-5 text-venn-amber" /> : <ChevronDown className="w-5 h-5 text-venn-amber" />}
-        </div>
+        {expanded ? <ChevronUp className="w-5 h-5 text-venn-amber" /> : <ChevronDown className="w-5 h-5 text-venn-amber" />}
       </button>
 
       {/* Aggregation Mode Toggle */}
@@ -484,7 +475,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId }: Portfoli
                     <tr 
                       key={p.property.id}
                       className={`hover:bg-venn-cream/40 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-venn-amber/10' : ''} ${isChecked ? 'bg-venn-amber/5' : ''}`}
-                      onClick={() => onSelectProperty(p.property.id, scrambleName(p.property.name, scramblePII, scrambleMode))}
+                      onClick={() => onSelectProperty(p.property.id, p.property.name)}
                     >
                       <td className="px-2 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <input

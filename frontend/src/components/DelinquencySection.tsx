@@ -4,7 +4,7 @@
  * Displays data parsed from RealPage Delinquent and Prepaid reports.
  */
 import { useState, useEffect } from 'react';
-import { AlertTriangle, DollarSign, Users, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, DollarSign, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { SectionHeader } from './SectionHeader';
 
 interface DelinquencyAging {
@@ -65,6 +65,7 @@ interface DelinquencyReport {
 
 interface Props {
   propertyId: string;
+  propertyIds?: string[];
 }
 
 function formatCurrency(value: number): string {
@@ -97,15 +98,16 @@ function AgingBar({ label, value, total, color }: { label: string; value: number
   );
 }
 
-export function DelinquencySection({ propertyId }: Props) {
+export function DelinquencySection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<DelinquencyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showEvictions, setShowEvictions] = useState(false);
 
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+
   useEffect(() => {
-    // Reset state immediately when property changes
     setData(null);
     setError(null);
     setShowDetails(false);
@@ -113,16 +115,54 @@ export function DelinquencySection({ propertyId }: Props) {
 
     const fetchData = async () => {
       try {
-        const response = await fetch(`/api/v2/properties/${propertyId}/delinquency`);
-        if (!response.ok) {
-          if (response.status === 404) {
-            setData(null);
-            return;
-          }
-          throw new Error(`Failed to fetch: ${response.status}`);
-        }
-        const result = await response.json();
-        setData(result);
+        const results = await Promise.all(
+          effectiveIds.map(async (pid) => {
+            const response = await fetch(`/api/v2/properties/${pid}/delinquency`);
+            if (!response.ok) {
+              if (response.status === 404) return null;
+              throw new Error(`Failed to fetch: ${response.status}`);
+            }
+            return response.json();
+          })
+        );
+        const valid = results.filter(Boolean) as DelinquencyReport[];
+        if (valid.length === 0) { setData(null); return; }
+        if (valid.length === 1) { setData(valid[0]); return; }
+        // Merge multiple reports
+        const merged: DelinquencyReport = {
+          property_name: `${valid.length} Properties`,
+          report_date: valid[0].report_date,
+          total_prepaid: valid.reduce((s, r) => s + r.total_prepaid, 0),
+          total_delinquent: valid.reduce((s, r) => s + r.total_delinquent, 0),
+          net_balance: valid.reduce((s, r) => s + r.net_balance, 0),
+          delinquency_aging: {
+            current: valid.reduce((s, r) => s + r.delinquency_aging.current, 0),
+            days_0_30: valid.reduce((s, r) => s + r.delinquency_aging.days_0_30, 0),
+            days_31_60: valid.reduce((s, r) => s + r.delinquency_aging.days_31_60, 0),
+            days_61_90: valid.reduce((s, r) => s + r.delinquency_aging.days_61_90, 0),
+            days_90_plus: valid.reduce((s, r) => s + r.delinquency_aging.days_90_plus, 0),
+            total: valid.reduce((s, r) => s + r.delinquency_aging.total, 0),
+          },
+          evictions: {
+            total_balance: valid.reduce((s, r) => s + r.evictions.total_balance, 0),
+            unit_count: valid.reduce((s, r) => s + r.evictions.unit_count, 0),
+            filed_count: valid.reduce((s, r) => s + r.evictions.filed_count, 0),
+            writ_count: valid.reduce((s, r) => s + r.evictions.writ_count, 0),
+          },
+          collections: {
+            current: valid.reduce((s, r) => s + (r.collections?.current || 0), 0),
+            days_0_30: valid.reduce((s, r) => s + (r.collections?.days_0_30 || 0), 0),
+            days_31_60: valid.reduce((s, r) => s + (r.collections?.days_31_60 || 0), 0),
+            days_61_90: valid.reduce((s, r) => s + (r.collections?.days_61_90 || 0), 0),
+            days_90_plus: valid.reduce((s, r) => s + (r.collections?.days_90_plus || 0), 0),
+            total: valid.reduce((s, r) => s + (r.collections?.total || 0), 0),
+          },
+          deposits_held: valid.reduce((s, r) => s + (r.deposits_held || 0), 0),
+          outstanding_deposits: valid.reduce((s, r) => s + (r.outstanding_deposits || 0), 0),
+          resident_count: valid.reduce((s, r) => s + r.resident_count, 0),
+          resident_details: valid.flatMap(r => r.resident_details || []),
+        };
+        setData(merged);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load delinquency data');
       } finally {
@@ -131,7 +171,8 @@ export function DelinquencySection({ propertyId }: Props) {
     };
 
     fetchData();
-  }, [propertyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (
@@ -169,9 +210,12 @@ export function DelinquencySection({ propertyId }: Props) {
   }
 
   const { delinquency_aging, evictions, collections } = data;
-  const totalAgingAbs = Math.abs(delinquency_aging.current) + Math.abs(delinquency_aging.days_0_30) + 
+  // Merge current into 0-30 bucket
+  const aging_0_30 = delinquency_aging.days_0_30 + delinquency_aging.current;
+  const totalAgingAbs = Math.abs(aging_0_30) + 
                         Math.abs(delinquency_aging.days_31_60) + Math.abs(delinquency_aging.days_61_90) + 
                         Math.abs(delinquency_aging.days_90_plus);
+  const collections_0_30 = (collections.days_0_30 || 0) + (collections.current || 0);
 
   // Get ALL delinquent residents (sorted by amount)
   const allDelinquent = data.resident_details
@@ -221,20 +265,6 @@ export function DelinquencySection({ propertyId }: Props) {
           </div>
         </div>
 
-        {/* Net Balance */}
-        <div className={`${data.net_balance >= 0 ? 'bg-red-50 border-red-100' : 'bg-blue-50 border-blue-100'} border rounded-xl p-4`}>
-          <div className="flex items-center gap-2 mb-2">
-            <TrendingDown className={`w-4 h-4 ${data.net_balance >= 0 ? 'text-red-500' : 'text-blue-500'}`} />
-            <span className={`text-xs font-medium uppercase ${data.net_balance >= 0 ? 'text-red-600' : 'text-blue-600'}`}>Net Balance</span>
-          </div>
-          <div className={`text-2xl font-bold ${data.net_balance >= 0 ? 'text-red-700' : 'text-blue-700'}`}>
-            {formatCurrency(data.net_balance)}
-          </div>
-          <div className={`text-xs mt-1 ${data.net_balance >= 0 ? 'text-red-500' : 'text-blue-500'}`}>
-            Delinquent − Prepaid
-          </div>
-        </div>
-
         {/* Collections */}
         <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -257,14 +287,8 @@ export function DelinquencySection({ propertyId }: Props) {
           <h4 className="text-sm font-semibold text-slate-700 mb-4">Delinquency Aging</h4>
           <div className="space-y-3">
             <AgingBar 
-              label="Current" 
-              value={delinquency_aging.current} 
-              total={totalAgingAbs}
-              color="bg-blue-400"
-            />
-            <AgingBar 
               label="0-30 Days" 
-              value={delinquency_aging.days_0_30} 
+              value={aging_0_30} 
               total={totalAgingAbs}
               color="bg-yellow-400"
             />
@@ -294,14 +318,8 @@ export function DelinquencySection({ propertyId }: Props) {
           <h4 className="text-sm font-semibold text-slate-700 mb-4">Collections Aging (Former Residents)</h4>
           <div className="space-y-3">
             <AgingBar 
-              label="Current" 
-              value={collections.current || 0} 
-              total={collections.total}
-              color="bg-blue-400"
-            />
-            <AgingBar 
               label="0-30 Days" 
-              value={collections.days_0_30} 
+              value={collections_0_30} 
               total={collections.total}
               color="bg-yellow-400"
             />

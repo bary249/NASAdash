@@ -42,6 +42,7 @@ interface RiskData {
 
 interface Props {
   propertyId: string;
+  propertyIds?: string[];
 }
 
 function ScoreGauge({ label, score, color }: { label: string; score: number; color: string }) {

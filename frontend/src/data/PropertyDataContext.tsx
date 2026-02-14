@@ -58,6 +58,8 @@ interface FunnelMetrics {
   applications: number;
   leaseSigns: number;
   denials: number;
+  sightUnseen: number;
+  tourToApp: number;
   leadToTourRate: number;
   tourToAppRate: number;
   appToLeaseRate: number;
@@ -338,6 +340,8 @@ function calculateFunnel(prospects: ProspectRaw[], periodStart: Date, periodEnd:
     applications,
     leaseSigns,
     denials,
+    sightUnseen: 0,
+    tourToApp: 0,
     leadToTourRate,
     tourToAppRate,
     appToLeaseRate,
@@ -459,10 +463,14 @@ const PropertyDataContext = createContext<PropertyDataContextValue | null>(null)
 
 interface PropertyDataProviderProps {
   propertyId: string;
+  propertyIds?: string[];  // For multi-property mode
   children: ReactNode;
 }
 
-export function PropertyDataProvider({ propertyId, children }: PropertyDataProviderProps) {
+export function PropertyDataProvider({ propertyId, propertyIds, children }: PropertyDataProviderProps) {
+  // Effective IDs: use propertyIds array if provided, otherwise single propertyId
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+  const effectiveKey = effectiveIds.sort().join(',');
   const [rawData, setRawData] = useState<PropertyRawData | null>(null);
   const [apiFunnelData, setApiFunnelData] = useState<FunnelMetrics | null>(null);
   const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
@@ -470,20 +478,20 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState<Timeframe>('cm');
   
-  // Fetch all raw data for the property
+  // Fetch all raw data for the property (or multiple properties)
   const fetchRawData = useCallback(async () => {
-    if (!propertyId) return;
+    if (effectiveIds.length === 0 || !effectiveIds[0]) return;
     
     setLoading(true);
     setError(null);
-    setApiFunnelData(null);  // Reset API funnel data when switching properties
+    setApiFunnelData(null);
     setExpirationsData(null);
     
     try {
-      // Use portfolio API which supports both Yardi and RealPage properties
+      // Portfolio APIs already accept arrays of property IDs
       const [unifiedUnits, unifiedResidents] = await Promise.all([
-        api.getPortfolioUnits([propertyId]),
-        api.getPortfolioResidents([propertyId]),
+        api.getPortfolioUnits(effectiveIds),
+        api.getPortfolioResidents(effectiveIds),
       ]);
       
       // Map unified units to UnitRaw format
@@ -525,40 +533,71 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
       const pastRes = allResidents.filter(r => r.status === 'Past' || r.status === 'past');
       const futureRes = allResidents.filter(r => r.status === 'Future' || r.status === 'future');
       
-      // Try to get prospects from Yardi API (may fail for RealPage properties)
+      // Fetch prospects for all properties (may fail for RealPage)
       let prospects: ProspectRaw[] = [];
-      try {
-        prospects = await api.getRawProspects(propertyId, undefined, 'ytd');
-      } catch {
-        // RealPage doesn't have prospect data yet - that's OK
-      }
+      await Promise.all(effectiveIds.map(async (pid) => {
+        try {
+          const p = await api.getRawProspects(pid, undefined, 'ytd');
+          prospects = prospects.concat(p);
+        } catch {
+          // RealPage doesn't have prospect data yet
+        }
+      }));
       
-      // Fetch expirations/renewals data from API
+      // Fetch expirations/renewals for all properties and merge
       try {
-        const expData = await api.getExpirations(propertyId);
-        if (expData && expData.periods && expData.periods.length > 0) {
-          setExpirationsData(expData);
+        const allExpData = await Promise.all(
+          effectiveIds.map(pid => api.getExpirations(pid).catch(() => null))
+        );
+        // Merge expiration periods by label
+        const periodMap: Record<string, { expirations: number; renewals: number }> = {};
+        for (const expData of allExpData) {
+          if (expData?.periods) {
+            for (const p of expData.periods) {
+              if (!periodMap[p.label]) periodMap[p.label] = { expirations: 0, renewals: 0 };
+              periodMap[p.label].expirations += p.expirations;
+              periodMap[p.label].renewals += p.renewals;
+            }
+          }
+        }
+        const mergedPeriods = Object.entries(periodMap).map(([label, data]) => ({
+          label,
+          expirations: data.expirations,
+          renewals: data.renewals,
+          renewal_pct: data.expirations > 0 ? Math.round(data.renewals / data.expirations * 100) : 0,
+        }));
+        if (mergedPeriods.length > 0) {
+          setExpirationsData({ periods: mergedPeriods });
         }
       } catch {
         // No expirations data available
       }
 
-      // If no prospects, try to get funnel data from API (imported Excel data for RealPage)
+      // Fetch funnel data for all properties and merge
       if (prospects.length === 0) {
         try {
-          const apiFunnel = await api.getLeasingFunnel(propertyId, 'l30');
-          if (apiFunnel && apiFunnel.leads > 0) {
-            // Map API response to FunnelMetrics format
+          const allFunnels = await Promise.all(
+            effectiveIds.map(pid => api.getLeasingFunnel(pid, 'l30').catch(() => null))
+          );
+          const merged = allFunnels.reduce((acc, f) => {
+            if (f && f.leads > 0) {
+              acc.leads += f.leads;
+              acc.tours += f.tours;
+              acc.applications += f.applications;
+              acc.leaseSigns += f.lease_signs;
+              acc.denials += f.denials;
+              acc.sightUnseen += (f as any).sight_unseen || 0;
+              acc.tourToApp += (f as any).tour_to_app || 0;
+            }
+            return acc;
+          }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0 });
+          if (merged.leads > 0) {
             setApiFunnelData({
-              leads: apiFunnel.leads,
-              tours: apiFunnel.tours,
-              applications: apiFunnel.applications,
-              leaseSigns: apiFunnel.lease_signs,
-              denials: apiFunnel.denials,
-              leadToTourRate: apiFunnel.lead_to_tour_rate,
-              tourToAppRate: apiFunnel.tour_to_app_rate,
-              appToLeaseRate: apiFunnel.app_to_lease_rate,
-              leadToLeaseRate: apiFunnel.lead_to_lease_rate,
+              ...merged,
+              leadToTourRate: merged.leads > 0 ? Math.round(merged.tours / merged.leads * 100) : 0,
+              tourToAppRate: merged.tours > 0 ? Math.round(merged.applications / merged.tours * 100) : 0,
+              appToLeaseRate: merged.applications > 0 ? Math.round(merged.leaseSigns / merged.applications * 100) : 0,
+              leadToLeaseRate: merged.leads > 0 ? Math.round(merged.leaseSigns / merged.leads * 100) : 0,
             });
           }
         } catch {
@@ -583,7 +622,8 @@ export function PropertyDataProvider({ propertyId, children }: PropertyDataProvi
     } finally {
       setLoading(false);
     }
-  }, [propertyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveKey]);
   
   useEffect(() => {
     fetchRawData();

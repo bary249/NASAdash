@@ -86,6 +86,12 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const [propertyName, setPropertyName] = useState('');
   const [scrambleMode, setScrambleMode] = useState<ScrambleMode>('off');
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
+
+  // Active property IDs: when multiple checked, use those; otherwise use single clicked property
+  const activePropertyIds = selectedPropertyIds.size > 1
+    ? Array.from(selectedPropertyIds)
+    : propertyId ? [propertyId] : [];
   
   // AI state
   const [isAIMode, setIsAIMode] = useState(false);
@@ -114,10 +120,15 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     }).catch(() => {});
   }, []);
 
-  // Property selection handler
+  // Property selection handler (single click on row)
   const handleSelectProperty = useCallback((id: string, name?: string) => {
     setPropertyId(id);
     setPropertyName(name || id);
+  }, []);
+
+  // Multi-select handler (checkboxes)
+  const handleSelectedPropertyIdsChange = useCallback((ids: Set<string>) => {
+    setSelectedPropertyIds(ids);
   }, []);
 
   // Update selectedPropertyInfo when property or propertiesMap changes
@@ -157,7 +168,9 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     try {
       // Detect portfolio-level questions
       const queryLower = query.toLowerCase();
+      const isMultiProperty = activePropertyIds.length > 1;
       const isPortfolioQuery = 
+        isMultiProperty ||
         queryLower.includes('portfolio') ||
         queryLower.includes('all properties') ||
         queryLower.includes('across properties') ||
@@ -170,7 +183,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
       
       let result;
       if (isPortfolioQuery) {
-        // Use portfolio chat endpoint for portfolio-level questions
+        // Use portfolio chat endpoint for portfolio-level or multi-property questions
         result = await api.sendPortfolioChatMessage(query, []);
       } else {
         // Use property-specific chat endpoint
@@ -267,7 +280,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
             </div>
 
             {/* Search Bar */}
-            <div className="py-4">
+            <div className="py-2">
               <SearchBar
                 onSearch={handleAISearch}
                 isAIMode={isAIMode}
@@ -280,8 +293,8 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
         {/* AI Insights - Full width, above portfolio and tabs */}
         {propertyId && (
-          <div className="max-w-7xl mx-auto px-4 pt-4">
-            <AIInsightsPanel propertyId={propertyId} />
+          <div className="max-w-7xl mx-auto px-4 pt-2 pb-1">
+            <AIInsightsPanel propertyId={propertyId} propertyIds={activePropertyIds} />
           </div>
         )}
 
@@ -311,15 +324,20 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
             <PortfolioView 
               onSelectProperty={handleSelectProperty}
               selectedPropertyId={propertyId}
+              selectedPropertyIds={selectedPropertyIds}
+              onSelectedPropertyIdsChange={handleSelectedPropertyIdsChange}
             />
           </div>
 
           {/* Property Dashboard */}
           {propertyId ? (
-            <PropertyDataProvider propertyId={propertyId}>
+            <PropertyDataProvider propertyId={propertyId} propertyIds={activePropertyIds}>
               <PropertyDashboard
                 propertyId={propertyId}
-                propertyName={scrambleName(propertyName, isScrambleActive, scrambleMode)}
+                propertyIds={activePropertyIds}
+                propertyName={activePropertyIds.length > 1
+                  ? `${activePropertyIds.length} Properties Selected`
+                  : scrambleName(propertyName, isScrambleActive, scrambleMode)}
                 originalPropertyName={propertyName}
                 pricing={pricing}
                 marketComps={marketComps}
@@ -359,6 +377,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
  */
 interface PropertyDashboardProps {
   propertyId: string;
+  propertyIds: string[];
   propertyName: string;
   originalPropertyName: string;
   pricing: UnitPricingMetrics | null;
@@ -420,7 +439,7 @@ const RENEWAL_DRILL_COLUMNS = [
   { key: 'move_in', label: 'Move In' },
 ];
 
-function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo }: PropertyDashboardProps) {
+function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo }: PropertyDashboardProps) {
   const { occupancy, funnel, expirations, loading, error, periodEnd } = usePropertyData();
 
   // New KPI data
@@ -433,7 +452,7 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [forecast, setForecast] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [lossToLease, setLossToLease] = useState<any>(null);
+  const [renewalData, setRenewalData] = useState<any>(null);
   const [availCollapsed, setAvailCollapsed] = useState(false);
   const [forecastCollapsed, setForecastCollapsed] = useState(false);
 
@@ -447,13 +466,125 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
   const [kpiDrillLoading, setKpiDrillLoading] = useState(false);
 
   useEffect(() => {
-    if (!propertyId) return;
-    api.getShows(propertyId, 7).then(setShowsL7).catch(() => {});
-    api.getTradeouts(propertyId).then(setTradeoutData).catch(() => {});
-    api.getAvailabilityByFloorplan(propertyId).then(setAvailByFp).catch(() => {});
-    api.getOccupancyForecast(propertyId, 12).then(setForecast).catch(() => {});
-    api.getLossToLease(propertyId).then(setLossToLease).catch(() => {});
-  }, [propertyId]);
+    if (!propertyIds.length) return;
+    const ids = propertyIds;
+
+    // Shows: sum across properties, merge details + by_date for drill-through
+    Promise.all(ids.map(id => api.getShows(id, 7).catch(() => ({ total_shows: 0, details: [], by_date: [] }))))
+      .then(results => {
+        const allDetails = results.flatMap((r: any) => r?.details || []);
+        // Merge by_date across properties, summing counts per unique date
+        const dateMap: Record<string, number> = {};
+        for (const r of results as any[]) {
+          for (const d of (r?.by_date || [])) {
+            dateMap[d.date] = (dateMap[d.date] || 0) + d.count;
+          }
+        }
+        const mergedByDate = Object.entries(dateMap).map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date));
+        setShowsL7({
+          total_shows: results.reduce((s: number, r: any) => s + (r?.total_shows || 0), 0),
+          details: allDetails,
+          by_date: mergedByDate,
+        });
+      }).catch(() => {});
+
+    // Tradeouts: concat arrays, recalculate summary
+    Promise.all(ids.map(id => api.getTradeouts(id, 30).catch(() => ({ tradeouts: [], summary: {} }))))
+      .then(results => {
+        const allTradeouts = results.flatMap((r: any) => r?.tradeouts || []);
+        const totalPrior = allTradeouts.reduce((s: number, t: any) => s + (t.prior_rent || 0), 0);
+        const totalNew = allTradeouts.reduce((s: number, t: any) => s + (t.new_rent || 0), 0);
+        const count = allTradeouts.length;
+        setTradeoutData({
+          tradeouts: allTradeouts,
+          summary: {
+            count,
+            avg_prior_rent: count > 0 ? Math.round(totalPrior / count) : 0,
+            avg_new_rent: count > 0 ? Math.round(totalNew / count) : 0,
+            avg_dollar_change: count > 0 ? Math.round((totalNew - totalPrior) / count) : 0,
+            avg_pct_change: totalPrior > 0 ? Math.round((totalNew - totalPrior) / totalPrior * 1000) / 10 : 0,
+          },
+        });
+      }).catch(() => {});
+
+    // Availability by floorplan: merge across properties
+    Promise.all(ids.map(id => api.getAvailabilityByFloorplan(id).catch(() => ({ floorplans: [], totals: {} }))))
+      .then(results => {
+        const allFps = results.flatMap((r: any) => r?.floorplans || []);
+        const totals = { total: 0, vacant: 0, notice: 0, vacant_leased: 0, vacant_not_leased: 0, occupied: 0, model: 0, down: 0 };
+        for (const r of results) {
+          const rt = (r as any)?.totals;
+          if (rt) {
+            for (const k of Object.keys(totals) as (keyof typeof totals)[]) {
+              totals[k] += rt[k] || 0;
+            }
+          }
+        }
+        setAvailByFp({ floorplans: allFps, totals });
+      }).catch(() => {});
+
+    // Forecast: merge across properties by week index
+    Promise.all(ids.map(id => api.getOccupancyForecast(id, 12).catch(() => null)))
+      .then(results => {
+        const valid = results.filter((r: any) => r && r.forecast && r.forecast.length > 0);
+        if (valid.length === 0) { setForecast(null); return; }
+        if (valid.length === 1) { setForecast(valid[0]); return; }
+        // Merge by week index: sum numerics, concat unit arrays
+        const maxWeeks = Math.max(...valid.map((r: any) => r.forecast.length));
+        const merged: any[] = [];
+        for (let w = 0; w < maxWeeks; w++) {
+          const base: any = { week: w + 1, week_start: '', week_end: '', projected_occupied: 0, projected_occupancy_pct: 0, scheduled_move_ins: 0, scheduled_move_outs: 0, notice_move_outs: 0, lease_expirations: 0, renewals: 0, net_expirations: 0, net_change: 0 };
+          let totalUnits = 0;
+          for (const r of valid as any[]) {
+            const fw = r.forecast[w];
+            if (!fw) continue;
+            if (w === 0 || !base.week_start) { base.week_start = fw.week_start; base.week_end = fw.week_end; }
+            base.projected_occupied += fw.projected_occupied || 0;
+            base.scheduled_move_ins += fw.scheduled_move_ins || 0;
+            base.scheduled_move_outs += fw.scheduled_move_outs || 0;
+            base.notice_move_outs += fw.notice_move_outs || 0;
+            base.lease_expirations += fw.lease_expirations || 0;
+            base.renewals += fw.renewals || 0;
+            base.net_expirations += fw.net_expirations || 0;
+            base.net_change += fw.net_change || 0;
+            totalUnits += r.total_units || 0;
+          }
+          base.projected_occupancy_pct = totalUnits > 0 ? Math.round(base.projected_occupied / totalUnits * 1000) / 10 : 0;
+          merged.push(base);
+        }
+        setForecast({
+          forecast: merged,
+          current_occupied: valid.reduce((s: number, r: any) => s + (r.current_occupied || 0), 0),
+          total_units: valid.reduce((s: number, r: any) => s + (r.total_units || 0), 0),
+          current_notice: valid.reduce((s: number, r: any) => s + (r.current_notice || 0), 0),
+          vacant_leased: valid.reduce((s: number, r: any) => s + (r.vacant_leased || 0), 0),
+          undated_move_ins: valid.reduce((s: number, r: any) => s + (r.undated_move_ins || 0), 0),
+          notice_units: valid.flatMap((r: any) => r.notice_units || []),
+          move_in_units: valid.flatMap((r: any) => r.move_in_units || []),
+          expiration_units: valid.flatMap((r: any) => r.expiration_units || []),
+        });
+      }).catch(() => {});
+
+    // Renewals: merge across properties
+    Promise.all(ids.map(id => api.getRenewals(id, 30).catch(() => ({ renewals: [], summary: {} }))))
+      .then(results => {
+        const allRenewals = results.flatMap((r: any) => r?.renewals || []);
+        const totalRent = allRenewals.reduce((s: number, r: any) => s + (r.renewal_rent || 0), 0);
+        const totalMarket = allRenewals.reduce((s: number, r: any) => s + (r.market_rent || 0), 0);
+        const count = allRenewals.length;
+        setRenewalData({
+          renewals: allRenewals,
+          summary: {
+            count,
+            avg_renewal_rent: count > 0 ? Math.round(totalRent / count) : 0,
+            avg_market_rent: count > 0 ? Math.round(totalMarket / count) : 0,
+            avg_vs_market: count > 0 ? Math.round((totalRent - totalMarket) / count) : 0,
+            avg_vs_market_pct: totalMarket > 0 ? Math.round((totalRent - totalMarket) / totalMarket * 1000) / 10 : 0,
+          },
+        });
+      }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyIds.join(',')]);
 
   // Drill-through state for renewals
   const [drillOpen, setDrillOpen] = useState(false);
@@ -503,6 +634,17 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
   const SHOW_COLUMNS = [
     { key: 'date', label: 'Date' },
     { key: 'type', label: 'Type' },
+  ];
+
+  const RENEWAL_COLUMNS = [
+    { key: 'unit_id', label: 'Unit' },
+    { key: 'floorplan', label: 'Floorplan' },
+    { key: 'renewal_rent', label: 'Renewal Rent', format: (v: unknown) => `$${Number(v).toLocaleString()}` },
+    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => `$${Number(v).toLocaleString()}` },
+    { key: 'vs_market', label: 'vs Market', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}$${n.toLocaleString()}`; } },
+    { key: 'vs_market_pct', label: '% vs Market', format: (v: unknown) => { const n = Number(v); return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`; } },
+    { key: 'lease_start', label: 'Start Date' },
+    { key: 'lease_term', label: 'Term' },
   ];
 
   const filterUnitsByWeek = useCallback((units: { date?: string | null }[], weekStart?: string, weekEnd?: string) => {
@@ -581,13 +723,17 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
         setKpiDrillTitle('Shows / Tours — Last 7 Days');
         setKpiDrillColumns(SHOW_COLUMNS);
         setKpiDrillData(showsL7?.details || []);
+      } else if (type === 'renewals') {
+        setKpiDrillTitle('Renewal Leases — Rent vs Market');
+        setKpiDrillColumns(RENEWAL_COLUMNS);
+        setKpiDrillData(renewalData?.renewals || []);
       }
     } catch {
       setKpiDrillData([]);
     } finally {
       setKpiDrillLoading(false);
     }
-  }, [propertyId, forecast, tradeoutData, showsL7, filterUnitsByWeek]);
+  }, [propertyId, forecast, tradeoutData, showsL7, renewalData, filterUnitsByWeek]);
 
   const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring') => {
     setDrillFilter(filter);
@@ -653,8 +799,10 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
   const avgTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_new_rent : (pricing?.total_asking_rent || 0);
   const prevTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_prior_rent : (pricing?.total_in_place_rent || 0);
   const tradeoutPct = tradeoutSummary?.count ? tradeoutSummary.avg_pct_change : 0;
-  const ltlPct = lossToLease?.loss_to_lease_pct ?? 0;
-  const ltlTotal = lossToLease?.total_loss_to_lease ?? 0;
+  const renewalSummary = renewalData?.summary;
+  const renewalCount = renewalSummary?.count ?? 0;
+  const avgRenewalRent = renewalSummary?.avg_renewal_rent ?? 0;
+  const renewalVsMarketPct = renewalSummary?.avg_vs_market_pct ?? 0;
 
   // Format "as of" date for KPI labels (from context periodEnd)
   const asOfLabel = periodEnd
@@ -683,86 +831,80 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
         <div className="col-span-12 lg:col-span-9">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* Row 1 */}
-            <div className="relative">
-              <KPICard
-                title="Occupancy"
-                value={`${occupancy?.physicalOccupancy || 0}%`}
-                timeLabel={asOfLabel}
-                icon={<Home className="w-4 h-4" />}
-              />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text="Physical occupancy = Occupied Units ÷ Total Units × 100. Source: RealPage Box Score." /></span>
-            </div>
+            <KPICard
+              title="Occupancy"
+              value={`${occupancy?.physicalOccupancy || 0}%`}
+              timeLabel={asOfLabel}
+              icon={<Home className="w-4 h-4" />}
+              tooltip="Physical occupancy = Occupied Units ÷ Total Units × 100. Source: RealPage Box Score."
+            />
             
-            <div className="relative">
-              <KPICard
-                title="In-Place"
-                value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
-                subtitle={`Asking $${pricing?.total_asking_rent?.toLocaleString() || '—'}`}
-                timeLabel={asOfLabel}
-                icon={<DollarSign className="w-4 h-4" />}
-              />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Source: RealPage Rent Roll." /></span>
-            </div>
+            <KPICard
+              title="In-Place"
+              value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
+              subtitle={`Asking $${pricing?.total_asking_rent?.toLocaleString() || '—'}`}
+              timeLabel={asOfLabel}
+              icon={<DollarSign className="w-4 h-4" />}
+              tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Source: RealPage Rent Roll."
+            />
             
-            <div className="relative">
-              <KPICard
-                title="Renewal Rate (90d)"
-                value={`${renewalTrend}%`}
-                subtitle={`${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} renewed`}
-                icon={<TrendingUp className="w-4 h-4" />}
-              />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text="Leases with status 'Current - Future' ÷ All leases expiring within 90 days × 100. Source: RealPage Leases." /></span>
-            </div>
+            <KPICard
+              title="Renewal Rate (90d)"
+              value={`${renewalTrend}%`}
+              subtitle={`${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} renewed`}
+              icon={<TrendingUp className="w-4 h-4" />}
+              tooltip="Leases with status 'Current - Future' ÷ All leases expiring within 90 days × 100. Source: RealPage Leases."
+            />
             
-            <button onClick={() => openKpiDrill('tradeouts')} className="text-left w-full relative">
+            <button onClick={() => openKpiDrill('tradeouts')} className="text-left w-full">
               <KPICard
                 title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
                 value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
                 subtitle={prevTradeOut ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data'}
-                timeLabel="all time"
+                timeLabel="Last 30 days"
                 icon={<DollarSign className="w-4 h-4" />}
+                tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
               />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll." /></span>
             </button>
 
             {/* Row 2 */}
-            <div className="relative">
-              <VacantKPICard
-                total={availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
-                ready={occupancy?.vacantReady || 0}
-                agedCount={occupancy?.agedVacancy90Plus}
-                timeLabel={asOfLabel}
-              />
-              <span className="absolute top-2.5 right-2"><InfoTooltip text="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score." /></span>
-            </div>
+            <VacantKPICard
+              total={availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
+              ready={occupancy?.vacantReady || 0}
+              agedCount={occupancy?.agedVacancy90Plus}
+              timeLabel={asOfLabel}
+              tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
+            />
             
-            <button onClick={() => openKpiDrill('shows')} className="text-left w-full relative">
+            <button onClick={() => openKpiDrill('shows')} className="text-left w-full">
               <KPICard
                 title="Shows (L7)"
                 value={String(showsL7?.total_shows ?? '—')}
                 subtitle={`${showsL7?.by_date?.length ?? 0} active days`}
                 icon={<Eye className="w-4 h-4" />}
+                tooltip="Number of tours/showings in the last 7 days. Active days = days with at least one showing. Source: RealPage Leasing Activity."
               />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text="Number of tours/showings in the last 7 days. Active days = days with at least one showing. Source: RealPage Leasing Activity." /></span>
             </button>
 
             <FunnelKPICard
               leads={funnel?.leads || 0}
               tours={funnel?.tours || 0}
-              proposals={funnel?.applications || 0}
+              applications={funnel?.applications || 0}
               leasesSigned={funnel?.leaseSigns || 0}
+              sightUnseen={funnel?.sightUnseen || 0}
+              tourToApp={funnel?.tourToApp || 0}
             />
             
-            <div className="relative">
+            <button onClick={() => openKpiDrill('renewals')} className="text-left w-full">
               <KPICard
-                title="Loss to Lease"
-                value={`${ltlPct.toFixed(1)}%`}
-                subtitle={ltlTotal ? `$${Math.round(ltlTotal).toLocaleString()}/mo` : 'No data'}
-                timeLabel={asOfLabel}
+                title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
+                value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
+                subtitle={renewalCount ? `vs Market ${renewalVsMarketPct >= 0 ? '+' : ''}${renewalVsMarketPct.toFixed(1)}%` : 'No data'}
+                timeLabel="Last 30 days"
                 icon={<TrendingDown className="w-4 h-4" />}
+                tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs market rent $${Math.round(renewalSummary?.avg_market_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases + Rent Roll.`}
               />
-              <span className="absolute top-2.5 right-8"><InfoTooltip text={`Loss to Lease = (Market Rent − In-Place Rent) ÷ Market Rent. Total monthly gap: $${Math.round(ltlTotal).toLocaleString()}. Based on ${lossToLease?.occupied_units ?? 0} occupied units. Source: RealPage Rent Roll.`} /></span>
-            </div>
+            </button>
           </div>
         </div>
       </div>
@@ -864,11 +1006,13 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
                       <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Move Ins <InfoTooltip text="Scheduled move-ins for this week from the Projected Occupancy Report. Individual units cannot be identified per week (dates TBD). Click the 'pre-leased' badge above to see all pre-leased units." /></span></th>
                       <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice Outs <InfoTooltip text="Occupied units on notice-to-vacate with move-out date in this week. Source: RealPage Rent Roll. Click to see unit details." /></span></th>
                       <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Net <InfoTooltip text="Net = Scheduled Move Ins − Scheduled Move Outs from the Projected Occupancy Report. Matches the Occ% progression. May differ from Move Ins − Notice Outs because report includes all departures (transfers, skips, etc.)." /></span></th>
-                      <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="All leases (Current + Current-Future/renewed) expiring this week. Matches Renewals tab counts. Source: RealPage Leases." /></span></th>
+                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="All leases (Current + Current-Future/renewed) expiring this week. Source: RealPage Leases." /></span></th>
+                      <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Renewals <InfoTooltip text="Leases with status 'Current - Future' expiring this week — already renewed. Source: RealPage Leases." /></span></th>
+                      <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Net Exp <InfoTooltip text="Net Expirations = Expirations − Renewals. Positive = leases expiring without renewal yet." /></span></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {forecast.forecast.map((w: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; scheduled_move_outs: number; notice_move_outs: number; lease_expirations: number; net_change: number }) => (
+                    {forecast.forecast.map((w: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; scheduled_move_outs: number; notice_move_outs: number; lease_expirations: number; renewals: number; net_expirations: number; net_change: number }) => (
                       <tr key={w.week} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="py-2 pr-4 text-slate-600">Wk {w.week} <span className="text-slate-400 text-xs">({w.week_start.slice(5)})</span></td>
                         <td className="py-2 pr-4 text-right font-medium">{w.projected_occupied}</td>
@@ -876,7 +1020,9 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
                         <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => openKpiDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
                         <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => openKpiDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
                         <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
-                        <td className={`py-2 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
+                        <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
+                        <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
+                        <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -958,27 +1104,40 @@ function PropertyDashboard({ propertyId, propertyName, originalPropertyName, pri
             </div>
             <div className="bg-emerald-50 rounded-lg p-4">
               <div className="text-2xl font-bold text-emerald-700">{funnel?.leaseSigns || 0}</div>
-              <div className="text-sm text-emerald-600 inline-flex items-center gap-0.5">Leases Signed <InfoTooltip text="Unique prospects who reached 'Leased' status (includes online reservation and payment events). Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
+              <div className="text-sm text-emerald-600 inline-flex items-center gap-0.5">Leases Signed <InfoTooltip text="Unique prospects who reached 'Leased' status. Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
             </div>
           </div>
-          <p className="text-sm text-slate-500 inline-flex items-center gap-1">Conversion rate (Lead → Lease): <strong className="text-emerald-600">{funnel?.leads ? ((funnel.leaseSigns / funnel.leads) * 100).toFixed(1) : 0}%</strong> <InfoTooltip text="Conversion Rate = Leases Signed ÷ Total Leads × 100. Source: RealPage Leasing Activity (last 30 days)." /></p>
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-amber-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-amber-700">{funnel?.tourToApp || 0}<span className="text-sm font-normal text-amber-500 ml-1">({funnel?.tours ? Math.round((funnel.tourToApp || 0) / funnel.tours * 100) : 0}%)</span></div>
+              <div className="text-sm text-amber-600 inline-flex items-center gap-0.5">Tour → Application <InfoTooltip text="Prospects who had a tour AND subsequently submitted an application. Percentage is of total tours." /></div>
+            </div>
+            <div className="bg-violet-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-violet-700">{funnel?.sightUnseen || 0}<span className="text-sm font-normal text-violet-500 ml-1">({funnel?.applications ? Math.round((funnel.sightUnseen || 0) / funnel.applications * 100) : 0}%)</span></div>
+              <div className="text-sm text-violet-600 inline-flex items-center gap-0.5">Apps w/o Tour <InfoTooltip text="Prospects who applied without ever touring the property in person. Percentage is of total applications." /></div>
+            </div>
+            <div className="bg-sky-50 rounded-lg p-4">
+              <div className="text-2xl font-bold text-sky-700">{funnel?.leads ? ((funnel.leaseSigns / funnel.leads) * 100).toFixed(1) : 0}%</div>
+              <div className="text-sm text-sky-600 inline-flex items-center gap-0.5">Lead → Lease <InfoTooltip text="Conversion Rate = Leases Signed ÷ Total Leads × 100. Source: RealPage Leasing Activity (last 30 days)." /></div>
+            </div>
+          </div>
         </div>
       )}
 
       {activeTab === 'delinquencies' && (
-        <DelinquencySection propertyId={propertyId} />
+        <DelinquencySection propertyId={propertyId} propertyIds={propertyIds} />
       )}
 
       {activeTab === 'rentable' && (
-        <RentableItemsSection propertyId={propertyId} />
+        <RentableItemsSection propertyId={propertyId} propertyIds={propertyIds} />
       )}
 
       {activeTab === 'risk' && (
-        <ResidentRiskSection propertyId={propertyId} />
+        <ResidentRiskSection propertyId={propertyId} propertyIds={propertyIds} />
       )}
 
       {activeTab === 'reviews' && (
-        <GoogleReviewsSection propertyId={propertyId} propertyName={propertyName} />
+        <GoogleReviewsSection propertyId={propertyId} propertyIds={propertyIds} propertyName={propertyName} />
       )}
     </div>
   );

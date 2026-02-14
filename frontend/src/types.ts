@@ -62,6 +62,8 @@ export interface LeasingFunnelMetrics {
   applications: number;
   lease_signs: number;
   denials: number;
+  sight_unseen: number;
+  tour_to_app: number;
   lead_to_tour_rate: number;
   tour_to_app_rate: number;
   app_to_lease_rate: number;

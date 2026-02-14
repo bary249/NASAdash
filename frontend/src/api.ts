@@ -254,6 +254,14 @@ export const api = {
     return fetchJson(url);
   },
 
+  getRenewals: (propertyId: string, days?: number): Promise<{
+    renewals: { unit_id: string; renewal_rent: number; market_rent: number; vs_market: number; vs_market_pct: number; lease_start: string; lease_term: string; floorplan: string }[];
+    summary: { count: number; avg_renewal_rent: number; avg_market_rent: number; avg_vs_market: number; avg_vs_market_pct: number };
+  }> => {
+    const url = days ? `${API_BASE}/properties/${propertyId}/renewals?days=${days}` : `${API_BASE}/properties/${propertyId}/renewals`;
+    return fetchJson(url);
+  },
+
   getOccupancyForecast: (propertyId: string, weeks = 12): Promise<{
     forecast: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; lease_expirations: number; net_change: number }[];
     current_occupied: number; total_units: number; current_notice: number;

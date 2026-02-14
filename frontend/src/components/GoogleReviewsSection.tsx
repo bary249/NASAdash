@@ -4,7 +4,7 @@
  * Supports SerpAPI (full data with replies) and Google Places API (fallback, 5 reviews).
  */
 import { useState, useEffect, useMemo } from 'react';
-import { Star, ExternalLink, MessageSquare, Filter, CheckCircle2, Clock, XCircle, ArrowUpDown } from 'lucide-react';
+import { Star, ExternalLink, MessageSquare, Filter, CheckCircle2, Clock, XCircle, ArrowUpDown, TrendingUp } from 'lucide-react';
 import { api } from '../api';
 
 interface Review {
@@ -42,6 +42,7 @@ interface ReviewsData {
 
 interface GoogleReviewsSectionProps {
   propertyId: string;
+  propertyIds?: string[];
   propertyName: string;
 }
 
@@ -59,6 +60,131 @@ function parseTimeDesc(desc: string): number {
   if (lower.includes('month')) return num * 24 * 30;
   if (lower.includes('year')) return num * 24 * 365;
   return 0;
+}
+
+function parseTimeDescToMonthsAgo(desc: string): number | null {
+  if (!desc) return null;
+  const lower = desc.toLowerCase().replace('edited ', '');
+  const match = lower.match(/(\d+)/);
+  const num = match ? parseInt(match[1]) : 1;
+  if (lower.includes('hour') || lower.includes('minute')) return 0;
+  if (lower.includes('day')) return 0;
+  if (lower.includes('week')) return num <= 2 ? 0 : 1;
+  if (lower.includes('month')) return num;
+  if (lower.includes('year')) return num * 12;
+  return null;
+}
+
+interface MonthBucket {
+  label: string;
+  count: number;
+  avgRating: number;
+  positive: number; // 4-5 star
+  negative: number; // 1-3 star
+}
+
+function MonthlyTrendChart({ reviews }: { reviews: Review[] }) {
+  const buckets = useMemo(() => {
+    const now = new Date();
+    const monthMap = new Map<number, { ratings: number[]; count: number; positive: number; negative: number }>();
+    
+    for (const r of reviews) {
+      const monthsAgo = parseTimeDescToMonthsAgo(r.time_desc);
+      if (monthsAgo === null || monthsAgo > 11) continue;
+      if (!monthMap.has(monthsAgo)) {
+        monthMap.set(monthsAgo, { ratings: [], count: 0, positive: 0, negative: 0 });
+      }
+      const b = monthMap.get(monthsAgo)!;
+      b.ratings.push(r.rating);
+      b.count++;
+      if (r.rating >= 4) b.positive++;
+      else b.negative++;
+    }
+    
+    const result: MonthBucket[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      const entry = monthMap.get(i);
+      result.push({
+        label,
+        count: entry?.count || 0,
+        avgRating: entry && entry.ratings.length > 0
+          ? Math.round(entry.ratings.reduce((a, b) => a + b, 0) / entry.ratings.length * 10) / 10
+          : 0,
+        positive: entry?.positive || 0,
+        negative: entry?.negative || 0,
+      });
+    }
+    return result;
+  }, [reviews]);
+
+  const maxCount = Math.max(...buckets.map(b => b.count), 1);
+  const hasData = buckets.some(b => b.count > 0);
+
+  if (!hasData) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <TrendingUp className="w-4 h-4 text-slate-500" />
+        <h3 className="text-sm font-semibold text-slate-700">Monthly Review Trend</h3>
+        <span className="text-[10px] text-slate-400">Last 12 months · based on fetched reviews</span>
+      </div>
+
+      {/* Chart */}
+      <div className="flex items-end gap-1.5" style={{ height: 160 }}>
+        {buckets.map((b, i) => {
+          const barHeight = b.count > 0 ? Math.max((b.count / maxCount) * 130, 8) : 0;
+          const posH = b.count > 0 ? (b.positive / b.count) * barHeight : 0;
+          const negH = barHeight - posH;
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative">
+              {/* Tooltip */}
+              {b.count > 0 && (
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-[10px] rounded px-2 py-1 whitespace-nowrap z-10 pointer-events-none">
+                  {b.count} reviews · {b.avgRating}★ avg
+                </div>
+              )}
+              {/* Rating label */}
+              {b.count > 0 && (
+                <span className="text-[9px] font-semibold mb-0.5" style={{
+                  color: b.avgRating >= 4 ? '#059669' : b.avgRating >= 3 ? '#d97706' : '#dc2626'
+                }}>
+                  {b.avgRating}
+                </span>
+              )}
+              {/* Stacked bar */}
+              <div className="w-full rounded-t" style={{ height: barHeight }}>
+                {b.count > 0 && (
+                  <>
+                    <div className="w-full bg-emerald-400 rounded-t" style={{ height: posH }} />
+                    {negH > 0 && <div className="w-full bg-rose-300" style={{ height: negH }} />}
+                  </>
+                )}
+              </div>
+              {/* Count label */}
+              <span className="text-[9px] text-slate-400 mt-0.5 font-medium">{b.count || ''}</span>
+              {/* Month label */}
+              <span className="text-[8px] text-slate-400 mt-0.5">{b.label}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend */}
+      <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-500">
+        <div className="flex items-center gap-1">
+          <div className="w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+          <span>4-5★ (positive)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-2.5 h-2.5 rounded-sm bg-rose-300" />
+          <span>1-3★ (negative)</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function StarRating({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'lg' }) {
@@ -89,21 +215,63 @@ function StarBar({ star, count, total }: { star: number; count: number; total: n
   );
 }
 
-export function GoogleReviewsSection({ propertyId, propertyName: _propertyName }: GoogleReviewsSectionProps) {
+export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _propertyName }: GoogleReviewsSectionProps) {
   const [data, setData] = useState<ReviewsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [starFilter, setStarFilter] = useState<number | null>(null);
   const [responseFilter, setResponseFilter] = useState<ResponseFilterType>('all');
   const [sortBy, setSortBy] = useState<SortType>('newest');
 
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectiveIds.length) return;
     setLoading(true);
-    api.getReviews(propertyId)
-      .then(setData)
+    Promise.all(effectiveIds.map(id => api.getReviews(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(Boolean) as ReviewsData[];
+        if (valid.length === 0) { setData(null); return; }
+        if (valid.length === 1) { setData(valid[0]); return; }
+        // Merge multiple properties
+        const totalReviewCount = valid.reduce((s, r) => s + (r.review_count || 0), 0);
+        const weightedRating = totalReviewCount > 0
+          ? valid.reduce((s, r) => s + (r.rating || 0) * (r.review_count || 0), 0) / totalReviewCount
+          : 0;
+        const allReviews = valid.flatMap(r => r.reviews || []);
+        const mergedStarDist: Record<string, number> = {};
+        for (const v of valid) {
+          for (const [star, count] of Object.entries(v.star_distribution || {})) {
+            mergedStarDist[star] = (mergedStarDist[star] || 0) + count;
+          }
+        }
+        const totalFetched = valid.reduce((s, r) => s + (r.reviews_fetched || 0), 0);
+        const totalResponded = valid.reduce((s, r) => s + (r.responded || 0), 0);
+        const totalNotResponded = valid.reduce((s, r) => s + (r.not_responded || 0), 0);
+        const totalNeedsResponse = valid.reduce((s, r) => s + (r.needs_response || 0), 0);
+        const mergedResponseRate = totalFetched > 0 ? Math.round((totalResponded / totalFetched) * 100) : 0;
+        // Pick best source type
+        const source = valid.some(v => v.source === 'serpapi') ? 'serpapi'
+          : valid.some(v => v.source === 'playwright') ? 'playwright' : valid[0].source;
+        setData({
+          rating: weightedRating,
+          review_count: totalReviewCount,
+          place_id: valid[0].place_id,
+          google_maps_url: valid[0].google_maps_url,
+          reviews: allReviews,
+          star_distribution: mergedStarDist,
+          needs_response: totalNeedsResponse,
+          reviews_fetched: totalFetched,
+          responded: totalResponded,
+          not_responded: totalNotResponded,
+          response_rate: mergedResponseRate,
+          avg_response_hours: null,
+          avg_response_label: null,
+          source,
+        });
+      })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [propertyId]);
+  }, [effectiveIds.join(',')]);
 
   const hasFullData = data?.source === 'serpapi' || data?.source === 'playwright';
 
@@ -287,6 +455,9 @@ export function GoogleReviewsSection({ propertyId, propertyName: _propertyName }
           </div>
         </div>
       </div>
+
+      {/* Monthly Trend Chart */}
+      <MonthlyTrendChart reviews={data.reviews} />
 
       {/* Filters + Reviews List */}
       <div className="bg-white rounded-xl border border-slate-200">

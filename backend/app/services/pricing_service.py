@@ -572,3 +572,95 @@ class PricingService:
         except Exception as e:
             logger.warning(f"[PRICING] Failed to get trade-outs: {e}")
             return {"tradeouts": [], "summary": {}}
+
+    async def get_renewal_leases(self, property_id: str, days: int = None) -> dict:
+        """
+        Get renewal lease data: current rent vs market rent for residents who renewed.
+        Shows how renewal pricing compares to market for the same unit.
+        READ-ONLY operation.
+        """
+        import sqlite3
+        from app.db.schema import REALPAGE_DB_PATH
+        from app.property_config.properties import get_pms_config
+        
+        pms_config = get_pms_config(property_id)
+        if not pms_config.realpage_siteid:
+            return {"renewals": [], "summary": {}}
+        
+        site_id = pms_config.realpage_siteid
+        
+        try:
+            conn = sqlite3.connect(REALPAGE_DB_PATH)
+            cursor = conn.cursor()
+            
+            # Build optional date filter on lease_start_date (MM/DD/YYYY format)
+            date_filter = ""
+            params = [site_id]
+            if days:
+                date_filter = """
+                  AND date(substr(c.lease_start_date,7,4) || '-' || substr(c.lease_start_date,1,2) || '-' || substr(c.lease_start_date,4,2))
+                      >= date('now', ?)
+                """
+                params.append(f'-{days} days')
+            
+            # Get renewal leases with market_rent from the latest rent_roll snapshot
+            cursor.execute(f"""
+                SELECT 
+                    COALESCE(u.unit_number, c.unit_number, c.unit_id) as unit_number,
+                    c.rent_amount as renewal_rent,
+                    rr.market_rent,
+                    ROUND(c.rent_amount - rr.market_rent, 0) as vs_market,
+                    ROUND((c.rent_amount - rr.market_rent) / rr.market_rent * 100, 1) as vs_market_pct,
+                    c.lease_start_date,
+                    c.lease_term_desc,
+                    rr.floorplan
+                FROM realpage_leases c
+                LEFT JOIN realpage_units u ON c.unit_id = u.unit_id AND c.site_id = u.site_id
+                LEFT JOIN realpage_rent_roll rr 
+                    ON COALESCE(u.unit_number, c.unit_number, CAST(c.unit_id AS TEXT)) = rr.unit_number 
+                    AND c.site_id = rr.property_id
+                    AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = c.site_id)
+                WHERE c.type_text = 'Renewal' 
+                  AND c.status_text IN ('Current', 'Current - Future')
+                  AND c.rent_amount > 0
+                  AND c.site_id = ?
+                  {date_filter}
+                ORDER BY c.lease_start_date DESC
+            """, params)
+            
+            renewals = []
+            total_rent = 0
+            total_market = 0
+            
+            for row in cursor.fetchall():
+                unit_number, renewal_rent, market_rent, vs_market, vs_market_pct, start_date, term_desc, floorplan = row
+                renewals.append({
+                    "unit_id": unit_number or "",
+                    "renewal_rent": renewal_rent,
+                    "market_rent": market_rent or 0,
+                    "vs_market": vs_market or 0,
+                    "vs_market_pct": vs_market_pct or 0,
+                    "lease_start": start_date,
+                    "lease_term": term_desc or "",
+                    "floorplan": floorplan or "",
+                })
+                total_rent += renewal_rent
+                total_market += (market_rent or 0)
+            
+            conn.close()
+            
+            count = len(renewals)
+            summary = {
+                "count": count,
+                "avg_renewal_rent": round(total_rent / count, 0) if count > 0 else 0,
+                "avg_market_rent": round(total_market / count, 0) if count > 0 else 0,
+                "avg_vs_market": round((total_rent - total_market) / count, 0) if count > 0 else 0,
+                "avg_vs_market_pct": round((total_rent - total_market) / total_market * 100, 1) if total_market > 0 else 0,
+            }
+            
+            logger.info(f"[PRICING] Found {count} renewals for site {site_id}")
+            return {"renewals": renewals, "summary": summary}
+            
+        except Exception as e:
+            logger.warning(f"[PRICING] Failed to get renewal leases: {e}")
+            return {"renewals": [], "summary": {}}

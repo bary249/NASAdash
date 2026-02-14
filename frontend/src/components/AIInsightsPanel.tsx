@@ -21,6 +21,7 @@ interface QnA {
 
 interface AIInsightsPanelProps {
   propertyId: string;
+  propertyIds?: string[];
 }
 
 const SEVERITY_STYLES = {
@@ -29,7 +30,7 @@ const SEVERITY_STYLES = {
   low: { bg: 'bg-blue-50', border: 'border-blue-200', icon: 'text-blue-500', badge: 'bg-blue-100 text-blue-700' },
 };
 
-export function AIInsightsPanel({ propertyId }: AIInsightsPanelProps) {
+export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProps) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [qna, setQna] = useState<QnA[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,31 +39,70 @@ export function AIInsightsPanel({ propertyId }: AIInsightsPanelProps) {
   const [expandedQna, setExpandedQna] = useState<number | null>(null);
   const [tab, setTab] = useState<'alerts' | 'qna'>('alerts');
 
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
     setError(null);
-    api.getAIInsights(propertyId)
-      .then((data: { alerts?: { severity: string; title: string; fact: string; risk: string; action: string }[]; qna?: { question: string; answer: string }[]; error?: string }) => {
-        setAlerts((data.alerts || []).map(a => ({ ...a, severity: a.severity as Alert['severity'] })));
-        setQna(data.qna || []);
-        if (data.error) setError(data.error);
+    const isMulti = effectiveIds.length > 1;
+    Promise.all(effectiveIds.map(id => api.getAIInsights(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(Boolean) as Array<{ property_name?: string; alerts?: { severity: string; title: string; fact: string; risk: string; action: string }[]; qna?: { question: string; answer: string }[]; error?: string }>;
+        const allAlerts = valid.flatMap(d => {
+          const propName = d.property_name || '';
+          return (d.alerts || []).map(a => ({
+            ...a,
+            severity: a.severity as Alert['severity'],
+            title: isMulti && propName ? `[${propName}] ${a.title}` : a.title,
+          }));
+        });
+        const allQna = valid.flatMap(d => {
+          const propName = d.property_name || '';
+          return (d.qna || []).map(q => ({
+            ...q,
+            question: isMulti && propName ? `[${propName}] ${q.question}` : q.question,
+          }));
+        });
+        // Sort alerts: high first, then medium, then low
+        const severityOrder = { high: 0, medium: 1, low: 2 };
+        allAlerts.sort((a, b) => (severityOrder[a.severity] ?? 1) - (severityOrder[b.severity] ?? 1));
+        setAlerts(allAlerts);
+        setQna(allQna);
+        const errors = valid.filter(d => d.error).map(d => d.error);
+        if (errors.length) setError(errors[0] || null);
         setExpandedAlert(0);
         setExpandedQna(null);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [propertyId]);
+  }, [effectiveIds.join(',')]);
 
   const handleRefresh = () => {
     setLoading(true);
     setError(null);
-    // Add cache-bust param
-    fetch(`/api/v2/properties/${propertyId}/ai-insights?refresh=1`)
-      .then(r => r.json())
-      .then((data) => {
-        setAlerts(data.alerts || []);
-        setQna(data.qna || []);
+    const isMultiRefresh = effectiveIds.length > 1;
+    Promise.all(effectiveIds.map(id =>
+      fetch(`/api/v2/properties/${id}/ai-insights?refresh=1`).then(r => r.json()).catch(() => null)
+    ))
+      .then(results => {
+        const valid = results.filter(Boolean);
+        const allAlerts = valid.flatMap((d: Record<string, unknown>) => {
+          const propName = (d.property_name as string) || '';
+          return ((d.alerts as Alert[]) || []).map(a => ({
+            ...a,
+            title: isMultiRefresh && propName ? `[${propName}] ${a.title}` : a.title,
+          }));
+        });
+        const allQna = valid.flatMap((d: Record<string, unknown>) => {
+          const propName = (d.property_name as string) || '';
+          return ((d.qna as QnA[]) || []).map(q => ({
+            ...q,
+            question: isMultiRefresh && propName ? `[${propName}] ${q.question}` : q.question,
+          }));
+        });
+        setAlerts(allAlerts);
+        setQna(allQna);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -71,11 +111,11 @@ export function AIInsightsPanel({ propertyId }: AIInsightsPanelProps) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden h-fit">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-indigo-50">
+      <div className="px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-indigo-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-violet-500" />
-            <h3 className="text-sm font-semibold text-slate-800">AI Insights</h3>
+            <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+            <h3 className="text-xs font-semibold text-slate-800">AI Insights</h3>
           </div>
           <button
             onClick={handleRefresh}
@@ -108,7 +148,7 @@ export function AIInsightsPanel({ propertyId }: AIInsightsPanelProps) {
       </div>
 
       {/* Content */}
-      <div className="p-4">
+      <div className="p-3">
         {loading && (
           <div className="flex items-center justify-center py-8">
             <div className="flex items-center gap-2 text-sm text-slate-400">

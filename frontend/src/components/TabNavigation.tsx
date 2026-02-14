@@ -15,10 +15,10 @@ interface Tab {
 
 const tabs: Tab[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'text-emerald-600' },
-  { id: 'renewals', label: 'Renewals', icon: RefreshCw, color: 'text-sky-600' },
   { id: 'leasing', label: 'Leasing', icon: FileText, color: 'text-amber-600' },
-  { id: 'delinquencies', label: 'Delinquencies', icon: AlertTriangle, color: 'text-rose-600' },
   { id: 'rentable', label: 'Rentable Items', icon: Package, color: 'text-purple-600' },
+  { id: 'renewals', label: 'Renewals', icon: RefreshCw, color: 'text-sky-600' },
+  { id: 'delinquencies', label: 'Delinquencies', icon: AlertTriangle, color: 'text-rose-600' },
   { id: 'risk', label: 'Risk Scores', icon: ShieldAlert, color: 'text-indigo-600' },
   { id: 'reviews', label: 'Reviews', icon: Star, color: 'text-yellow-600' },
 ];

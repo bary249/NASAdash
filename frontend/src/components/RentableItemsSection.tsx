@@ -8,9 +8,10 @@ import { AmenityTypeSummary } from '../types';
 
 interface RentableItemsSectionProps {
   propertyId: string;
+  propertyIds?: string[];
 }
 
-export function RentableItemsSection({ propertyId }: RentableItemsSectionProps) {
+export function RentableItemsSection({ propertyId, propertyIds }: RentableItemsSectionProps) {
   const [items, setItems] = useState<AmenityTypeSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [totals, setTotals] = useState({
@@ -19,17 +20,46 @@ export function RentableItemsSection({ propertyId }: RentableItemsSectionProps) 
     totalRevenue: 0,
   });
 
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectiveIds.length) return;
     
     setLoading(true);
-    api.getAmenitiesSummary(propertyId)
-      .then(summary => {
-        setItems(summary.by_type || []);
+    Promise.all(effectiveIds.map(id => api.getAmenitiesSummary(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(Boolean) as Array<{ by_type: AmenityTypeSummary[]; total_rented: number; total_available: number; monthly_actual: number }>;
+        if (valid.length === 0) { setItems([]); return; }
+        if (valid.length === 1) {
+          setItems(valid[0].by_type || []);
+          setTotals({ totalRented: valid[0].total_rented, totalAvailable: valid[0].total_available, totalRevenue: valid[0].monthly_actual });
+          return;
+        }
+        // Merge by type name
+        const byType = new Map<string, AmenityTypeSummary>();
+        for (const summary of valid) {
+          for (const item of (summary.by_type || [])) {
+            const existing = byType.get(item.type);
+            if (existing) {
+              existing.total += item.total;
+              existing.available += item.available;
+              existing.rented += item.rented;
+              existing.actual_revenue += item.actual_revenue;
+              // weighted average for monthly_rate
+              existing.monthly_rate = existing.total > 0
+                ? Math.round(existing.actual_revenue / Math.max(existing.rented, 1))
+                : item.monthly_rate;
+            } else {
+              byType.set(item.type, { ...item });
+            }
+          }
+        }
+        const merged = Array.from(byType.values());
+        setItems(merged);
         setTotals({
-          totalRented: summary.total_rented,
-          totalAvailable: summary.total_available,
-          totalRevenue: summary.monthly_actual,
+          totalRented: valid.reduce((s, r) => s + r.total_rented, 0),
+          totalAvailable: valid.reduce((s, r) => s + r.total_available, 0),
+          totalRevenue: valid.reduce((s, r) => s + r.monthly_actual, 0),
         });
       })
       .catch(err => {
@@ -37,7 +67,7 @@ export function RentableItemsSection({ propertyId }: RentableItemsSectionProps) 
         setItems([]);
       })
       .finally(() => setLoading(false));
-  }, [propertyId]);
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (

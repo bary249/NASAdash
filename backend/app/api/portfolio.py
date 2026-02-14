@@ -2,7 +2,7 @@
 Portfolio API Endpoints - Multi-property aggregated views.
 READ-ONLY OPERATIONS ONLY.
 """
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends, Header
 from typing import List, Optional
 from app.services.portfolio_service import PortfolioService
 from app.services.chat_service import chat_service
@@ -262,14 +262,21 @@ async def get_portfolio_residents(
 @router.get("/properties")
 async def list_portfolio_properties(
     owner_group: Optional[str] = Query(None, description="Filter by owner group (e.g. 'PHH')"),
+    authorization: Optional[str] = Header(None),
 ):
     """
     List all available properties in the portfolio registry.
     
     Returns property IDs, names, PMS source, and owner_group.
-    Includes both configured properties AND properties from unified.db.
-    Optionally filter by owner_group.
+    If authenticated via JWT, forces owner_group to the user's group (cannot bypass).
     """
+    # Enforce JWT group — override any query param
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
     import sqlite3
     from pathlib import Path
     
@@ -360,7 +367,15 @@ async def get_watchlist(
     delinq_threshold: float = Query(25000.0, description="Total delinquent $ above which property is flagged"),
     renewal_threshold: float = Query(30.0, description="Renewal rate % below which property is flagged"),
     review_threshold: float = Query(3.5, description="Google rating below which property is flagged"),
+    authorization: Optional[str] = Header(None),
 ):
+    # Enforce JWT group
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
     """
     GET: Watch List — underperforming properties.
     

@@ -349,8 +349,8 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
       {expanded && (
         <div className="px-6 py-3 border-b border-venn-sand/40 bg-gradient-to-r from-slate-50 to-venn-cream/20 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* Owner Group Filter */}
-            {ownerGroups.length > 1 && (
+            {/* Owner Group Filter — hidden when user is authenticated (group locked by JWT) */}
+            {ownerGroups.length > 1 && !externalOwnerGroup && (
               <div className="flex items-center gap-1.5">
                 <Filter className="w-3.5 h-3.5 text-slate-500" />
                 <select

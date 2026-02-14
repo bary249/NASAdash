@@ -13,9 +13,10 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { 
-  RefreshCw, Settings, Eye, EyeOff, 
+  RefreshCw, Settings, Eye, EyeOff, LogOut,
   Building2, DollarSign, TrendingUp, TrendingDown, Home, ChevronDown
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 import { SearchBar } from './SearchBar';
 import { PropertyCard } from './PropertyCard';
@@ -86,6 +87,8 @@ interface DashboardV3Props {
 }
 
 export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
+  const { user, logout } = useAuth();
+  
   // Core state
   const [propertyId, setPropertyId] = useState(initialPropertyId || '');
   const [propertyName, setPropertyName] = useState('');
@@ -93,7 +96,8 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [timeRange, setTimeRange] = useState<'ytd' | 'mtd' | 'l30' | 'l7'>('mtd');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
-  const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>('PHH');
+  // Lock owner group to the authenticated user's group — no manual switching
+  const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>(user?.owner_group || 'PHH');
 
   // Active property IDs: when multiple checked, use those; otherwise use single clicked property
   const activePropertyIds = selectedPropertyIds.size > 1
@@ -240,18 +244,16 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     <ScrambleContext.Provider value={scrambleMode}>
       <div className={`min-h-screen bg-slate-100 transition-all duration-300 ${aiModalOpen ? 'overflow-hidden' : ''}`}>
         {/* Header */}
-        <header className="bg-indigo-700 text-white">
-          <div className="max-w-7xl mx-auto px-4 py-4">
+        <header className="bg-white border-b border-gray-200 text-gray-900">
+          <div className="max-w-7xl mx-auto px-4 py-3">
             {/* Top row: Logo and actions */}
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                  <Building2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold">Venn</h1>
-                  <p className="text-xs text-indigo-200">Owner Dashboard</p>
-                </div>
+                <p className="text-xl font-light tracking-widest text-gray-400" style={{ fontFamily: 'Georgia, serif' }}>
+                  venn
+                </p>
+                <span className="text-gray-300">|</span>
+                <p className="text-sm font-medium text-gray-600">Owner Dashboard</p>
               </div>
               
               <div className="flex items-center gap-2">
@@ -259,10 +261,10 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
                 <button
                   onClick={() => setScrambleMode(scrambleMode === 'full' ? 'off' : 'full')}
                   className={`
-                    flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all
+                    flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all
                     ${scrambleMode === 'full' 
                       ? 'bg-amber-500 text-white' 
-                      : 'bg-white/10 text-white hover:bg-white/20'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }
                   `}
                 >
@@ -270,35 +272,31 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
                   <span>Hide PII</span>
                 </button>
 
-                {/* Demo Mode Toggle - Only hides Ridian/Northern */}
-                <button
-                  onClick={() => setScrambleMode(scrambleMode === 'demo' ? 'off' : 'demo')}
-                  className={`
-                    flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all
-                    ${scrambleMode === 'demo' 
-                      ? 'bg-indigo-500 text-white' 
-                      : 'bg-white/10 text-white hover:bg-white/20'
-                    }
-                  `}
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>Demo</span>
-                </button>
-                
                 <button 
                   onClick={() => window.location.reload()}
-                  className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors"
+                  className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-gray-500"
                 >
-                  <RefreshCw className="w-5 h-5" />
+                  <RefreshCw className="w-4 h-4" />
                 </button>
-                <button className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
-                  <Settings className="w-5 h-5" />
-                </button>
+
+                {/* User info + Logout */}
+                {user && (
+                  <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-200">
+                    <span className="text-xs text-gray-500">{user.display_name}</span>
+                    <button
+                      onClick={logout}
+                      className="p-2 bg-gray-100 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors text-gray-500"
+                      title="Sign out"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Search Bar */}
-            <div className="py-2">
+            <div className="py-1">
               <SearchBar
                 onSearch={handleAISearch}
                 isLoading={aiLoading}

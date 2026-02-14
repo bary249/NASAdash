@@ -1,10 +1,34 @@
 import { DashboardV3 } from './components/DashboardV3';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LoginPage } from './components/LoginPage';
 
 // Re-export scramble utilities for backward compatibility
 export { useScramble, useScrambleMode, scrambleName } from './components/DashboardV3';
 
-export default function App() {
+function AuthGate() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return <DashboardV3 />;
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  );
 }
 
 // Legacy App component - kept for reference/rollback if needed

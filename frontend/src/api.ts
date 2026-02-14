@@ -29,8 +29,25 @@ import type {
 const API_BASE = '/api/v2';
 const PORTFOLIO_BASE = '/api/portfolio';
 
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const stored = localStorage.getItem('ownerDashAuth');
+    if (stored) {
+      const { token } = JSON.parse(stored);
+      if (token) return { Authorization: `Bearer ${token}` };
+    }
+  } catch { /* no auth */ }
+  return {};
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
+  if (response.status === 401) {
+    // Token expired or invalid — clear auth and reload to show login
+    localStorage.removeItem('ownerDashAuth');
+    window.location.reload();
+    throw new Error('Session expired');
+  }
   if (!response.ok) {
     throw new Error(`API error: ${response.status} ${response.statusText}`);
   }
@@ -394,14 +411,14 @@ export const api = {
 
   createWatchpoint: async (propertyId: string, body: { metric: string; operator: string; threshold: number; label?: string }): Promise<{ id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean }> => {
     const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     return response.json();
   },
 
   deleteWatchpoint: async (propertyId: string, watchpointId: string): Promise<{ deleted: boolean }> => {
-    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints/${watchpointId}`, { method: 'DELETE' });
+    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints/${watchpointId}`, { method: 'DELETE', headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     return response.json();
   },
@@ -413,7 +430,7 @@ export const api = {
   sendChatMessage: async (propertyId: string, message: string, history: { role: string; content: string }[] = []): Promise<{ response: string; columns?: Array<{key: string; label: string}>; data?: Array<Record<string, unknown>>; actions?: Array<{label: string}> }> => {
     const response = await fetch(`${API_BASE}/properties/${propertyId}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({ message, history }),
     });
     if (!response.ok) {
@@ -426,7 +443,7 @@ export const api = {
   sendPortfolioChatMessage: async (message: string, history: { role: string; content: string }[] = []): Promise<{ response: string; columns?: Array<{key: string; label: string}>; data?: Array<Record<string, unknown>>; actions?: Array<{label: string}> }> => {
     const response = await fetch(`${PORTFOLIO_BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify({ message, history }),
     });
     if (!response.ok) {

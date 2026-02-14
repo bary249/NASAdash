@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Zembra API (Apartments.com reviews)
     zembra_api_key: str = ""
     
+    # JWT Auth
+    jwt_secret: str = ""
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

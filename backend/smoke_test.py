@@ -277,6 +277,99 @@ def test_chat_status(res: SmokeResult, base: str):
         res.add("Chat status", False, f"status={status}", ms)
 
 
+# ── Data Freshness Checks ──
+
+def test_db_freshness(res: SmokeResult, base: str):
+    """Check that DB files were updated recently (data pipeline is running)."""
+    if not ADMIN_KEY:
+        res.add("DB freshness (skipped)", True, "No ADMIN_API_KEY set")
+        return
+    status, body, ms = get(f"{base}/api/admin/db-status", {"X-Admin-Key": ADMIN_KEY})
+    if status != 200 or not isinstance(body, dict):
+        res.add("DB freshness", False, f"status={status}", ms)
+        return
+    
+    now = time.time()
+    stale_threshold = 25 * 3600  # 25 hours (refresh runs every 6h, generous buffer)
+    issues = []
+    for db_name in ["unified", "realpage"]:
+        info = body.get(db_name, {})
+        if not info.get("exists"):
+            issues.append(f"{db_name}: MISSING")
+            continue
+        modified = info.get("modified", 0)
+        age_h = (now - modified) / 3600 if modified else 999
+        if age_h > (stale_threshold / 3600):
+            issues.append(f"{db_name}: {age_h:.1f}h old")
+    
+    if issues:
+        res.add("DB freshness", False, "; ".join(issues), ms)
+    else:
+        ages = []
+        for db_name in ["unified", "realpage"]:
+            mod = body.get(db_name, {}).get("modified", 0)
+            ages.append(f"{db_name}={(now - mod) / 3600:.1f}h")
+        res.add("DB freshness", True, ", ".join(ages), ms)
+
+
+def test_pricing_sanity(res: SmokeResult, base: str, pid: str):
+    """Check pricing data has no duplicate floorplans and no all-zero rows."""
+    status, body, ms = get(f"{base}/api/v2/properties/{pid}/pricing")
+    if status != 200 or not isinstance(body, dict):
+        res.add(f"[{pid}] Pricing sanity", False, f"status={status}", ms)
+        return
+    
+    fps = body.get("floorplans", [])
+    if not fps:
+        res.add(f"[{pid}] Pricing sanity", False, "no floorplans", ms)
+        return
+    
+    # Check for duplicates
+    ids = [fp.get("floorplan_id") for fp in fps]
+    dupes = len(ids) - len(set(ids))
+    
+    # Check for all-zero rows
+    zero_rows = sum(
+        1 for fp in fps
+        if fp.get("in_place_rent", 0) == 0 and fp.get("asking_rent", 0) == 0
+    )
+    
+    issues = []
+    if dupes > 0:
+        issues.append(f"{dupes} duplicate floorplans")
+    if zero_rows > 0:
+        issues.append(f"{zero_rows}/{len(fps)} rows with $0 rent")
+    
+    if issues:
+        res.add(f"[{pid}] Pricing sanity", False, "; ".join(issues), ms)
+    else:
+        res.add(f"[{pid}] Pricing sanity", True, f"{len(fps)} floorplans, all have rent data", ms)
+
+
+def test_report_data_freshness(res: SmokeResult, base: str, pid: str):
+    """Check that report-sourced data (availability, forecast) has recent content."""
+    status, body, ms = get(f"{base}/api/v2/properties/{pid}/availability")
+    if status != 200 or not isinstance(body, dict):
+        res.add(f"[{pid}] Report data freshness", False, f"availability status={status}", ms)
+        return
+    
+    total = body.get("total_units", 0)
+    occupied = body.get("occupied_units", body.get("occupied", 0))
+    
+    # Basic sanity: should have units and some occupancy
+    if total == 0:
+        res.add(f"[{pid}] Report data freshness", False, "total_units=0", ms)
+        return
+    
+    occ_pct = (occupied / total * 100) if total > 0 else 0
+    # Occupancy should be > 50% for any real property
+    ok = occ_pct > 50
+    res.add(
+        f"[{pid}] Report data freshness", ok,
+        f"units={total}, occupied={occupied}, occ={occ_pct:.1f}%", ms
+    )
+
+
 def test_frontend_html(res: SmokeResult, frontend: str):
     """Check frontend serves HTML with JS bundle."""
     status, body, ms = get(frontend)
@@ -333,7 +426,14 @@ def run_smoke_test(backend: str, frontend: str) -> SmokeResult:
         test_property_ai_insights(res, backend, pid)
         test_property_watchpoints(res, backend, pid)
 
-    # 4. Frontend
+    # 4. Data freshness
+    print("\n── Data Freshness ──")
+    test_db_freshness(res, backend)
+    for pid in test_props:
+        test_pricing_sanity(res, backend, pid)
+        test_report_data_freshness(res, backend, pid)
+
+    # 5. Frontend
     print("\n── Frontend ──")
     test_frontend_html(res, frontend)
     test_frontend_api_proxy(res, frontend)

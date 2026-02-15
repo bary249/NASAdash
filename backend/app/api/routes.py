@@ -3036,9 +3036,7 @@ async def get_financials(property_id: str):
         avg_market_rent = round(bs[3] or 0, 2) if bs else 0
         avg_effective_rent = round(bs[4] or 0, 2) if bs else 0
         
-        conn.close()
-        
-        # Group transactions by category
+        # Group by accounting categories
         group_names = {
             "CA": "Rent",
             "CB": "Late Fees",
@@ -3108,6 +3106,30 @@ async def get_financials(property_id: str):
         ltl = summary["loss_to_lease"] or 0
         collections = summary["total_monthly_collections"] or 0
         possible = summary["total_possible_collections"] or 0
+        
+        # Enrich from Lost Rent Summary (Report 4279) when transaction summary has 0
+        if ltl == 0 or vacancy_loss_total == 0:
+            try:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_lost_rent_summary'")
+                if cursor.fetchone():
+                    cursor.execute("""
+                        SELECT SUM(market_rent - lease_rent), SUM(lost_rent_not_charged),
+                               SUM(CASE WHEN move_out_date IS NOT NULL AND move_out_date != '' THEN market_rent ELSE 0 END)
+                        FROM realpage_lost_rent_summary
+                        WHERE property_id = ?
+                    """, (site_id,))
+                    lr_row = cursor.fetchone()
+                    if lr_row:
+                        lr_loss_to_lease = lr_row[0] or 0
+                        lr_vacant_rent = lr_row[2] or 0
+                        if ltl == 0 and lr_loss_to_lease != 0:
+                            ltl = -abs(lr_loss_to_lease)
+                        if vacancy_loss_total == 0 and lr_vacant_rent != 0:
+                            vacancy_loss_total = abs(lr_vacant_rent)
+            except Exception:
+                pass  # Lost rent table not available
+        
+        conn.close()
         
         computed = {
             "total_units": total_units,

@@ -4,7 +4,7 @@
  * Auto-sends a request for top 3 interesting facts when property is selected.
  */
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, RefreshCw } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, RefreshCw, ChevronDown } from 'lucide-react';
 import { api } from '../api';
 
 interface Message {
@@ -23,8 +23,19 @@ export function AIInsightsSection({ propertyId, propertyName }: AIInsightsSectio
   const [loading, setLoading] = useState(false);
   const [chatAvailable, setChatAvailable] = useState<boolean | null>(null);
   const [, setHasAutoSent] = useState(false); // Disabled - was for auto-send
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('ai_insights_collapsed') === 'true'; } catch { return false; }
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('ai_insights_collapsed', String(next)); } catch {}
+      return next;
+    });
+  };
 
   // Check chat availability on mount
   useEffect(() => {
@@ -118,7 +129,10 @@ export function AIInsightsSection({ propertyId, propertyName }: AIInsightsSectio
   return (
     <div className="bg-white rounded-venn-lg shadow-venn-card border border-venn-sand/50 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-5 bg-gradient-to-r from-venn-navy via-venn-slate to-venn-navy text-white relative overflow-hidden">
+      <div
+        className="flex items-center justify-between px-6 py-5 bg-gradient-to-r from-venn-navy via-venn-slate to-venn-navy text-white relative overflow-hidden cursor-pointer select-none"
+        onClick={toggleCollapsed}
+      >
         {/* Warm glow effect */}
         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-venn-amber/5 to-transparent pointer-events-none"></div>
         <div className="flex items-center gap-4 relative z-10">
@@ -130,17 +144,21 @@ export function AIInsightsSection({ propertyId, propertyName }: AIInsightsSectio
             <p className="text-xs text-venn-amber">{propertyName}</p>
           </div>
         </div>
-        <button
-          onClick={refreshInsights}
-          disabled={loading}
-          className="p-2.5 hover:bg-white/10 rounded-xl transition-colors disabled:opacity-50 relative z-10"
-          title="Refresh insights"
-        >
-          <RefreshCw className={`w-4 h-4 text-venn-amber ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2 relative z-10">
+          <button
+            onClick={(e) => { e.stopPropagation(); refreshInsights(); }}
+            disabled={loading}
+            className="p-2.5 hover:bg-white/10 rounded-xl transition-colors disabled:opacity-50"
+            title="Refresh insights"
+          >
+            <RefreshCw className={`w-4 h-4 text-venn-amber ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <ChevronDown className={`w-5 h-5 text-venn-amber transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} />
+        </div>
       </div>
 
       {/* Messages */}
+      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${collapsed ? 'max-h-0' : 'max-h-[500px]'}`}>
       <div className="max-h-64 overflow-y-auto p-5 space-y-4 bg-gradient-to-b from-venn-cream/30 to-white venn-scrollbar">
         {messages.length === 0 && !loading && (
           <div className="text-center text-slate-400 py-6 text-sm">
@@ -210,6 +228,7 @@ export function AIInsightsSection({ propertyId, propertyName }: AIInsightsSectio
             <Send className="w-4 h-4" />
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

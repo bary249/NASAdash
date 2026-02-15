@@ -1,0 +1,43 @@
+name: Smoke Test
+
+on:
+  schedule:
+    # Run every 7 hours (UTC): 00:00, 07:00, 14:00, 21:00
+    - cron: '0 */7 * * *'
+  workflow_dispatch: # Manual trigger from GitHub UI
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run smoke test
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+          FRONTEND_URL: https://nasadash.netlify.app
+        run: python smoke_test.py --log
+
+      - name: Upload smoke test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-log-${{ github.run_id }}
+          path: backend/logs/smoke_test.log
+          retention-days: 90

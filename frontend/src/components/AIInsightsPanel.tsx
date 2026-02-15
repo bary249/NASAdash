@@ -67,6 +67,17 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
   const [expandedAlert, setExpandedAlert] = useState<number | null>(0);
   const [expandedQna, setExpandedQna] = useState<number | null>(null);
   const [tab, setTab] = useState<'alerts' | 'qna'>('alerts');
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('ai_panel_collapsed') === 'true'; } catch { return false; }
+  });
+
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev;
+      try { localStorage.setItem('ai_panel_collapsed', String(next)); } catch {}
+      return next;
+    });
+  };
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
@@ -162,22 +173,29 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden h-fit">
       {/* Header */}
-      <div className="px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-indigo-50">
+      <div
+        className="px-4 py-2 border-b border-slate-200 bg-gradient-to-r from-violet-50 to-indigo-50 cursor-pointer select-none"
+        onClick={toggleCollapsed}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-violet-500" />
             <h3 className="text-xs font-semibold text-slate-800">AI Insights</h3>
           </div>
-          <button
-            onClick={() => loadInsights(true)}
-            disabled={loading}
-            className="p-1 hover:bg-white/60 rounded transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => { e.stopPropagation(); loadInsights(true); }}
+              disabled={loading}
+              className="p-1 hover:bg-white/60 rounded transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} />
+          </div>
         </div>
       </div>
 
+      <div className={`overflow-hidden transition-all duration-300 ease-in-out ${collapsed ? 'max-h-0' : 'max-h-[2000px]'}`}>
       {/* Tab Toggle */}
       <div className="flex border-b border-slate-100">
         <button
@@ -300,6 +318,7 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   );

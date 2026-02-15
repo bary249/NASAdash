@@ -1,0 +1,54 @@
+name: Refresh RealPage Data
+
+on:
+  schedule:
+    # Run every 6 hours (UTC): 00:00, 06:00, 12:00, 18:00
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Manual trigger from GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install playwright
+          playwright install chromium
+
+      - name: Refresh RealPage token
+        env:
+          REALPAGE_EMAIL: ${{ secrets.REALPAGE_EMAIL }}
+          REALPAGE_PASSWORD: ${{ secrets.REALPAGE_PASSWORD }}
+        run: python auto_token.py --force
+
+      - name: Check token
+        run: python auto_token.py --check
+
+      - name: Download & import reports + sync unified DB
+        env:
+          REALPAGE_EMAIL: ${{ secrets.REALPAGE_EMAIL }}
+          REALPAGE_PASSWORD: ${{ secrets.REALPAGE_PASSWORD }}
+        run: python refresh_all.py --skip reviews risk
+
+      - name: Push DBs to Railway
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+        run: python push_to_deployed.py

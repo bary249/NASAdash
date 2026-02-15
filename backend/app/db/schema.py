@@ -11,11 +11,13 @@ The unified layer normalizes and combines data for dashboard queries.
 """
 
 import sqlite3
+import os
 from pathlib import Path
 from datetime import datetime
 
-# Database file paths
-DB_DIR = Path(__file__).parent / "data"
+# Database file paths — Railway volume in production, local in dev
+_volume = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+DB_DIR = Path(_volume) if _volume else Path(__file__).parent / "data"
 YARDI_DB_PATH = DB_DIR / "yardi_raw.db"
 REALPAGE_DB_PATH = DB_DIR / "realpage_raw.db"
 UNIFIED_DB_PATH = DB_DIR / "unified.db"

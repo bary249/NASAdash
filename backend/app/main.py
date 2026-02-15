@@ -15,12 +15,14 @@ Timeframe Logic (per spec Section 2):
 - PM (Previous Month): Full previous month (static benchmark)
 - YTD (Year-to-Date): Jan 1st to now
 """
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.portfolio import router as portfolio_router
 from app.api.imports import router as imports_router
 from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
 from app.config import get_settings
 
 app = FastAPI(
@@ -56,7 +58,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5172", 
         "http://localhost:3000", 
-        "http://127.0.0.1:5172"
+        "http://127.0.0.1:5172",
+        os.environ.get("FRONTEND_URL", ""),  # Netlify URL in production
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST"],  # POST needed for file imports
@@ -67,6 +70,7 @@ app.include_router(auth_router, prefix="/api", tags=["Auth"])
 app.include_router(router, prefix="/api/v2", tags=["Dashboard V2"])
 app.include_router(portfolio_router)  # Portfolio endpoints at /api/portfolio
 app.include_router(imports_router, prefix="/api", tags=["Excel Imports"])
+app.include_router(admin_router, prefix="/api", tags=["Admin"])
 
 
 @app.get("/")

@@ -91,6 +91,41 @@ def upload_db(db_type: str) -> bool:
         return False
 
 
+# JSON cache files to push alongside DBs
+CACHE_FILES = [
+    DB_DIR / "google_reviews_cache.json",
+    DB_DIR / "apartments_reviews_cache.json",
+]
+
+
+def upload_file(local_path: Path) -> bool:
+    """Upload a generic file to Railway data dir."""
+    if not local_path.exists():
+        print(f"  SKIP: {local_path.name} (not found)")
+        return True  # Not a failure — file may not exist yet
+
+    size_kb = local_path.stat().st_size / 1024
+    print(f"  Uploading {local_path.name} ({size_kb:.0f} KB)...")
+
+    start = time.time()
+    with open(local_path, "rb") as f:
+        r = httpx.post(
+            f"{RAILWAY_URL}/api/admin/upload-file?filename={local_path.name}",
+            headers={"X-Admin-Key": ADMIN_KEY},
+            files={"file": (local_path.name, f, "application/octet-stream")},
+            timeout=30,
+        )
+
+    elapsed = time.time() - start
+
+    if r.status_code == 200:
+        print(f"  OK: {local_path.name} uploaded in {elapsed:.1f}s")
+        return True
+    else:
+        print(f"  ERROR: {r.status_code} {r.text[:300]}")
+        return False
+
+
 def main():
     if not RAILWAY_URL:
         print("ERROR: Set RAILWAY_API_URL in .env")
@@ -116,9 +151,9 @@ def main():
         print("\n(dry-run mode — no uploads)")
         return
 
-    # Upload
+    # Upload DBs
     print(f"\n{'='*50}")
-    print("UPLOADING")
+    print("UPLOADING DATABASES")
     print(f"{'='*50}")
 
     targets = [only] if only else list(DB_FILES.keys())
@@ -127,13 +162,21 @@ def main():
     for db_type in targets:
         results[db_type] = upload_db(db_type)
 
+    # Upload cache files
+    if not only:
+        print(f"\n{'='*50}")
+        print("UPLOADING CACHE FILES")
+        print(f"{'='*50}")
+        for cache_file in CACHE_FILES:
+            results[cache_file.name] = upload_file(cache_file)
+
     # Summary
     print(f"\n{'='*50}")
     print("SUMMARY")
     print(f"{'='*50}")
-    for db_type, ok in results.items():
+    for name, ok in results.items():
         status = "OK" if ok else "FAILED"
-        print(f"  {db_type}: {status}")
+        print(f"  {name}: {status}")
 
     # Verify
     print()

@@ -9,7 +9,8 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-CACHE_PATH = Path(__file__).parent.parent / "db" / "data" / "apartments_reviews_cache.json"
+from app.db.schema import DB_DIR
+CACHE_PATH = DB_DIR / "apartments_reviews_cache.json"
 
 # Map unified property_id → apartments cache key
 PROPERTY_MAP = {

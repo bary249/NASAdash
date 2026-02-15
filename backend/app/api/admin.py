@@ -60,6 +60,35 @@ async def upload_db(
         raise HTTPException(500, f"Upload failed: {e}")
 
 
+@router.post("/admin/upload-file")
+async def upload_file(
+    filename: str,
+    file: UploadFile = File(...),
+    x_admin_key: str = Header(None),
+):
+    """
+    Upload a generic file to the data directory.
+    Used for JSON cache files (reviews, etc.).
+    """
+    _check_admin_key(x_admin_key)
+
+    # Only allow safe filenames
+    safe_chars = set("abcdefghijklmnopqrstuvwxyz0123456789_-.")
+    if not all(c in safe_chars for c in filename.lower()):
+        raise HTTPException(400, f"Invalid filename: {filename}")
+
+    target = DB_DIR / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with open(target, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        size_kb = target.stat().st_size / 1024
+        return {"status": "ok", "filename": filename, "size_kb": round(size_kb, 1), "path": str(target)}
+    except Exception as e:
+        raise HTTPException(500, f"Upload failed: {e}")
+
+
 @router.get("/admin/db-status")
 async def db_status(x_admin_key: str = Header(None)):
     """Check which DB files exist and their sizes."""

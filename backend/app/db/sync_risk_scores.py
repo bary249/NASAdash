@@ -19,15 +19,11 @@ import pandas as pd
 from pathlib import Path
 from datetime import date, datetime
 
-# ---------------------------------------------------------------------------
-# Snowflake connection — reuse the existing client from the snowflake/ folder
-# ---------------------------------------------------------------------------
-SNOWFLAKE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "snowflake"
-sys.path.insert(0, str(SNOWFLAKE_DIR))
+# Add backend root to path so we can import resident_risk_scores
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BACKEND_DIR))
 
-from snowflake_client import query_db  # noqa: E402
-
-UNIFIED_DB_PATH = Path(__file__).parent / "data" / "unified.db"
+from app.db.schema import UNIFIED_DB_PATH
 TODAY = date.today().isoformat()
 
 # ---------------------------------------------------------------------------
@@ -112,16 +108,27 @@ BUILDING_TO_PROPERTY = {
 
 
 def load_risk_scores() -> pd.DataFrame:
-    """Load the pre-computed risk scores CSV from the snowflake directory."""
-    csv_path = SNOWFLAKE_DIR / "resident_risk_scores.csv"
-    if not csv_path.exists():
-        raise FileNotFoundError(
-            f"Risk scores CSV not found at {csv_path}. "
-            "Run resident_risk_scores.py first."
+    """Run the scoring engine directly against Snowflake and return results."""
+    import os
+    # Check if Snowflake is configured
+    if not os.environ.get("SNOWFLAKE_USER"):
+        # Fallback: try to load from a local CSV if it exists
+        csv_path = BACKEND_DIR / "resident_risk_scores.csv"
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
+            print(f"  Loaded {len(df):,} resident scores from local CSV")
+            return df
+        raise RuntimeError(
+            "Snowflake not configured (set SNOWFLAKE_USER, SNOWFLAKE_PASSWORD, etc.) "
+            "and no local resident_risk_scores.csv found."
         )
-    df = pd.read_csv(csv_path)
-    print(f"  Loaded {len(df):,} resident scores from {csv_path.name}")
-    return df
+
+    # Run the scoring engine directly
+    from resident_risk_scores import main as run_scoring_engine
+    print("  Running scoring engine against Snowflake...")
+    result = run_scoring_engine()
+    print(f"  Scored {len(result):,} residents")
+    return result
 
 
 def map_to_properties(df: pd.DataFrame) -> pd.DataFrame:

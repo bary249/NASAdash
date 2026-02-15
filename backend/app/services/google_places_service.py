@@ -16,7 +16,8 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 # Cache file — ratings don't change often, cache for 24h
-CACHE_PATH = Path(__file__).parent.parent / "db" / "data" / "google_places_cache.json"
+from app.db.schema import DB_DIR
+CACHE_PATH = DB_DIR / "google_places_cache.json"
 CACHE_TTL_SECONDS = 86400  # 24 hours
 
 

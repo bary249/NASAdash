@@ -41,11 +41,17 @@ jobs:
       - name: Check token
         run: python auto_token.py --check
 
-      - name: Download & import reports + sync unified DB
+      - name: Run full data pipeline
         env:
           REALPAGE_EMAIL: ${{ secrets.REALPAGE_EMAIL }}
           REALPAGE_PASSWORD: ${{ secrets.REALPAGE_PASSWORD }}
-        run: python refresh_all.py --skip reviews risk
+          ZEMBRA_API_KEY: ${{ secrets.ZEMBRA_API_KEY }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+        run: python refresh_all.py
 
       - name: Push DBs to Railway
         env:

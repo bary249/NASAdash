@@ -109,10 +109,10 @@ def step_risk() -> dict:
 
 
 def step_reviews() -> dict:
-    """Step 5: Scrape Google reviews for PHH properties."""
-    banner("STEP 5/5: GOOGLE REVIEWS SCRAPE")
-    print("  Scraping reviews + owner replies for Parkside & Nexus East...")
-    return run_step("Reviews", [PYTHON, "-u", "scrape_reviews.py"], timeout=300)
+    """Step 5: Fetch Google + Apartments.com reviews via Zembra API."""
+    banner("STEP 5/5: REVIEWS (ZEMBRA API)")
+    print("  Fetching Google + Apartments.com reviews for PHH properties...")
+    return run_step("Reviews", [PYTHON, "-u", "fetch_all_reviews.py"], timeout=300)
 
 
 # Map step keys to functions

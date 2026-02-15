@@ -16,8 +16,9 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-CACHE_PATH = Path(__file__).parent.parent / "db" / "data" / "google_places_cache.json"
-REVIEWS_CACHE_PATH = Path(__file__).parent.parent / "db" / "data" / "google_reviews_cache.json"
+from app.db.schema import DB_DIR
+CACHE_PATH = DB_DIR / "google_places_cache.json"
+REVIEWS_CACHE_PATH = DB_DIR / "google_reviews_cache.json"
 REVIEWS_CACHE_TTL = 43200  # 12 hours
 MAX_SERPAPI_PAGES = 5  # Up to ~40 reviews (8 first page + 10-20 per page after)
 

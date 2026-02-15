@@ -80,6 +80,7 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
   };
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+  const isMultiProp = effectiveIds.length > 1;
 
   // Recalculate answer for a single saved question
   const recalcSavedAnswer = useCallback(async (question: string, pid: string): Promise<string> => {
@@ -96,11 +97,13 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
     if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
     setError(null);
-    const isMulti = effectiveIds.length > 1;
-
     try {
-      // Fetch AI-generated alerts + qna
-      const results = await Promise.all(effectiveIds.map(id =>
+      // For multi-property, cap API calls to avoid flooding (sample up to 8 properties)
+      const fetchIds = isMultiProp && effectiveIds.length > 8
+        ? effectiveIds.slice(0, 8)
+        : effectiveIds;
+
+      const results = await Promise.all(fetchIds.map(id =>
         refresh
           ? fetch(`/api/v2/properties/${id}/ai-insights?refresh=1`).then(r => r.json()).catch(() => null)
           : api.getAIInsights(id).catch(() => null)
@@ -111,20 +114,21 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
         return (d.alerts || []).map(a => ({
           ...a,
           severity: a.severity as Alert['severity'],
-          title: isMulti && propName ? `[${propName}] ${a.title}` : a.title,
+          title: isMultiProp && propName ? `[${propName}] ${a.title}` : a.title,
         }));
       });
       const aiQna: QnA[] = valid.flatMap(d => {
         const propName = d.property_name || '';
         return (d.qna || []).map(q => ({
           ...q,
-          question: isMulti && propName ? `[${propName}] ${q.question}` : q.question,
+          question: isMultiProp && propName ? `[${propName}] ${q.question}` : q.question,
           saved: false,
         }));
       });
       const severityOrder = { high: 0, medium: 1, low: 2 };
       allAlerts.sort((a, b) => (severityOrder[a.severity] ?? 1) - (severityOrder[b.severity] ?? 1));
-      setAlerts(allAlerts);
+      // Cap to 5 most urgent red flags
+      setAlerts(allAlerts.slice(0, 5));
 
       const errors = valid.filter(d => d.error).map(d => d.error);
       if (errors.length) setError(errors[0] || null);
@@ -133,7 +137,8 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
       // Load saved questions — show them immediately with "loading" answers
       const savedQs = loadSavedQuestions();
       const savedQna: QnA[] = savedQs.map(q => ({ question: q, answer: '', saved: true, loading: true }));
-      setQna([...savedQna, ...aiQna]);
+      // Cap AI-generated QnA to 5 items (saved questions always shown)
+      setQna([...savedQna, ...aiQna.slice(0, 5)]);
       setLoading(false);
 
       // Recalculate answers for saved questions in parallel

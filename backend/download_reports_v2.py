@@ -161,6 +161,7 @@ TABLE_MAP = {
     "lease_expiration": "realpage_lease_expirations",
     "projected_occupancy": "realpage_projected_occupancy",
     "lease_expiration_renewal": "realpage_lease_expiration_renewal",
+    "monthly_transaction_summary": "realpage_monthly_transaction_detail",
 }
 
 
@@ -253,6 +254,7 @@ def import_downloaded(downloads):
         import_box_score, import_delinquency, import_rent_roll,
         import_monthly_summary, import_lease_expiration, import_activity,
         import_projected_occupancy, import_lease_expiration_renewal,
+        import_monthly_transaction_summary,
         init_report_tables,
     )
 
@@ -270,6 +272,7 @@ def import_downloaded(downloads):
         "activity": import_activity,
         "projected_occupancy": import_projected_occupancy,
         "lease_expiration_renewal": import_lease_expiration_renewal,
+        "monthly_transaction_summary": import_monthly_transaction_summary,
     }
 
     total = 0

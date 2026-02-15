@@ -348,6 +348,26 @@ export const api = {
     error?: string;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/ai-insights`),
 
+  // Financials (Monthly Transaction Summary)
+  getFinancials: (propertyId: string): Promise<{
+    property_id: string;
+    summary: {
+      fiscal_period: string; report_date: string;
+      gross_market_rent: number; gain_to_lease: number; loss_to_lease: number;
+      gross_potential: number; total_other_charges: number;
+      total_possible_collections: number; total_collection_losses: number;
+      total_adjustments: number;
+      past_due_end_prior: number; prepaid_end_prior: number;
+      past_due_end_current: number; prepaid_end_current: number;
+      net_change_past_due_prepaid: number; total_losses_and_adjustments: number;
+      current_monthly_collections: number; total_monthly_collections: number;
+      collection_rate: number;
+    };
+    charges: { group: string; group_name: string; code: string; description: string; ytd_last_month: number; this_month: number; ytd_through: number }[];
+    losses: { group: string; group_name: string; code: string; description: string; ytd_last_month: number; this_month: number; ytd_through: number }[];
+    payments: { group: string; group_name: string; code: string; description: string; ytd_last_month: number; this_month: number; ytd_through: number }[];
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/financials`),
+
   // Risk Scores (Churn & Delinquency Prediction)
   getRiskScores: (propertyId: string): Promise<{
     property_id: string;

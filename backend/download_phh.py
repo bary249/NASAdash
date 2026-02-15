@@ -163,6 +163,7 @@ def import_all(downloads):
         import_box_score, import_delinquency, import_rent_roll,
         import_monthly_summary, import_lease_expiration, import_activity,
         import_projected_occupancy, import_lease_expiration_renewal,
+        import_monthly_transaction_summary,
         init_report_tables,
     )
     conn = sqlite3.connect(DB_PATH)
@@ -177,6 +178,7 @@ def import_all(downloads):
         "activity_report": import_activity, "activity": import_activity,
         "projected_occupancy": import_projected_occupancy,
         "lease_expiration_renewal": import_lease_expiration_renewal,
+        "monthly_transaction_summary": import_monthly_transaction_summary,
     }
     total = 0
     for dl in downloads:

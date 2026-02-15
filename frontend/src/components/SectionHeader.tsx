@@ -4,9 +4,10 @@ interface SectionHeaderProps {
   title: string;
   icon: LucideIcon;
   description?: string;
+  subtitle?: string;
 }
 
-export function SectionHeader({ title, icon: Icon, description }: SectionHeaderProps) {
+export function SectionHeader({ title, icon: Icon, description, subtitle }: SectionHeaderProps) {
   return (
     <div className="flex items-center gap-4 mb-6">
       <div className="flex items-center justify-center w-11 h-11 rounded-venn-lg bg-gradient-to-br from-venn-amber to-venn-copper shadow-md shadow-venn-amber/10">
@@ -14,6 +15,7 @@ export function SectionHeader({ title, icon: Icon, description }: SectionHeaderP
       </div>
       <div>
         <h2 className="text-lg font-bold text-venn-navy">{title}</h2>
+        {subtitle && <p className="text-sm text-slate-400 mt-0.5">{subtitle}</p>}
         {description && <p className="text-sm text-slate-500 mt-0.5">{description}</p>}
       </div>
     </div>

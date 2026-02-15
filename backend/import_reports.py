@@ -589,6 +589,121 @@ def import_projected_occupancy(conn: sqlite3.Connection, records: List[Dict], fi
     return imported
 
 
+def import_monthly_transaction_summary(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Monthly Transaction Summary records (detail + summary)."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_monthly_transaction_detail (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT NOT NULL,
+            fiscal_period TEXT,
+            transaction_group TEXT NOT NULL,
+            transaction_code TEXT NOT NULL,
+            description TEXT,
+            ytd_last_month REAL,
+            this_month REAL,
+            ytd_through_month REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT,
+            UNIQUE(property_id, fiscal_period, transaction_code)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_monthly_transaction_summary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT NOT NULL,
+            fiscal_period TEXT,
+            gross_market_rent REAL,
+            gain_to_lease REAL,
+            loss_to_lease REAL,
+            gross_potential REAL,
+            total_other_charges REAL,
+            total_possible_collections REAL,
+            total_collection_losses REAL,
+            total_adjustments REAL,
+            past_due_end_prior REAL,
+            prepaid_end_prior REAL,
+            past_due_end_current REAL,
+            prepaid_end_current REAL,
+            net_change_past_due_prepaid REAL,
+            total_losses_and_adjustments REAL,
+            current_monthly_collections REAL,
+            total_monthly_collections REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT,
+            UNIQUE(property_id, fiscal_period)
+        )
+    """)
+    imported = 0
+    for r in records:
+        try:
+            if r.get('_type') == 'detail':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO realpage_monthly_transaction_detail
+                    (property_id, property_name, report_date, fiscal_period,
+                     transaction_group, transaction_code, description,
+                     ytd_last_month, this_month, ytd_through_month, file_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r.get('property_id'),
+                    r.get('property_name'),
+                    r.get('report_date'),
+                    r.get('fiscal_period'),
+                    r.get('transaction_group'),
+                    r.get('transaction_code'),
+                    r.get('description'),
+                    r.get('ytd_last_month', 0),
+                    r.get('this_month', 0),
+                    r.get('ytd_through_month', 0),
+                    file_id
+                ))
+                imported += 1
+            elif r.get('_type') == 'summary':
+                cursor.execute("""
+                    INSERT OR REPLACE INTO realpage_monthly_transaction_summary
+                    (property_id, property_name, report_date, fiscal_period,
+                     gross_market_rent, gain_to_lease, loss_to_lease, gross_potential,
+                     total_other_charges, total_possible_collections,
+                     total_collection_losses, total_adjustments,
+                     past_due_end_prior, prepaid_end_prior,
+                     past_due_end_current, prepaid_end_current,
+                     net_change_past_due_prepaid, total_losses_and_adjustments,
+                     current_monthly_collections, total_monthly_collections, file_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    r.get('property_id'),
+                    r.get('property_name'),
+                    r.get('report_date'),
+                    r.get('fiscal_period'),
+                    r.get('gross_market_rent', 0),
+                    r.get('gain_to_lease', 0),
+                    r.get('loss_to_lease', 0),
+                    r.get('gross_potential', 0),
+                    r.get('total_other_charges', 0),
+                    r.get('total_possible_collections', 0),
+                    r.get('total_collection_losses', 0),
+                    r.get('total_adjustments', 0),
+                    r.get('past_due_end_prior', 0),
+                    r.get('prepaid_end_prior', 0),
+                    r.get('past_due_end_current', 0),
+                    r.get('prepaid_end_current', 0),
+                    r.get('net_change_past_due_prepaid', 0),
+                    r.get('total_losses_and_adjustments', 0),
+                    r.get('current_monthly_collections', 0),
+                    r.get('total_monthly_collections', 0),
+                    file_id
+                ))
+                imported += 1
+        except Exception as e:
+            print(f"  Error inserting monthly transaction: {e}")
+    conn.commit()
+    return imported
+
+
 def log_import(conn: sqlite3.Connection, property_id: str, property_name: str,
                report_type: str, report_date: str, file_name: str, file_id: str,
                records_imported: int, status: str, error: str = None):

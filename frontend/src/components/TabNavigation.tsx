@@ -2,9 +2,9 @@
  * TabNavigation - Tab navigation for Overview, Renewals, Leasing, Delinquencies
  * Matches design: Icon tabs with labels
  */
-import { LayoutDashboard, RefreshCw, FileText, AlertTriangle, Package, ShieldAlert, Star, Eye, Crosshair } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, FileText, AlertTriangle, Package, ShieldAlert, Star, Eye, Crosshair, DollarSign } from 'lucide-react';
 
-export type TabId = 'overview' | 'renewals' | 'leasing' | 'delinquencies' | 'rentable' | 'risk' | 'reviews' | 'watchlist' | 'watchpoints';
+export type TabId = 'overview' | 'renewals' | 'leasing' | 'delinquencies' | 'financials' | 'rentable' | 'risk' | 'reviews' | 'watchlist' | 'watchpoints';
 
 interface Tab {
   id: TabId;
@@ -19,6 +19,7 @@ const tabs: Tab[] = [
   { id: 'rentable', label: 'Rentable Items', icon: Package, color: 'text-purple-600' },
   { id: 'renewals', label: 'Renewals', icon: RefreshCw, color: 'text-sky-600' },
   { id: 'delinquencies', label: 'Delinquencies', icon: AlertTriangle, color: 'text-rose-600' },
+  { id: 'financials', label: 'Financials', icon: DollarSign, color: 'text-green-600' },
   { id: 'risk', label: 'Risk Scores', icon: ShieldAlert, color: 'text-indigo-600' },
   { id: 'reviews', label: 'Reviews', icon: Star, color: 'text-yellow-600' },
   { id: 'watchlist', label: 'Watch List', icon: Eye, color: 'text-red-600' },

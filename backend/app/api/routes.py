@@ -2929,3 +2929,147 @@ async def _gather_current_metrics(property_id: str) -> dict:
         pass
     
     return metrics
+
+
+# =========================================================================
+# Financials (Monthly Transaction Summary — Report 4020)
+# =========================================================================
+
+@router.get("/properties/{property_id}/financials")
+async def get_financials(property_id: str):
+    """
+    GET: Financial summary and transaction detail for a property.
+    
+    Data source: realpage_monthly_transaction_summary + realpage_monthly_transaction_detail
+    in realpage_raw.db, keyed by RealPage site_id.
+    
+    Returns P&L-like summary (gross rent, charges, losses, collections)
+    plus transaction-level detail grouped by category.
+    """
+    import sqlite3
+    from app.property_config.properties import get_pms_config
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    raw_db = REALPAGE_DB_PATH
+    try:
+        conn = sqlite3.connect(raw_db)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get latest summary
+        cursor.execute("""
+            SELECT * FROM realpage_monthly_transaction_summary
+            WHERE property_id = ?
+            ORDER BY fiscal_period DESC
+            LIMIT 1
+        """, (site_id,))
+        summary_row = cursor.fetchone()
+        
+        if not summary_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="No financial data found")
+        
+        fiscal_period = summary_row["fiscal_period"]
+        
+        summary = {
+            "fiscal_period": fiscal_period,
+            "report_date": summary_row["report_date"],
+            "gross_market_rent": summary_row["gross_market_rent"],
+            "gain_to_lease": summary_row["gain_to_lease"],
+            "loss_to_lease": summary_row["loss_to_lease"],
+            "gross_potential": summary_row["gross_potential"],
+            "total_other_charges": summary_row["total_other_charges"],
+            "total_possible_collections": summary_row["total_possible_collections"],
+            "total_collection_losses": summary_row["total_collection_losses"],
+            "total_adjustments": summary_row["total_adjustments"],
+            "past_due_end_prior": summary_row["past_due_end_prior"],
+            "prepaid_end_prior": summary_row["prepaid_end_prior"],
+            "past_due_end_current": summary_row["past_due_end_current"],
+            "prepaid_end_current": summary_row["prepaid_end_current"],
+            "net_change_past_due_prepaid": summary_row["net_change_past_due_prepaid"],
+            "total_losses_and_adjustments": summary_row["total_losses_and_adjustments"],
+            "current_monthly_collections": summary_row["current_monthly_collections"],
+            "total_monthly_collections": summary_row["total_monthly_collections"],
+        }
+        
+        # Effective collection rate
+        if summary["total_possible_collections"] and summary["total_possible_collections"] > 0:
+            summary["collection_rate"] = round(
+                summary["total_monthly_collections"] / summary["total_possible_collections"] * 100, 1
+            )
+        else:
+            summary["collection_rate"] = 0
+        
+        # Get transaction detail for same fiscal period
+        cursor.execute("""
+            SELECT transaction_group, transaction_code, description,
+                   ytd_last_month, this_month, ytd_through_month
+            FROM realpage_monthly_transaction_detail
+            WHERE property_id = ? AND fiscal_period = ?
+            ORDER BY transaction_group, transaction_code
+        """, (site_id, fiscal_period))
+        detail_rows = cursor.fetchall()
+        conn.close()
+        
+        # Group transactions by category
+        group_names = {
+            "CA": "Rent",
+            "CB": "Late Fees",
+            "CE": "Keys/Locks/Gate Cards",
+            "CG": "Transfer/Termination Fees",
+            "CH": "Administrative Fees",
+            "CI": "Pet Rent",
+            "CJ": "Utilities & Services",
+            "CL": "Parking & Storage",
+            "PP": "Referral Credits",
+            "PS": "Deposit Activity",
+            "PT": "Vacancy Loss",
+            "PW": "Concessions",
+            "PX": "Gain/Loss to Lease",
+            "PZ": "Payments",
+        }
+        
+        # Build revenue items (charges: CA, CB, CE, CG, CH, CI, CJ, CL)
+        # and loss items (PT, PW, PX) and payment items (PP, PS, PZ)
+        charges = []
+        losses = []
+        payments = []
+        
+        for row in detail_rows:
+            item = {
+                "group": row["transaction_group"],
+                "group_name": group_names.get(row["transaction_group"], row["transaction_group"]),
+                "code": row["transaction_code"],
+                "description": row["description"],
+                "ytd_last_month": row["ytd_last_month"],
+                "this_month": row["this_month"],
+                "ytd_through": row["ytd_through_month"],
+            }
+            grp = row["transaction_group"]
+            if grp in ("CA", "CB", "CE", "CG", "CH", "CI", "CJ", "CL"):
+                charges.append(item)
+            elif grp in ("PT", "PW", "PX", "PP"):
+                losses.append(item)
+            elif grp in ("PS", "PZ"):
+                payments.append(item)
+        
+        return {
+            "property_id": property_id,
+            "summary": summary,
+            "charges": charges,
+            "losses": losses,
+            "payments": payments,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get financials: {str(e)}")

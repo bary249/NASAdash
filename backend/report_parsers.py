@@ -33,6 +33,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'delinquency'
         elif 'PROJECTED OCCUPANCY' in row_text:
             return 'projected_occupancy'
+        elif 'MONTHLY TRANSACTION SUMMARY' in row_text:
+            return 'monthly_transaction_summary'
     
     return None
 
@@ -1074,6 +1076,180 @@ def parse_lease_expiration_renewal(file_path: str, property_id: str = None) -> L
     return records
 
 
+def parse_monthly_transaction_summary(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Monthly Transaction Summary report (report 4020).
+    
+    Extracts two record types:
+    1. 'detail' — Individual transaction codes with YTD and current month amounts
+       Columns: Group(0), Code(5), Description(9), YTD_Last_Month(19), This_Month(29), YTD_Through(35)
+    2. 'summary' — P&L-like financial summary from the bottom of the report
+       Lines: Gross Market Rent, Total Other Monthly Charges, Total Possible Monthly Collections,
+       Less Collection Losses, Adjustments, Past Due/Prepaid changes, Total Monthly Collections
+    
+    Returns list of dicts, each with '_type' = 'detail' or 'summary'.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+    fiscal_period = info['fiscal_period']
+    
+    # Also extract fiscal period from report content if not found in header
+    if not fiscal_period:
+        for i in range(min(10, len(df))):
+            row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist())
+            fp_match = re.search(r'Fiscal Period:\s*(\d{6})', row_text)
+            if fp_match:
+                fiscal_period = fp_match.group(1)
+                break
+    
+    def safe_float(val):
+        try:
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', ''))
+        except:
+            return 0.0
+    
+    records = []
+    
+    # ── Parse Detail Section ──
+    # Detail rows have: Group in col 0, Code in col 5, Description in col 9,
+    # YTD Last Month in col 19, This Month in col 29, YTD Through in col 35
+    # They appear before the summary section (before "Category" header row)
+    summary_start = None
+    
+    for i in range(7, len(df)):
+        row = df.iloc[i]
+        col0 = str(row[0]).strip() if pd.notna(row[0]) else ''
+        
+        # Detect start of summary section
+        if col0 == 'Category':
+            summary_start = i
+            break
+        
+        # Also detect "Net" rows in the GL section — these are Net GL entries, skip for detail
+        if col0 == 'Net':
+            continue
+        
+        # Skip header rows and page breaks
+        if col0 == 'Group' or col0 == '':
+            # Check if it's a "Total:" row
+            desc = str(row[9]).strip() if pd.notna(row[9]) else ''
+            if desc == 'Total:':
+                continue
+            if not col0:
+                continue
+        
+        code = str(row[5]).strip() if pd.notna(row[5]) else ''
+        desc = str(row[9]).strip() if pd.notna(row[9]) else ''
+        
+        # Must have a valid transaction group and code
+        if not col0 or not code or not desc:
+            continue
+        
+        # Skip if group looks like a summary label
+        if len(col0) > 6 or 'Total' in col0:
+            continue
+        
+        ytd_last = safe_float(row[19])
+        this_month = safe_float(row[29])
+        ytd_through = safe_float(row[35])
+        
+        # Skip rows with all zeros
+        if ytd_last == 0 and this_month == 0 and ytd_through == 0:
+            continue
+        
+        records.append({
+            '_type': 'detail',
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'fiscal_period': fiscal_period,
+            'transaction_group': col0,
+            'transaction_code': code,
+            'description': desc,
+            'ytd_last_month': ytd_last,
+            'this_month': this_month,
+            'ytd_through_month': ytd_through,
+        })
+    
+    # ── Parse P&L Summary Section ──
+    # The summary section starts with "Category" header and contains:
+    # - MONTHLY RENTAL POTENTIAL COMPUTATION
+    # - OTHER MONTHLY CHARGES (line items)
+    # - LESS MONTHLY COLLECTION LOSSES
+    # - LESS ADJUSTMENTS
+    # - PAST DUES/PREPAIDS
+    # Key totals are in specific columns: col 14 (amounts), col 23 (subtotals), col 31 (totals)
+    summary = {
+        '_type': 'summary',
+        'property_id': property_id,
+        'property_name': property_name,
+        'report_date': report_date,
+        'fiscal_period': fiscal_period,
+        'gross_market_rent': 0.0,
+        'gain_to_lease': 0.0,
+        'loss_to_lease': 0.0,
+        'gross_potential': 0.0,
+        'total_other_charges': 0.0,
+        'total_possible_collections': 0.0,
+        'total_collection_losses': 0.0,
+        'total_adjustments': 0.0,
+        'past_due_end_prior': 0.0,
+        'prepaid_end_prior': 0.0,
+        'past_due_end_current': 0.0,
+        'prepaid_end_current': 0.0,
+        'net_change_past_due_prepaid': 0.0,
+        'total_losses_and_adjustments': 0.0,
+        'current_monthly_collections': 0.0,
+        'total_monthly_collections': 0.0,
+    }
+    
+    if summary_start:
+        # Map summary labels to fields
+        label_map = {
+            'Gross Market Rent': ('gross_market_rent', 14),
+            'Gain To Old Lease': ('gain_to_lease', 14),
+            'Loss To Old Lease': ('loss_to_lease', 14),
+            'Gross Potential Monthly Per Leases': ('gross_potential', 23),
+            'Total Other Monthly Charges': ('total_other_charges', 23),
+            'Total Possible Monthly Collections': ('total_possible_collections', 31),
+            'Less Total Monthly Collection Losses': ('total_collection_losses', 23),
+            'Less Adjustments': ('total_adjustments', 23),
+            'Past Due End of Prior Month': ('past_due_end_prior', 14),
+            'Prepaid End of Prior Month': ('prepaid_end_prior', 14),
+            'Past Due End of Current Month': ('past_due_end_current', 14),
+            'Prepaid End of Current Month': ('prepaid_end_current', 14),
+            'Net Change to Past Due/Prepaid Balances': ('net_change_past_due_prepaid', 23),
+            'Total Monthly Collection Losses and Adjustments': ('total_losses_and_adjustments', 31),
+            'Current Monthly Rental Collections': ('current_monthly_collections', 31),
+            'Total Monthly Collections': ('total_monthly_collections', 31),
+        }
+        
+        for i in range(summary_start, len(df)):
+            row = df.iloc[i]
+            label = str(row[0]).strip() if pd.notna(row[0]) else ''
+            
+            # Remove trailing colons and asterisks
+            label_clean = label.rstrip(':').rstrip('*').strip()
+            
+            if label_clean in label_map:
+                field, col_idx = label_map[label_clean]
+                # Value might be on the same row or the next row
+                val = safe_float(row[col_idx]) if col_idx < len(row) else 0.0
+                if val == 0.0 and i + 1 < len(df):
+                    next_row = df.iloc[i + 1]
+                    val = safe_float(next_row[col_idx]) if col_idx < len(next_row) else 0.0
+                summary[field] = val
+    
+    records.append(summary)
+    
+    return records
+
+
 def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
@@ -1095,6 +1271,7 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'monthly_activity_summary': 'monthly_summary',
             'projected_occupancy': 'projected_occupancy',
             'lease_expiration_renewal': 'lease_expiration_renewal',
+            'monthly_transaction_summary': 'monthly_transaction_summary',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -1114,6 +1291,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_lease_expiration_renewal(file_path, property_id)
     elif report_type == 'projected_occupancy':
         records = parse_projected_occupancy(file_path, property_id)
+    elif report_type == 'monthly_transaction_summary':
+        records = parse_monthly_transaction_summary(file_path, property_id)
     else:
         records = []
     

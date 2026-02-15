@@ -33,6 +33,7 @@ import { AvailabilitySection } from './AvailabilitySection';
 import { BedroomConsolidatedView } from './BedroomConsolidatedView';
 import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
+import FinancialsSection from './FinancialsSection';
 import { WatchListTab } from './WatchListTab';
 import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
@@ -951,7 +952,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               tooltip="Leases with status 'Current - Future' ÷ All leases expiring within 90 days × 100. Source: RealPage Leases."
             />
             
-            <button onClick={() => openKpiDrill('tradeouts')} className="text-left w-full">
+            <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full">
               <KPICard
                 title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
                 value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
@@ -960,7 +961,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 icon={<DollarSign className="w-4 h-4" />}
                 tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
               />
-            </button>
+            </div>
 
             {/* Row 2 */}
             <VacantKPICard
@@ -971,7 +972,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
             />
             
-            <button onClick={() => openKpiDrill('atr')} className="text-left w-full">
+            <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full">
               <KPICard
                 title="ATR"
                 value={atrData ? String(atrData.atr) : '—'}
@@ -979,7 +980,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 icon={<Home className="w-4 h-4" />}
                 tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
               />
-            </button>
+            </div>
 
             <FunnelKPICard
               leads={funnel?.leads || 0}
@@ -991,7 +992,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               timeLabel={periodLabel}
             />
             
-            <button onClick={() => openKpiDrill('renewals')} className="text-left w-full">
+            <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">
               <KPICard
                 title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
                 value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
@@ -1000,7 +1001,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 icon={<TrendingDown className="w-4 h-4" />}
                 tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases.`}
               />
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1274,6 +1275,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
       {activeTab === 'delinquencies' && (
         <DelinquencySection propertyId={propertyId} propertyIds={propertyIds} />
+      )}
+
+      {activeTab === 'financials' && (
+        <FinancialsSection propertyId={propertyId} />
       )}
 
       {activeTab === 'rentable' && (

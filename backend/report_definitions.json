@@ -170,6 +170,23 @@
       ],
       "status": "complete"
     },
+    "monthly_transaction_summary": {
+      "report_id": 4020,
+      "report_key": "81ADF4FF-9961-4252-B668-405C652373DC",
+      "name": "Monthly Transaction Summary",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "AR_FiscalPeriodSelect", "value": "{{fiscal_period}}"},
+        {"name": "SubProperty", "value": "ALL"},
+        {"name": "ReportType", "value": "Details + Summary"}
+      ],
+      "status": "complete",
+      "notes": "Revenue/charges by transaction code per fiscal period. Outputs .xls (old format, engine=xlrd). Two sections: Detail (per-txn-code with YTD and current month) and Summary (P&L with gross potential, charges, losses, collections)."
+    },
     "projected_occupancy": {
       "report_id": 3842,
       "report_key": "345C5708-78BE-44F9-8932-0484913C9F78",

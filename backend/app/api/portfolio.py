@@ -4,6 +4,7 @@ READ-ONLY OPERATIONS ONLY.
 """
 from fastapi import APIRouter, Query, HTTPException, Depends, Header
 from typing import List, Optional
+from app.db.schema import UNIFIED_DB_PATH, REALPAGE_DB_PATH
 from app.services.portfolio_service import PortfolioService
 from app.services.chat_service import chat_service
 from app.services.occupancy_service import OccupancyService
@@ -76,7 +77,7 @@ def parse_property_configs(
             configs.append(prop.pms_config)
         else:
             # Try to find in unified.db
-            db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+            db_path = UNIFIED_DB_PATH
             try:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
@@ -281,7 +282,7 @@ async def list_portfolio_properties(
     from pathlib import Path
     
     # Load owner_group from unified.db for all properties
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     owner_groups = {}
     try:
         conn = sqlite3.connect(db_path)
@@ -348,7 +349,7 @@ async def list_owner_groups():
     import sqlite3
     from pathlib import Path
     
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -390,8 +391,8 @@ async def get_watchlist(
     import sqlite3
     from pathlib import Path
     
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    db_path = UNIFIED_DB_PATH
+    raw_db = REALPAGE_DB_PATH
     
     # Get all properties
     properties = []
@@ -645,7 +646,7 @@ async def get_portfolio_risk_scores(
     import sqlite3
     from pathlib import Path
     
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     
     try:
         conn = sqlite3.connect(db_path)

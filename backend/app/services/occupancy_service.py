@@ -13,6 +13,7 @@ from app.models import (
     UnitRaw, ResidentRaw, ProspectRaw, PropertyInfo
 )
 from app.models.unified import PMSSource
+from app.db.schema import UNIFIED_DB_PATH
 from app.property_config.properties import get_pms_config, ALL_PROPERTIES
 from app.services.timeframe import (
     get_date_range, format_date_iso, format_date_yardi,
@@ -46,8 +47,7 @@ class OccupancyService:
         import sqlite3
         from pathlib import Path
         try:
-            db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
             cursor.execute("SELECT pms_source FROM unified_properties WHERE unified_property_id = ?", (property_id,))
             row = cursor.fetchone()
@@ -68,8 +68,7 @@ class OccupancyService:
         
         # Get RealPage properties from unified.db first
         try:
-            db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT unified_property_id, name, city, state, address
@@ -275,10 +274,9 @@ class OccupancyService:
         from pathlib import Path
         
         period_start, period_end = get_date_range(timeframe)
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
         
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
             
             # Get property name

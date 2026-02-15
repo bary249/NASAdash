@@ -1,0 +1,7 @@
+app/db/data/
+__pycache__/
+*.pyc
+.env
+realpage_token.json
+downloaded_reports/
+/tmp/

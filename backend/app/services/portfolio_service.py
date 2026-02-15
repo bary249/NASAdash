@@ -5,6 +5,7 @@ Supports two aggregation modes: weighted average and row metrics.
 READ-ONLY OPERATIONS ONLY.
 """
 from typing import List, Dict, Optional
+from app.db.schema import UNIFIED_DB_PATH
 from app.clients.pms_interface import PMSInterface, PMSType
 from app.clients.yardi_client import YardiClient
 from app.clients.realpage_client import RealPageClient
@@ -39,9 +40,8 @@ class PortfolioService:
         import sqlite3
         from pathlib import Path
         
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("""
@@ -66,9 +66,8 @@ class PortfolioService:
         import sqlite3
         from pathlib import Path
         
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute("""
@@ -92,9 +91,8 @@ class PortfolioService:
         import sqlite3
         from pathlib import Path
         
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT total_units, occupied_units, vacant_units, leased_units,

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from datetime import datetime
 
+from app.db.schema import UNIFIED_DB_PATH, REALPAGE_DB_PATH
 from app.services.occupancy_service import OccupancyService
 from app.services.pricing_service import PricingService
 from app.services.market_comps_service import MarketCompsService
@@ -87,7 +88,7 @@ async def get_exposure(
     from datetime import date
     
     # Try database first for properties without full PMS config
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -161,7 +162,7 @@ async def get_leasing_funnel(
         prop_cfg = ALL_PROPERTIES.get(property_id)
         if prop_cfg and prop_cfg.pms_config.realpage_siteid:
             site_id = prop_cfg.pms_config.realpage_siteid
-            raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+            raw_db = REALPAGE_DB_PATH
             if raw_db.exists():
                 conn = sqlite3.connect(str(raw_db))
                 c = conn.cursor()
@@ -420,7 +421,7 @@ async def get_turn_time(property_id: str):
     import sqlite3
     from pathlib import Path
     
-    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    raw_db = REALPAGE_DB_PATH
     
     try:
         from app.property_config.properties import get_pms_config
@@ -511,7 +512,7 @@ async def get_loss_to_lease(property_id: str):
     import sqlite3
     from pathlib import Path
     
-    uni_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    uni_db = UNIFIED_DB_PATH
     
     # Normalize property_id
     normalized_id = property_id
@@ -594,8 +595,8 @@ async def get_projected_occupancy(property_id: str):
     import sqlite3
     from pathlib import Path
     
-    uni_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    uni_db = UNIFIED_DB_PATH
+    raw_db = REALPAGE_DB_PATH
     
     normalized_id = property_id
     if property_id.startswith("kairoi-"):
@@ -725,8 +726,8 @@ async def get_availability(property_id: str):
     from datetime import datetime, timedelta
     from app.property_config.properties import get_pms_config
     
-    uni_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-    raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+    uni_db = UNIFIED_DB_PATH
+    raw_db = REALPAGE_DB_PATH
     
     normalized_id = property_id
     if property_id.startswith("kairoi-"):
@@ -1369,7 +1370,7 @@ async def get_delinquency(property_id: str):
     from pathlib import Path
     from datetime import datetime
     
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     
     # Normalize property_id for legacy kairoi- format
     normalized_id = property_id
@@ -1544,7 +1545,7 @@ async def get_risk_scores(property_id: str):
     import sqlite3
     from pathlib import Path
     
-    db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+    db_path = UNIFIED_DB_PATH
     
     try:
         conn = sqlite3.connect(db_path)
@@ -1621,7 +1622,7 @@ async def get_availability_by_floorplan(property_id: str):
         if not site_id:
             return {"floorplans": []}
         
-        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+        raw_db = REALPAGE_DB_PATH
         conn = sqlite3.connect(raw_db)
         cursor = conn.cursor()
         
@@ -1697,8 +1698,8 @@ async def get_consolidated_by_bedroom(property_id: str):
         if not site_id:
             return {"bedrooms": [], "totals": {}}
         
-        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
-        unified_db = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        raw_db = REALPAGE_DB_PATH
+        unified_db = UNIFIED_DB_PATH
         
         # Aggregate box_score by bedroom count
         conn = sqlite3.connect(raw_db)
@@ -1905,7 +1906,7 @@ async def get_availability_units(property_id: str, floorplan: str = None, status
         if not site_id:
             return {"units": []}
         
-        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+        raw_db = REALPAGE_DB_PATH
         conn = sqlite3.connect(raw_db)
         cursor = conn.cursor()
         
@@ -2034,7 +2035,7 @@ async def get_shows(property_id: str, days: int = 7):
         if not site_id:
             return {"total_shows": 0, "by_date": [], "days": days}
         
-        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+        raw_db = REALPAGE_DB_PATH
         conn = sqlite3.connect(raw_db)
         cursor = conn.cursor()
         
@@ -2110,7 +2111,7 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
         if not site_id:
             return {"forecast": [], "current_occupied": 0, "total_units": 0}
         
-        raw_db = Path(__file__).parent.parent / "db" / "data" / "realpage_raw.db"
+        raw_db = REALPAGE_DB_PATH
         conn = sqlite3.connect(raw_db)
         cursor = conn.cursor()
         
@@ -2868,7 +2869,7 @@ async def _gather_current_metrics(property_id: str) -> dict:
     try:
         import sqlite3
         from pathlib import Path
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        db_path = UNIFIED_DB_PATH
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         c.execute("""

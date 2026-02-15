@@ -9,6 +9,7 @@ from app.clients.yardi_client import YardiClient
 from app.clients.realpage_client import RealPageClient
 from app.models import UnitPricingMetrics, FloorplanPricing
 from app.models.unified import PMSSource
+from app.db.schema import UNIFIED_DB_PATH
 from app.property_config.properties import get_pms_config, ALL_PROPERTIES
 
 logger = logging.getLogger(__name__)
@@ -309,7 +310,7 @@ class PricingService:
         import sqlite3
         from pathlib import Path
         
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
+        db_path = UNIFIED_DB_PATH
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()

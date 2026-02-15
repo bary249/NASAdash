@@ -16,7 +16,7 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 # Cache file — ratings don't change often, cache for 24h
-from app.db.schema import DB_DIR
+from app.db.schema import DB_DIR, UNIFIED_DB_PATH
 CACHE_PATH = DB_DIR / "google_places_cache.json"
 CACHE_TTL_SECONDS = 86400  # 24 hours
 
@@ -125,8 +125,7 @@ async def get_all_property_ratings() -> dict[str, dict]:
     # Get city/state from unified.db for better search accuracy
     prop_locations = {}
     try:
-        db_path = Path(__file__).parent.parent / "db" / "data" / "unified.db"
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(UNIFIED_DB_PATH)
         cursor = conn.cursor()
         cursor.execute("SELECT unified_property_id, city, state FROM unified_properties")
         for row in cursor.fetchall():

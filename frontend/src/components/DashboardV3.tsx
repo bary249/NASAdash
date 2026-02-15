@@ -161,17 +161,17 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
   // Update selectedPropertyInfo when property or propertiesMap changes
   useEffect(() => {
-    if (propertyId && propertiesMap[propertyId]) {
-      setSelectedPropertyInfo(propertiesMap[propertyId]);
+    if (effectivePropertyId && propertiesMap[effectivePropertyId]) {
+      setSelectedPropertyInfo(propertiesMap[effectivePropertyId]);
     }
-  }, [propertyId, propertiesMap]);
+  }, [effectivePropertyId, propertiesMap]);
 
   // Fetch market comps when property changes
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectivePropertyId) return;
     
     // Get property location first, then fetch comps
-    api.getPropertyLocation(propertyId)
+    api.getPropertyLocation(effectivePropertyId)
       .then(loc => {
         const submarket = `${loc.city}, ${loc.state}`;
         return api.getMarketComps(submarket, loc.name, 5);
@@ -180,10 +180,10 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
       .catch(err => console.warn('Failed to fetch market comps:', err));
     
     // Fetch pricing
-    api.getPricing(propertyId)
+    api.getPricing(effectivePropertyId)
       .then(setPricing)
       .catch(err => console.warn('Failed to fetch pricing:', err));
-  }, [propertyId]);
+  }, [effectivePropertyId]);
 
   // AI search handler
   const handleAISearch = async (query: string, isAI: boolean) => {

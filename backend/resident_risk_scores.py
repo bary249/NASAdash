@@ -57,9 +57,7 @@ def query_db(query: str) -> pd.DataFrame:
     conn = _get_snowflake_connection()
     conn.cursor().execute("USE DATABASE DWH_V2")
     try:
-        df = pd.read_sql(query, conn)
-        df.columns = [col.lower() for col in df.columns]
-        return df
+        return pd.read_sql(query, conn)
     finally:
         conn.close()
 

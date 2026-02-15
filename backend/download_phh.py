@@ -89,15 +89,18 @@ def compute_dates(timeframe_tag: str = None, date_offset: int = 0) -> dict:
     return dates
 
 
-def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None):
+def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None, run_report_for=None):
     dates = compute_dates(timeframe_tag, date_offset)
     parameters = []
     for param in report_def["parameters"]:
         value = param["value"]
-        for key, replacement in dates.items():
-            if value == "{{" + key + "}}":
-                value = replacement
-                break
+        if value == "{{run_report_for}}" and run_report_for:
+            value = run_report_for
+        else:
+            for key, replacement in dates.items():
+                if value == "{{" + key + "}}":
+                    value = replacement
+                    break
         parameters.append({"name": param["name"], "label": value, "value": value})
 
     return {
@@ -115,10 +118,10 @@ def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None
     }
 
 
-def create_instance(report_def, property_detail, date_offset=0, timeframe_tag=None):
+def create_instance(report_def, property_detail, date_offset=0, timeframe_tag=None, run_report_for=None):
     url = f"{BASE_URL}/reports/{report_def['report_id']}/report-instances"
     try:
-        resp = CLIENT.post(url, headers=HEADERS, json=build_payload(report_def, property_detail, date_offset, timeframe_tag))
+        resp = CLIENT.post(url, headers=HEADERS, json=build_payload(report_def, property_detail, date_offset, timeframe_tag, run_report_for))
         if resp.status_code in (200, 201):
             return resp.json()
         else:
@@ -185,6 +188,7 @@ def import_all(downloads):
         import_monthly_transaction_summary,
         import_make_ready, import_closed_make_ready,
         import_advertising_source, import_lost_rent_summary,
+        import_move_out_reasons,
         init_report_tables,
     )
     conn = sqlite3.connect(DB_PATH)
@@ -204,6 +208,7 @@ def import_all(downloads):
         "closed_make_ready": import_closed_make_ready,
         "advertising_source": import_advertising_source,
         "lost_rent_summary": import_lost_rent_summary,
+        "move_out_reasons": import_move_out_reasons,
     }
     total = 0
     for dl in downloads:
@@ -249,11 +254,11 @@ def main():
     if args.only_reports:
         report_types = {k: v for k, v in report_types.items() if k in args.only_reports}
 
-    # Count total jobs including timeframe variants
+    # Count total jobs including timeframe variants and run_report_for variants
     total_jobs = 0
     for rtype, rdef in report_types.items():
-        tf_count = len(rdef.get('timeframe_variants', [])) or 1
-        total_jobs += len(PHH_PROPERTIES) * tf_count
+        variant_count = len(rdef.get('timeframe_variants', [])) or len(rdef.get('run_report_for_variants', [])) or 1
+        total_jobs += len(PHH_PROPERTIES) * variant_count
     print("=" * 60)
     print("  PHH REPORT DOWNLOADER")
     print(f"  {datetime.now().isoformat()}")
@@ -267,11 +272,35 @@ def main():
 
     # Step 1: Create instances
     print(f"\n── STEP 1: CREATING {total_jobs} INSTANCES ──")
-    start_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    start_time = datetime.utcnow().strftime("%Y-%m-%dT00:00:00.000Z")
     needed = []
 
     for pid, pdetail in PHH_PROPERTIES.items():
         for rtype, rdef in report_types.items():
+            # Check if this report has run_report_for variants (e.g. move_out_reasons)
+            rrf_variants = rdef.get('run_report_for_variants')
+            if rrf_variants:
+                for rrf in rrf_variants:
+                    for date_offset in range(MAX_DATE_RETRIES):
+                        resp = create_instance(rdef, pdetail, date_offset=date_offset, run_report_for=rrf)
+                        if resp:
+                            tag = 'former' if 'Former' in rrf else 'notice'
+                            needed.append({
+                                "prop_id": pid, "prop_name": pdetail["propertyName"],
+                                "prop_detail": pdetail, "report_type": rtype, "report_def": rdef,
+                                "instance_id": resp.get("instanceId"),
+                                "file_id": None, "content": None,
+                                "timeframe_tag": tag,
+                            })
+                            sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} [{tag}] ✓\n")
+                            break
+                        elif date_offset < MAX_DATE_RETRIES - 1:
+                            time.sleep(1)
+                        else:
+                            sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} [{rrf}] ✗ failed\n")
+                    sys.stdout.flush()
+                    time.sleep(0.5)
+                continue
             # Check if this report has timeframe variants
             tf_variants = rdef.get('timeframe_variants')
             if tf_variants:

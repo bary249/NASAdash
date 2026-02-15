@@ -267,6 +267,24 @@
       ],
       "status": "complete",
       "notes": "Unit-level market vs lease rent. xlsx format (use openpyxl). Gold for loss-to-lease analysis."
+    },
+    "move_out_reasons": {
+      "report_id": 3879,
+      "report_key": "4ADC30D4-1C62-47CA-AB30-CD3F2577943B",
+      "name": "Reasons for Move Out",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "MoveOutStartDate", "value": "{{start_date}}"},
+        {"name": "MoveOutEndDate", "value": "{{end_date}}"},
+        {"name": "RunReportFor", "value": "{{run_report_for}}"}
+      ],
+      "status": "complete",
+      "notes": "Category/reason breakdown for move-outs. Two variants: Former Residents and Residents On Notice.",
+      "run_report_for_variants": ["Former Residents", "Residents On Notice"]
     }
   },
   "properties": {

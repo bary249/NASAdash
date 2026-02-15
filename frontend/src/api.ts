@@ -483,6 +483,14 @@ export const api = {
     return response.json();
   },
 
+  getMoveOutReasons: (propertyId: string): Promise<{
+    property_id: string;
+    date_range: string;
+    former: { category: string; count: number; pct: number; reasons: { reason: string; count: number; pct: number }[] }[];
+    notice: { category: string; count: number; pct: number; reasons: { reason: string; count: number; pct: number }[] }[];
+    totals: { former: number; notice: number; total: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/move-out-reasons`),
+
   // Portfolio-level AI Chat (Asset Manager perspective)
   sendPortfolioChatMessage: async (message: string, history: { role: string; content: string }[] = []): Promise<{ response: string; columns?: Array<{key: string; label: string}>; data?: Array<Record<string, unknown>>; actions?: Array<{label: string}> }> => {
     const response = await fetch(`${PORTFOLIO_BASE}/chat`, {

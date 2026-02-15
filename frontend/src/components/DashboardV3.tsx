@@ -36,6 +36,7 @@ import { ResidentRiskSection } from './ResidentRiskSection';
 import FinancialsSection from './FinancialsSection';
 import MarketingSection from './MarketingSection';
 import MaintenanceSection from './MaintenanceSection';
+import MoveOutReasonsSection from './MoveOutReasonsSection';
 import { WatchListTab } from './WatchListTab';
 import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
@@ -322,7 +323,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
         <div className="bg-white border-b border-slate-200 sticky top-0 z-30">
           <div className="max-w-7xl mx-auto px-4 py-3">
             <div className="flex items-center justify-center">
-              <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+              <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} ownerGroup={selectedOwnerGroup} />
             </div>
           </div>
         </div>
@@ -1104,6 +1105,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         </div>
       )}
 
+      {activeTab === 'renewals' && (
+        <MoveOutReasonsSection propertyId={propertyId} propertyIds={propertyIds} />
+      )}
+
       {/* Renewal drill-through modal */}
       <DrillThroughModal
         isOpen={drillOpen}
@@ -1145,8 +1150,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               <div className="text-sm text-fuchsia-600 inline-flex items-center gap-0.5">Applications <InfoTooltip text="Unique prospects who reached the application stage (pre-qualify, identity verification, agreement, or quote). Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
             </div>
             <div className="bg-emerald-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-emerald-700">{funnel?.leaseSigns || 0}</div>
-              <div className="text-sm text-emerald-600 inline-flex items-center gap-0.5">Leases Signed <InfoTooltip text="Unique prospects who reached 'Leased' status. Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
+              <div className="text-2xl font-bold text-emerald-700">
+                {funnel?.leaseSigns || 0}
+                {funnel?.marketingNetLeases != null && funnel.marketingNetLeases !== funnel?.leaseSigns && (
+                  <span className="text-sm font-normal text-slate-400 ml-1">/ {funnel.marketingNetLeases} mktg</span>
+                )}
+              </div>
+              <div className="text-sm text-emerald-600 inline-flex items-center gap-0.5">Leases Signed <InfoTooltip text="Activity Report count / Marketing (Advertising Source) net leases. These may differ: Activity Report counts unique prospects with 'Leased' status; Marketing counts net leases (gross minus cancelled/denied) attributed to ad sources. Activity data may also lag behind Marketing data by a few days." /></div>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4 mb-6">

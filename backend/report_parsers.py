@@ -43,6 +43,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'advertising_source'
         elif 'LOST RENT SUMMARY' in row_text:
             return 'lost_rent_summary'
+        elif 'REASONS FOR MOVE OUT' in row_text:
+            return 'move_out_reasons'
     
     return None
 
@@ -1556,6 +1558,73 @@ def parse_lost_rent_summary(file_path: str, property_id: str = None) -> List[Dic
     return records
 
 
+def parse_move_out_reasons(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Reasons for Move Out report (3879).
+    Returns list of records with category, reason, count, percentage, and resident_type.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    
+    info = extract_property_info(df)
+    property_name = info.get('property_name')
+    report_date = info.get('report_date')
+    
+    # Detect resident_type from Parameters row
+    resident_type = 'former'
+    date_range = None
+    for i in range(min(10, len(df))):
+        row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist())
+        if 'Parameters:' in row_text:
+            if 'Residents On Notice' in row_text:
+                resident_type = 'notice'
+            elif 'Former Residents' in row_text:
+                resident_type = 'former'
+        if 'Report run from' in row_text:
+            m = re.search(r'from\s+(\d{2}/\d{2}/\d{4})\s+to\s+(\d{2}/\d{2}/\d{4})', row_text)
+            if m:
+                date_range = f"{m.group(1)} through {m.group(2)}"
+    
+    records = []
+    current_category = None
+    category_count = 0
+    category_pct = 0.0
+    
+    for i in range(8, len(df)):
+        row = df.iloc[i].tolist()
+        col0 = str(row[0]).strip() if pd.notna(row[0]) and str(row[0]).strip() else ''
+        col3 = str(row[3]).strip() if len(row) > 3 and pd.notna(row[3]) and str(row[3]).strip() else ''
+        col4 = row[4] if len(row) > 4 and pd.notna(row[4]) else None
+        col5 = row[5] if len(row) > 5 and pd.notna(row[5]) else None
+        col7 = row[7] if len(row) > 7 and pd.notna(row[7]) else None
+        col8 = row[8] if len(row) > 8 and pd.notna(row[8]) else None
+        
+        if col0 == 'Totals:':
+            break
+        
+        # Category row: col[0] has name, col[5] has count, col[8] has pct
+        if col0 and col5 is not None:
+            current_category = col0
+            category_count = int(float(col5))
+            category_pct = float(col8) if col8 is not None else 0.0
+        # Reason row: col[3] has name, col[4] has count, col[7] has pct
+        elif col3 and col4 is not None and current_category:
+            records.append({
+                'property_id': property_id,
+                'property_name': property_name,
+                'report_date': report_date,
+                'date_range': date_range,
+                'resident_type': resident_type,
+                'category': current_category,
+                'category_count': category_count,
+                'category_pct': category_pct,
+                'reason': col3,
+                'reason_count': int(float(col4)),
+                'reason_pct': float(col7) if col7 is not None else 0.0,
+            })
+    
+    return records
+
+
 def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
@@ -1582,6 +1651,7 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'closed_make_ready': 'closed_make_ready',
             'advertising_source': 'advertising_source',
             'lost_rent_summary': 'lost_rent_summary',
+            'move_out_reasons': 'move_out_reasons',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -1611,6 +1681,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_advertising_source(file_path, property_id)
     elif report_type == 'lost_rent_summary':
         records = parse_lost_rent_summary(file_path, property_id)
+    elif report_type == 'move_out_reasons':
+        records = parse_move_out_reasons(file_path, property_id)
     else:
         records = []
     

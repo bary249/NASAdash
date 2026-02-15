@@ -319,6 +319,22 @@ async def get_leasing_funnel(
                         import logging
                         logging.warning(f"Could not compute marketing metrics for {property_id}: {e}")
                     
+                    # Enrich with marketing net_leases from advertising source
+                    marketing_net_leases = None
+                    try:
+                        tf_map = {'cm': 'mtd', 'pm': 'mtd', 'ytd': 'ytd', 'l30': 'l30', 'l7': 'l7'}
+                        ad_tf = tf_map.get(timeframe.value, 'mtd')
+                        conn3 = sqlite3.connect(str(raw_db))
+                        c3 = conn3.cursor()
+                        c3.execute("""SELECT SUM(net_leases) FROM realpage_advertising_source
+                                     WHERE property_id = ? AND timeframe_tag = ?""", (site_id, ad_tf))
+                        r3 = c3.fetchone()
+                        if r3 and r3[0] is not None:
+                            marketing_net_leases = int(r3[0])
+                        conn3.close()
+                    except Exception:
+                        pass
+                    
                     return LeasingFunnelMetrics(
                         property_id=property_id,
                         timeframe=timeframe.value,
@@ -335,6 +351,7 @@ async def get_leasing_funnel(
                         tour_to_app_rate=t2a,
                         app_to_lease_rate=a2l,
                         lead_to_lease_rate=l2l,
+                        marketing_net_leases=marketing_net_leases,
                         avg_days_to_lease=avg_days_to_lease,
                         app_completion_rate=app_completion_rate,
                         app_approval_rate=app_approval_rate,
@@ -3492,3 +3509,103 @@ async def get_lost_rent(property_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get lost rent data: {str(e)}")
+
+
+# =========================================================================
+# Move-Out Reasons (Report 3879)
+# =========================================================================
+
+@router.get("/properties/{property_id}/move-out-reasons")
+async def get_move_out_reasons(property_id: str):
+    """Move-out reasons from RealPage Report 3879.
+    
+    Returns category/reason breakdown for both former residents and residents on notice.
+    """
+    import sqlite3
+    from app.property_config.properties import get_pms_config
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    raw_db = REALPAGE_DB_PATH
+    if not raw_db.exists():
+        raise HTTPException(status_code=404, detail="No RealPage data available")
+    
+    try:
+        conn = sqlite3.connect(str(raw_db))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Check table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_move_out_reasons'")
+        if not cursor.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Move-out reasons data not available")
+        
+        cursor.execute("""
+            SELECT resident_type, category, category_count, category_pct,
+                   reason, reason_count, reason_pct, date_range
+            FROM realpage_move_out_reasons
+            WHERE property_id = ?
+            ORDER BY resident_type, category_count DESC, reason_count DESC
+        """, (site_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="No move-out reasons data for this property")
+        
+        # Group by resident_type → categories → reasons
+        result = {"former": [], "notice": []}
+        date_range = None
+        
+        for rtype in ["former", "notice"]:
+            type_rows = [r for r in rows if r["resident_type"] == rtype]
+            if not type_rows:
+                continue
+            if not date_range:
+                date_range = type_rows[0]["date_range"]
+            
+            # Group by category
+            cat_map = {}
+            for r in type_rows:
+                cat = r["category"]
+                if cat not in cat_map:
+                    cat_map[cat] = {
+                        "category": cat,
+                        "count": r["category_count"],
+                        "pct": r["category_pct"],
+                        "reasons": [],
+                    }
+                cat_map[cat]["reasons"].append({
+                    "reason": r["reason"],
+                    "count": r["reason_count"],
+                    "pct": r["reason_pct"],
+                })
+            result[rtype] = sorted(cat_map.values(), key=lambda x: -x["count"])
+        
+        total_former = sum(c["count"] for c in result["former"])
+        total_notice = sum(c["count"] for c in result["notice"])
+        
+        return {
+            "property_id": property_id,
+            "date_range": date_range,
+            "former": result["former"],
+            "notice": result["notice"],
+            "totals": {
+                "former": total_former,
+                "notice": total_notice,
+                "total": total_former + total_notice,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get move-out reasons: {str(e)}")

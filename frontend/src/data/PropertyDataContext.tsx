@@ -64,6 +64,7 @@ interface FunnelMetrics {
   tourToAppRate: number;
   appToLeaseRate: number;
   leadToLeaseRate: number;
+  marketingNetLeases?: number | null;
 }
 
 interface ExpirationPeriod {
@@ -626,9 +627,12 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
               acc.denials += f.denials;
               acc.sightUnseen += (f as any).sight_unseen || 0;
               acc.tourToApp += (f as any).tour_to_app || 0;
+              if ((f as any).marketing_net_leases != null) {
+                acc.marketingNetLeases = (acc.marketingNetLeases || 0) + (f as any).marketing_net_leases;
+              }
             }
             return acc;
-          }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0 });
+          }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0, marketingNetLeases: null as number | null });
           if (merged.leads > 0) {
             setApiFunnelData({
               ...merged,

@@ -68,6 +68,7 @@ export interface LeasingFunnelMetrics {
   tour_to_app_rate: number;
   app_to_lease_rate: number;
   lead_to_lease_rate: number;
+  marketing_net_leases?: number;
 }
 
 export interface OccupancyTrendPeriod {

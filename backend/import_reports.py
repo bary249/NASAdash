@@ -890,6 +890,52 @@ def import_lost_rent_summary(conn: sqlite3.Connection, records: List[Dict], file
     return imported
 
 
+def import_move_out_reasons(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Move Out Reasons records. Replaces existing data per property + resident_type."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_move_out_reasons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT,
+            property_name TEXT,
+            report_date TEXT,
+            date_range TEXT,
+            resident_type TEXT,
+            category TEXT,
+            category_count INTEGER,
+            category_pct REAL,
+            reason TEXT,
+            reason_count INTEGER,
+            reason_pct REAL,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    if records:
+        pid = records[0].get('property_id')
+        rtype = records[0].get('resident_type')
+        if pid and rtype:
+            cursor.execute("DELETE FROM realpage_move_out_reasons WHERE property_id = ? AND resident_type = ?", (pid, rtype))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_move_out_reasons
+                (property_id, property_name, report_date, date_range, resident_type,
+                 category, category_count, category_pct, reason, reason_count, reason_pct)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('date_range'), r.get('resident_type'),
+                r.get('category'), r.get('category_count', 0), r.get('category_pct', 0),
+                r.get('reason'), r.get('reason_count', 0), r.get('reason_pct', 0)
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting move_out_reasons: {e}")
+    conn.commit()
+    return imported
+
+
 def log_import(conn: sqlite3.Connection, property_id: str, property_name: str,
                report_type: str, report_date: str, file_name: str, file_id: str,
                records_imported: int, status: str, error: str = None):

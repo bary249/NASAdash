@@ -444,7 +444,7 @@ def main():
     print(f"\n📊 Requesting {len(needed)} reports for {total_props} properties")
 
     # ── Step 1: Create all instances ──────────────────────────
-    start_time = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    start_time = datetime.utcnow().strftime("%Y-%m-%dT00:00:00.000Z")
 
     print(f"\n{'='*60}")
     print(f"  STEP 1: CREATING REPORT INSTANCES")

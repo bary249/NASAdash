@@ -30,12 +30,17 @@ const tabs: Tab[] = [
 interface TabNavigationProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  ownerGroup?: string;
 }
 
-export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
+export function TabNavigation({ activeTab, onTabChange, ownerGroup }: TabNavigationProps) {
+  const visibleTabs = ownerGroup === 'PHH'
+    ? tabs.filter(t => t.id !== 'risk')
+    : tabs;
+
   return (
     <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-slate-200 shadow-sm">
-      {tabs.map((tab) => {
+      {visibleTabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
         

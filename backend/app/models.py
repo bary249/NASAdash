@@ -100,6 +100,9 @@ class LeasingFunnelMetrics(BaseModel):
     app_to_lease_rate: float     # Lease Signs / Applications %
     lead_to_lease_rate: float    # Lease Signs / Leads %
     
+    # Marketing cross-reference
+    marketing_net_leases: Optional[int] = None   # Net leases from Advertising Source report (leases - cancelled/denied)
+    
     # Derived marketing metrics (Step 1.2)
     avg_days_to_lease: Optional[float] = None   # Avg days from first contact to lease sign
     app_completion_rate: Optional[float] = None  # % of pre-qualifies that reach agreement

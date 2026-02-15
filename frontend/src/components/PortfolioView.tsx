@@ -76,7 +76,7 @@ interface PortfolioViewProps {
   onOwnerGroupChange?: (group: string) => void;
 }
 
-export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange }: PortfolioViewProps) {
+export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange }: PortfolioViewProps) {
   const [expanded, setExpanded] = useState(true);
   const [properties, setProperties] = useState<PropertySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -496,10 +496,9 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                   return (
                     <tr 
                       key={p.property.id}
-                      className={`hover:bg-venn-cream/40 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-venn-amber/10' : ''} ${isChecked ? 'bg-venn-amber/5' : ''}`}
-                      onClick={() => onSelectProperty(p.property.id, p.property.name)}
+                      className={`hover:bg-venn-cream/40 transition-all duration-200 ${isSelected ? 'bg-venn-amber/10' : ''} ${isChecked ? 'bg-venn-amber/5' : ''}`}
                     >
-                      <td className="px-2 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <td className="px-2 py-4 text-center">
                         <input
                           type="checkbox"
                           checked={isChecked}

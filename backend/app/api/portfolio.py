@@ -11,6 +11,18 @@ from app.services.occupancy_service import OccupancyService
 from app.services.pricing_service import PricingService
 from app.services.unit_query_service import unit_query_service
 from app.models import Timeframe
+# Group hierarchy: parent group -> list of child groups it also sees
+GROUP_HIERARCHY = {
+    "Kairoi": ["PHH"],
+}
+
+def _visible_groups(group: str) -> set:
+    """Return the set of owner_group values visible to the given group."""
+    groups = {group.lower()}
+    for child in GROUP_HIERARCHY.get(group, []):
+        groups.add(child.lower())
+    return groups
+
 from app.models.unified import (
     AggregationMode,
     PMSSource,
@@ -301,7 +313,7 @@ async def list_portfolio_properties(
     properties = list_all_properties()
     for p in properties:
         og = owner_groups.get(p.unified_id, "other")
-        if owner_group and og.lower() != owner_group.lower():
+        if owner_group and og.lower() not in _visible_groups(owner_group):
             continue
         result.append({
             "id": p.unified_id,
@@ -322,7 +334,7 @@ async def list_portfolio_properties(
         for row in cursor.fetchall():
             prop_id, name, pms_source, og = row
             og = og or "other"
-            if owner_group and og.lower() != owner_group.lower():
+            if owner_group and og.lower() not in _visible_groups(owner_group):
                 continue
             # Skip if ID or name already seen
             if prop_id in seen_ids or (name and name.lower() in seen_names):
@@ -417,7 +429,7 @@ async def get_watchlist(
         
         for row in cursor.fetchall():
             og = row["owner_group"] or "other"
-            if owner_group and og.lower() != owner_group.lower():
+            if owner_group and og.lower() not in _visible_groups(owner_group):
                 continue
             
             prop_id = row["unified_property_id"]

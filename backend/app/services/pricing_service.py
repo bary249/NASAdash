@@ -316,13 +316,18 @@ class PricingService:
             cursor = conn.cursor()
             
             # Try unified_pricing_metrics first (from box_score / rent_roll)
+            # Filter to latest snapshot_date only to avoid duplicate rows
             cursor.execute("""
                 SELECT floorplan, unit_count, avg_square_feet, in_place_rent,
                        in_place_per_sf, asking_rent, asking_per_sf, rent_growth
                 FROM unified_pricing_metrics
                 WHERE unified_property_id = ?
+                  AND snapshot_date = (
+                      SELECT MAX(snapshot_date) FROM unified_pricing_metrics
+                      WHERE unified_property_id = ?
+                  )
                 ORDER BY floorplan
-            """, (property_id,))
+            """, (property_id, property_id))
             rows = cursor.fetchall()
             
             if not rows:

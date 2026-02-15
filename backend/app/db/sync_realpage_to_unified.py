@@ -8,10 +8,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-# Database paths
-DB_DIR = Path(__file__).parent / "data"
-REALPAGE_DB_PATH = DB_DIR / "realpage_raw.db"
-UNIFIED_DB_PATH = DB_DIR / "unified.db"
+from app.db.schema import REALPAGE_DB_PATH, UNIFIED_DB_PATH
 
 # Property mapping: RealPage property_id -> unified_property_id
 # All Kairoi properties (PMC ID: 4248314)
@@ -53,6 +50,35 @@ PROPERTY_MAPPING = {
 OWNER_GROUPS = {
     "nexus_east": "PHH",
     "parkside": "PHH",
+    "7_east": "Kairoi",
+    "aspire_7th_grant": "Kairoi",
+    "block_44": "Kairoi",
+    "broadleaf": "Kairoi",
+    "confluence": "Kairoi",
+    "curate": "Kairoi",
+    "discovery_kingwood": "Kairoi",
+    "eden_keller_ranch": "Kairoi",
+    "edison_rino": "Kairoi",
+    "harvest": "Kairoi",
+    "heights_interlocken": "Kairoi",
+    "izzy": "Kairoi",
+    "kalaco": "Kairoi",
+    "links_plum_creek": "Kairoi",
+    "luna": "Kairoi",
+    "park_17": "Kairoi",
+    "pearl_lantana": "Kairoi",
+    "ridian": "Kairoi",
+    "slate": "Kairoi",
+    "sloane": "Kairoi",
+    "station_riverfront": "Kairoi",
+    "stonewood": "Kairoi",
+    "ten50": "Kairoi",
+    "the_alcott": "Kairoi",
+    "the_avant": "Kairoi",
+    "the_hunter": "Kairoi",
+    "the_northern": "Kairoi",
+    "thepearl": "Kairoi",
+    "thequinci": "Kairoi",
 }
 
 def get_owner_group(unified_id: str) -> str:

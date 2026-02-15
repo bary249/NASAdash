@@ -34,6 +34,8 @@ import { BedroomConsolidatedView } from './BedroomConsolidatedView';
 import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
 import FinancialsSection from './FinancialsSection';
+import MarketingSection from './MarketingSection';
+import MaintenanceSection from './MaintenanceSection';
 import { WatchListTab } from './WatchListTab';
 import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
@@ -100,10 +102,13 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   // Lock owner group to the authenticated user's group — no manual switching
   const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>(user?.owner_group || 'PHH');
 
-  // Active property IDs: when multiple checked, use those; otherwise use single clicked property
-  const activePropertyIds = selectedPropertyIds.size > 1
+  // Active property IDs: use checked properties if any, otherwise fall back to single clicked property
+  const activePropertyIds = selectedPropertyIds.size > 0
     ? Array.from(selectedPropertyIds)
     : propertyId ? [propertyId] : [];
+
+  // Effective property ID: single clicked property, or first checked property as fallback
+  const effectivePropertyId = propertyId || (selectedPropertyIds.size > 0 ? Array.from(selectedPropertyIds)[0] : '');
   
   // AI state
   const [aiLoading, setAILoading] = useState(false);
@@ -389,19 +394,19 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
           </div>
 
           {/* Property Dashboard */}
-          {propertyId ? (
-            <PropertyDataProvider propertyId={propertyId} propertyIds={activePropertyIds} timeframe={timeRange === 'mtd' ? 'cm' : timeRange === 'ytd' ? 'ytd' : timeRange === 'l30' ? 'l30' : 'l7'}>
+          {effectivePropertyId ? (
+            <PropertyDataProvider propertyId={effectivePropertyId} propertyIds={activePropertyIds} timeframe={timeRange === 'mtd' ? 'cm' : timeRange === 'ytd' ? 'ytd' : timeRange === 'l30' ? 'l30' : 'l7'}>
               <PropertyDashboard
-                propertyId={propertyId}
+                propertyId={effectivePropertyId}
                 propertyIds={activePropertyIds}
                 propertyName={activePropertyIds.length > 1
                   ? `${activePropertyIds.length} Properties Selected`
-                  : scrambleName(propertyName, isScrambleActive, scrambleMode)}
-                originalPropertyName={propertyName}
+                  : scrambleName(propertyName || propertiesMap[effectivePropertyId]?.name || effectivePropertyId, isScrambleActive, scrambleMode)}
+                originalPropertyName={propertyName || propertiesMap[effectivePropertyId]?.name || effectivePropertyId}
                 pricing={pricing}
                 marketComps={marketComps}
                 activeTab={activeTab}
-                propertyInfo={selectedPropertyInfo}
+                propertyInfo={selectedPropertyInfo || propertiesMap[effectivePropertyId] || null}
                 timeRange={timeRange}
               />
             </PropertyDataProvider>
@@ -1160,6 +1165,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           </div>
         </div>
 
+        {/* Lead Sources by Advertising Channel (merged from Marketing) */}
+        <MarketingSection propertyId={propertyId} propertyIds={propertyIds} timeRange={timeRange as 'ytd' | 'mtd' | 'l30' | 'l7'} />
+
         {/* Availability by Floorplan (moved from overview) */}
         {availByFp && availByFp.floorplans.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -1278,7 +1286,11 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       )}
 
       {activeTab === 'financials' && (
-        <FinancialsSection propertyId={propertyId} />
+        <FinancialsSection propertyId={propertyId} propertyIds={propertyIds} />
+      )}
+
+      {activeTab === 'maintenance' && (
+        <MaintenanceSection propertyId={propertyId} propertyIds={propertyIds} />
       )}
 
       {activeTab === 'rentable' && (

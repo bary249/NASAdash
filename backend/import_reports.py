@@ -135,6 +135,70 @@ def init_report_tables(conn: sqlite3.Connection):
     CREATE INDEX IF NOT EXISTS idx_box_score_property ON realpage_box_score(property_id);
     CREATE INDEX IF NOT EXISTS idx_box_score_date ON realpage_box_score(report_date);
     CREATE INDEX IF NOT EXISTS idx_delinquency_property ON realpage_delinquency(property_id);
+
+    CREATE TABLE IF NOT EXISTS realpage_make_ready (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_id TEXT NOT NULL,
+        property_name TEXT,
+        report_date TEXT,
+        unit TEXT,
+        sqft REAL,
+        days_vacant INTEGER,
+        date_vacated TEXT,
+        date_due TEXT,
+        num_work_orders INTEGER,
+        status TEXT DEFAULT 'open'
+    );
+
+    CREATE TABLE IF NOT EXISTS realpage_closed_make_ready (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_id TEXT NOT NULL,
+        property_name TEXT,
+        report_date TEXT,
+        unit TEXT,
+        num_work_orders INTEGER,
+        date_closed TEXT,
+        amount_charged REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS realpage_advertising_source (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_id TEXT NOT NULL,
+        property_name TEXT,
+        report_date TEXT,
+        date_range TEXT,
+        timeframe_tag TEXT DEFAULT '',
+        source TEXT,
+        new_prospects INTEGER DEFAULT 0,
+        phone_calls INTEGER DEFAULT 0,
+        visits INTEGER DEFAULT 0,
+        return_visits INTEGER DEFAULT 0,
+        leases INTEGER DEFAULT 0,
+        net_leases INTEGER DEFAULT 0,
+        cancelled_denied INTEGER DEFAULT 0,
+        prospect_to_lease_pct REAL DEFAULT 0,
+        visit_to_lease_pct REAL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS realpage_lost_rent_summary (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_id TEXT NOT NULL,
+        property_name TEXT,
+        report_date TEXT,
+        fiscal_period TEXT,
+        unit TEXT,
+        market_rent REAL,
+        lease_rent REAL,
+        rent_charged REAL,
+        loss_to_rent REAL,
+        gain_to_rent REAL,
+        vacancy_current REAL,
+        vacancy_adjustments REAL,
+        market_rent_calculated REAL,
+        lost_rent_not_charged REAL,
+        move_in_date TEXT,
+        move_out_date TEXT
+    );
     """
     
     cursor.executescript(report_tables)
@@ -700,6 +764,128 @@ def import_monthly_transaction_summary(conn: sqlite3.Connection, records: List[D
                 imported += 1
         except Exception as e:
             print(f"  Error inserting monthly transaction: {e}")
+    conn.commit()
+    return imported
+
+
+def import_make_ready(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Make Ready Summary records. Replaces existing data per property."""
+    cursor = conn.cursor()
+    # Clear old data for this property before inserting fresh snapshot
+    if records:
+        pid = records[0].get('property_id')
+        if pid:
+            cursor.execute("DELETE FROM realpage_make_ready WHERE property_id = ?", (pid,))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_make_ready
+                (property_id, property_name, report_date, unit, sqft, days_vacant,
+                 date_vacated, date_due, num_work_orders, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('unit'), r.get('sqft', 0), r.get('days_vacant', 0),
+                r.get('date_vacated'), r.get('date_due'),
+                r.get('num_work_orders', 0), r.get('status', 'open')
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting make_ready: {e}")
+    conn.commit()
+    return imported
+
+
+def import_closed_make_ready(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Closed Make Ready Summary records. Replaces existing data per property."""
+    cursor = conn.cursor()
+    if records:
+        pid = records[0].get('property_id')
+        if pid:
+            cursor.execute("DELETE FROM realpage_closed_make_ready WHERE property_id = ?", (pid,))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_closed_make_ready
+                (property_id, property_name, report_date, unit, num_work_orders,
+                 date_closed, amount_charged)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('unit'), r.get('num_work_orders', 0),
+                r.get('date_closed'), r.get('amount_charged', 0.0)
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting closed_make_ready: {e}")
+    conn.commit()
+    return imported
+
+
+def import_advertising_source(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str, timeframe_tag: str = 'ytd') -> int:
+    """Import Primary Advertising Source records. Replaces existing data per property+timeframe."""
+    cursor = conn.cursor()
+    if records:
+        pid = records[0].get('property_id')
+        if pid:
+            cursor.execute("DELETE FROM realpage_advertising_source WHERE property_id = ? AND timeframe_tag = ?", (pid, timeframe_tag))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_advertising_source
+                (property_id, property_name, report_date, date_range, timeframe_tag, source,
+                 new_prospects, phone_calls, visits, return_visits, leases, net_leases,
+                 cancelled_denied, prospect_to_lease_pct, visit_to_lease_pct)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('date_range', ''), timeframe_tag, r.get('source'),
+                r.get('new_prospects', 0), r.get('phone_calls', 0),
+                r.get('visits', 0), r.get('return_visits', 0),
+                r.get('leases', 0), r.get('net_leases', 0),
+                r.get('cancelled_denied', 0),
+                r.get('prospect_to_lease_pct', 0.0), r.get('visit_to_lease_pct', 0.0)
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting advertising_source: {e}")
+    conn.commit()
+    return imported
+
+
+def import_lost_rent_summary(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Lost Rent Summary records. Replaces existing data per property."""
+    cursor = conn.cursor()
+    if records:
+        pid = records[0].get('property_id')
+        if pid:
+            cursor.execute("DELETE FROM realpage_lost_rent_summary WHERE property_id = ?", (pid,))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_lost_rent_summary
+                (property_id, property_name, report_date, fiscal_period, unit,
+                 market_rent, lease_rent, rent_charged, loss_to_rent, gain_to_rent,
+                 vacancy_current, vacancy_adjustments, market_rent_calculated,
+                 lost_rent_not_charged, move_in_date, move_out_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('fiscal_period'), r.get('unit'),
+                r.get('market_rent', 0), r.get('lease_rent', 0),
+                r.get('rent_charged', 0), r.get('loss_to_rent', 0),
+                r.get('gain_to_rent', 0), r.get('vacancy_current', 0),
+                r.get('vacancy_adjustments', 0), r.get('market_rent_calculated', 0),
+                r.get('lost_rent_not_charged', 0),
+                r.get('move_in_date'), r.get('move_out_date')
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting lost_rent_summary: {e}")
     conn.commit()
     return imported
 

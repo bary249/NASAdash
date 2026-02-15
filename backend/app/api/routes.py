@@ -3018,31 +3018,58 @@ async def get_financials(property_id: str):
             ORDER BY transaction_group, transaction_code
         """, (site_id, fiscal_period))
         detail_rows = cursor.fetchall()
+        
+        # Cross-reference box score for unit counts and avg rents (latest date only)
+        cursor.execute("""
+            SELECT SUM(total_units), SUM(occupied_units), SUM(vacant_units),
+                   SUM(total_units * avg_market_rent) / NULLIF(SUM(total_units), 0),
+                   SUM(occupied_units * avg_actual_rent) / NULLIF(SUM(occupied_units), 0)
+            FROM realpage_box_score
+            WHERE property_id = ? AND report_date = (
+                SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
+            )
+        """, (site_id, site_id))
+        bs = cursor.fetchone()
+        total_units = bs[0] or 0 if bs else 0
+        occupied_units = bs[1] or 0 if bs else 0
+        vacant_units = bs[2] or 0 if bs else 0
+        avg_market_rent = round(bs[3] or 0, 2) if bs else 0
+        avg_effective_rent = round(bs[4] or 0, 2) if bs else 0
+        
         conn.close()
         
         # Group transactions by category
         group_names = {
             "CA": "Rent",
             "CB": "Late Fees",
+            "CC": "NSF Fees",
             "CE": "Keys/Locks/Gate Cards",
             "CG": "Transfer/Termination Fees",
             "CH": "Administrative Fees",
             "CI": "Pet Rent",
             "CJ": "Utilities & Services",
             "CL": "Parking & Storage",
+            "IU": "Incoming Deposits",
+            "OU": "Outgoing Deposits",
             "PP": "Referral Credits",
             "PS": "Deposit Activity",
             "PT": "Vacancy Loss",
+            "PV": "Bad Debt",
             "PW": "Concessions",
             "PX": "Gain/Loss to Lease",
             "PZ": "Payments",
         }
         
-        # Build revenue items (charges: CA, CB, CE, CG, CH, CI, CJ, CL)
-        # and loss items (PT, PW, PX) and payment items (PP, PS, PZ)
         charges = []
         losses = []
         payments = []
+        
+        # Accumulators for computed metrics
+        concession_total = 0.0
+        bad_debt_total = 0.0
+        vacancy_loss_total = 0.0
+        other_income_total = 0.0
+        payment_methods = {}
         
         for row in detail_rows:
             item = {
@@ -3055,16 +3082,57 @@ async def get_financials(property_id: str):
                 "ytd_through": row["ytd_through_month"],
             }
             grp = row["transaction_group"]
-            if grp in ("CA", "CB", "CE", "CG", "CH", "CI", "CJ", "CL"):
+            amt = row["this_month"] or 0
+            
+            if grp in ("CA", "CB", "CC", "CE", "CG", "CH", "CI", "CJ", "CL"):
                 charges.append(item)
-            elif grp in ("PT", "PW", "PX", "PP"):
+                if grp != "CA":
+                    other_income_total += amt
+            elif grp in ("PT", "PW", "PX", "PV", "PP"):
                 losses.append(item)
-            elif grp in ("PS", "PZ"):
+                if grp == "PW":
+                    concession_total += abs(amt)
+                elif grp == "PV":
+                    bad_debt_total += abs(amt)
+                elif grp == "PT":
+                    vacancy_loss_total += abs(amt)
+            elif grp in ("PS", "PZ", "IU", "OU"):
                 payments.append(item)
+                if grp == "PZ" and amt != 0:
+                    desc = row["description"] or "Other"
+                    payment_methods[desc] = payment_methods.get(desc, 0) + amt
+        
+        # Compute derived metrics
+        gp = summary["gross_potential"] or 0
+        gmr = summary["gross_market_rent"] or 0
+        ltl = summary["loss_to_lease"] or 0
+        collections = summary["total_monthly_collections"] or 0
+        possible = summary["total_possible_collections"] or 0
+        
+        computed = {
+            "total_units": total_units,
+            "occupied_units": occupied_units,
+            "vacant_units": vacant_units,
+            "avg_market_rent": avg_market_rent,
+            "avg_effective_rent": avg_effective_rent,
+            "rev_pau": round(collections / total_units, 2) if total_units > 0 else 0,
+            "economic_occupancy": round(collections / possible * 100, 1) if possible > 0 else 0,
+            "loss_to_lease_pct": round(ltl / gmr * 100, 2) if gmr > 0 else 0,
+            "concession_total": round(concession_total, 2),
+            "concession_pct": round(concession_total / gp * 100, 2) if gp > 0 else 0,
+            "bad_debt_total": round(bad_debt_total, 2),
+            "bad_debt_pct": round(bad_debt_total / gp * 100, 2) if gp > 0 else 0,
+            "vacancy_loss_total": round(vacancy_loss_total, 2),
+            "vacancy_loss_pct": round(vacancy_loss_total / gp * 100, 2) if gp > 0 else 0,
+            "other_income": round(other_income_total, 2),
+            "other_income_per_unit": round(other_income_total / total_units, 2) if total_units > 0 else 0,
+            "payment_methods": [{"method": k, "amount": round(v, 2)} for k, v in sorted(payment_methods.items(), key=lambda x: -abs(x[1]))],
+        }
         
         return {
             "property_id": property_id,
             "summary": summary,
+            "computed": computed,
             "charges": charges,
             "losses": losses,
             "payments": payments,
@@ -3073,3 +3141,332 @@ async def get_financials(property_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get financials: {str(e)}")
+
+
+# =========================================================================
+# Marketing (Primary Advertising Source — Report 4158)
+# =========================================================================
+
+@router.get("/properties/{property_id}/marketing")
+async def get_marketing(property_id: str, timeframe: str = "ytd"):
+    """Marketing funnel data from RealPage Primary Advertising Source report.
+    
+    timeframe: ytd | mtd | l30 | l7 — matches leasing funnel timeframes.
+    Filters stored data by date_range tag, falling back to best available.
+    """
+    import sqlite3
+    from app.property_config.properties import get_pms_config
+    from datetime import datetime, timedelta
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    # Compute expected date range label for the timeframe
+    now = datetime.now()
+    if timeframe == "mtd":
+        tf_start = now.replace(day=1).strftime("%m/%d/%Y")
+    elif timeframe == "l30":
+        tf_start = (now - timedelta(days=30)).strftime("%m/%d/%Y")
+    elif timeframe == "l7":
+        tf_start = (now - timedelta(days=7)).strftime("%m/%d/%Y")
+    else:  # ytd
+        tf_start = f"01/01/{now.year}"
+    tf_tag = f"{timeframe}"
+    
+    raw_db = REALPAGE_DB_PATH
+    try:
+        conn = sqlite3.connect(raw_db)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Check table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_advertising_source'")
+        if not cursor.fetchone():
+            conn.close()
+            return {"property_id": property_id, "sources": [], "totals": {}, "date_range": "", "timeframe": timeframe}
+        
+        # Try exact timeframe match first, then fall back to any data
+        cursor.execute("""
+            SELECT source, new_prospects, phone_calls, visits, return_visits,
+                   leases, net_leases, cancelled_denied, 
+                   prospect_to_lease_pct, visit_to_lease_pct, date_range,
+                   COALESCE(timeframe_tag, '') as timeframe_tag
+            FROM realpage_advertising_source
+            WHERE property_id = ? AND timeframe_tag = ?
+            ORDER BY new_prospects DESC
+        """, (site_id, tf_tag))
+        rows = cursor.fetchall()
+        
+        # Fallback: if no timeframe-tagged data, return whatever we have
+        if not rows:
+            cursor.execute("""
+                SELECT source, new_prospects, phone_calls, visits, return_visits,
+                       leases, net_leases, cancelled_denied, 
+                       prospect_to_lease_pct, visit_to_lease_pct, date_range,
+                       COALESCE(timeframe_tag, '') as timeframe_tag
+                FROM realpage_advertising_source
+                WHERE property_id = ?
+                ORDER BY new_prospects DESC
+            """, (site_id,))
+            rows = cursor.fetchall()
+        
+        conn.close()
+        
+        if not rows:
+            return {"property_id": property_id, "sources": [], "totals": {}, "date_range": "", "timeframe": timeframe}
+        
+        sources = []
+        t_prospects = t_calls = t_visits = t_leases = t_net = 0
+        date_range = rows[0]["date_range"] if rows else ""
+        
+        for row in rows:
+            src = {
+                "source": row["source"],
+                "new_prospects": row["new_prospects"] or 0,
+                "phone_calls": row["phone_calls"] or 0,
+                "visits": row["visits"] or 0,
+                "return_visits": row["return_visits"] or 0,
+                "leases": row["leases"] or 0,
+                "net_leases": row["net_leases"] or 0,
+                "cancelled_denied": row["cancelled_denied"] or 0,
+                "prospect_to_lease_pct": row["prospect_to_lease_pct"] or 0,
+                "visit_to_lease_pct": row["visit_to_lease_pct"] or 0,
+            }
+            sources.append(src)
+            t_prospects += src["new_prospects"]
+            t_calls += src["phone_calls"]
+            t_visits += src["visits"]
+            t_leases += src["leases"]
+            t_net += src["net_leases"]
+        
+        totals = {
+            "total_prospects": t_prospects,
+            "total_calls": t_calls,
+            "total_visits": t_visits,
+            "total_leases": t_leases,
+            "total_net_leases": t_net,
+            "overall_prospect_to_lease": round(t_net / t_prospects * 100, 1) if t_prospects > 0 else 0,
+            "overall_visit_to_lease": round(t_net / t_visits * 100, 1) if t_visits > 0 else 0,
+        }
+        
+        return {"property_id": property_id, "sources": sources, "totals": totals, "date_range": date_range, "timeframe": timeframe}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get marketing data: {str(e)}")
+
+
+# =========================================================================
+# Maintenance / Make Ready (Reports 4186 + 4189)
+# =========================================================================
+
+@router.get("/properties/{property_id}/maintenance")
+async def get_maintenance(property_id: str):
+    """Make-ready pipeline + closed turns from RealPage reports."""
+    import sqlite3
+    from app.property_config.properties import get_pms_config
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    raw_db = REALPAGE_DB_PATH
+    try:
+        conn = sqlite3.connect(raw_db)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Open make-ready pipeline
+        pipeline = []
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_make_ready'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT unit, sqft, days_vacant, date_vacated, date_due, num_work_orders
+                FROM realpage_make_ready
+                WHERE property_id = ?
+                ORDER BY days_vacant DESC
+            """, (site_id,))
+            make_ready_rows = cursor.fetchall()
+            
+            # Join unit status from unified_units (rent roll)
+            unit_status_map = {}
+            try:
+                import os
+                from app.db.schema import DB_DIR
+                unified_path = os.path.join(DB_DIR, "unified.db")
+                uconn = sqlite3.connect(unified_path)
+                uconn.row_factory = sqlite3.Row
+                ucur = uconn.cursor()
+                ucur.execute("""
+                    SELECT unit_number, status, occupancy_status
+                    FROM unified_units
+                    WHERE unified_property_id = ?
+                """, (property_id,))
+                for urow in ucur.fetchall():
+                    unit_status_map[str(urow["unit_number"]).strip()] = {
+                        "status": urow["status"] or "",
+                        "lease_status": urow["occupancy_status"] or "",
+                    }
+                uconn.close()
+            except Exception:
+                pass  # unified DB not available, skip status enrichment
+            
+            for row in make_ready_rows:
+                unit_key = str(row["unit"]).strip()
+                unit_info = unit_status_map.get(unit_key, {})
+                pipeline.append({
+                    "unit": row["unit"],
+                    "sqft": row["sqft"] or 0,
+                    "days_vacant": row["days_vacant"] or 0,
+                    "date_vacated": row["date_vacated"] or "",
+                    "date_due": row["date_due"] or "",
+                    "num_work_orders": row["num_work_orders"] or 0,
+                    "unit_status": unit_info.get("status", ""),
+                    "lease_status": unit_info.get("lease_status", ""),
+                })
+        
+        # Closed make-ready
+        completed = []
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_closed_make_ready'")
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT unit, num_work_orders, date_closed, amount_charged
+                FROM realpage_closed_make_ready
+                WHERE property_id = ?
+                ORDER BY date_closed DESC
+            """, (site_id,))
+            for row in cursor.fetchall():
+                completed.append({
+                    "unit": row["unit"],
+                    "num_work_orders": row["num_work_orders"] or 0,
+                    "date_closed": row["date_closed"] or "",
+                    "amount_charged": row["amount_charged"] or 0,
+                })
+        
+        conn.close()
+        
+        # Summary stats
+        total_pipeline = len(pipeline)
+        avg_days = round(sum(p["days_vacant"] for p in pipeline) / total_pipeline, 1) if total_pipeline > 0 else 0
+        overdue = sum(1 for p in pipeline if p["days_vacant"] > 14)
+        total_completed = len(completed)
+        
+        return {
+            "property_id": property_id,
+            "pipeline": pipeline,
+            "completed": completed,
+            "summary": {
+                "units_in_pipeline": total_pipeline,
+                "avg_days_vacant": avg_days,
+                "overdue_count": overdue,
+                "completed_this_period": total_completed,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get maintenance data: {str(e)}")
+
+
+# =========================================================================
+# Lost Rent Summary (Report 4279) — enhances financials
+# =========================================================================
+
+@router.get("/properties/{property_id}/lost-rent")
+async def get_lost_rent(property_id: str):
+    """Unit-level loss-to-lease data from RealPage Lost Rent Summary report."""
+    import sqlite3
+    from app.property_config.properties import get_pms_config
+    
+    try:
+        pms_config = get_pms_config(property_id)
+        site_id = pms_config.realpage_siteid
+        if not site_id:
+            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Property not found")
+    
+    raw_db = REALPAGE_DB_PATH
+    try:
+        conn = sqlite3.connect(raw_db)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_lost_rent_summary'")
+        if not cursor.fetchone():
+            conn.close()
+            return {"property_id": property_id, "units": [], "summary": {}}
+        
+        cursor.execute("""
+            SELECT unit, market_rent, lease_rent, rent_charged, loss_to_rent,
+                   gain_to_rent, vacancy_current, lost_rent_not_charged,
+                   move_in_date, move_out_date, fiscal_period
+            FROM realpage_lost_rent_summary
+            WHERE property_id = ?
+            ORDER BY lost_rent_not_charged DESC
+        """, (site_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            return {"property_id": property_id, "units": [], "summary": {}}
+        
+        units = []
+        total_market = total_lease = total_lost = 0
+        occupied_count = vacant_count = 0
+        
+        for row in rows:
+            mr = row["market_rent"] or 0
+            lr = row["lease_rent"] or 0
+            lost = row["lost_rent_not_charged"] or 0
+            units.append({
+                "unit": row["unit"],
+                "market_rent": mr,
+                "lease_rent": lr,
+                "rent_charged": row["rent_charged"] or 0,
+                "lost_rent": lost,
+                "loss_pct": round((mr - lr) / mr * 100, 1) if mr > 0 else 0,
+                "move_out_date": row["move_out_date"] or "",
+            })
+            total_market += mr
+            total_lease += lr
+            total_lost += lost
+            if row["move_out_date"]:
+                vacant_count += 1
+            else:
+                occupied_count += 1
+        
+        fiscal = rows[0]["fiscal_period"] if rows else ""
+        
+        summary = {
+            "fiscal_period": fiscal,
+            "total_units": len(units),
+            "occupied_count": occupied_count,
+            "vacant_count": vacant_count,
+            "avg_market_rent": round(total_market / len(units), 0) if units else 0,
+            "avg_lease_rent": round(total_lease / len(units), 0) if units else 0,
+            "total_lost_rent": round(total_lost, 0),
+            "loss_to_lease_pct": round((total_market - total_lease) / total_market * 100, 1) if total_market > 0 else 0,
+            "avg_loss_per_unit": round(total_lost / len(units), 0) if units else 0,
+        }
+        
+        return {"property_id": property_id, "units": units, "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get lost rent data: {str(e)}")

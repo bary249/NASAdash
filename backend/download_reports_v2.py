@@ -162,6 +162,10 @@ TABLE_MAP = {
     "projected_occupancy": "realpage_projected_occupancy",
     "lease_expiration_renewal": "realpage_lease_expiration_renewal",
     "monthly_transaction_summary": "realpage_monthly_transaction_detail",
+    "make_ready_summary": "realpage_make_ready",
+    "closed_make_ready": "realpage_closed_make_ready",
+    "advertising_source": "realpage_advertising_source",
+    "lost_rent_summary": "realpage_lost_rent_summary",
 }
 
 
@@ -179,14 +183,26 @@ def cleanup_report_files():
 
 
 # ── Instance creation ────────────────────────────────────────
-def build_payload(report_def, property_detail, date_offset=0):
-    """Build the API payload. date_offset=0 means today, 1=yesterday, etc."""
+def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None):
+    """Build the API payload. date_offset=0 means today, 1=yesterday, etc.
+    timeframe_tag: 'ytd','mtd','l30','l7' — adjusts start_date for date-range reports."""
     from datetime import timedelta
     from dateutil.relativedelta import relativedelta
     target = datetime.now() - timedelta(days=date_offset)
     exp_end = target + relativedelta(months=4)
+
+    # Compute start_date based on timeframe
+    if timeframe_tag == 'mtd':
+        start_date = f"{target.month:02d}/01/{target.year}"
+    elif timeframe_tag == 'l30':
+        start_date = (target - timedelta(days=30)).strftime("%m/%d/%Y")
+    elif timeframe_tag == 'l7':
+        start_date = (target - timedelta(days=7)).strftime("%m/%d/%Y")
+    else:  # ytd or default
+        start_date = f"01/01/{target.year}"
+
     dates = {
-        "start_date": f"01/01/{target.year}",
+        "start_date": start_date,
         "end_date": target.strftime("%m/%d/%Y"),
         "as_of_date": target.strftime("%m/%d/%Y"),
         "start_month": target.strftime("%m/%Y"),
@@ -225,10 +241,10 @@ def build_payload(report_def, property_detail, date_offset=0):
     }
 
 
-def create_instance(report_def, property_detail, date_offset=0, verbose=False):
+def create_instance(report_def, property_detail, date_offset=0, verbose=False, timeframe_tag=None):
     """Create a report instance. Returns response dict."""
     url = f"{BASE_URL}/reports/{report_def['report_id']}/report-instances"
-    payload = build_payload(report_def, property_detail, date_offset=date_offset)
+    payload = build_payload(report_def, property_detail, date_offset=date_offset, timeframe_tag=timeframe_tag)
 
     try:
         resp = CLIENT.post(url, headers=HEADERS, json=payload)
@@ -255,6 +271,8 @@ def import_downloaded(downloads):
         import_monthly_summary, import_lease_expiration, import_activity,
         import_projected_occupancy, import_lease_expiration_renewal,
         import_monthly_transaction_summary,
+        import_make_ready, import_closed_make_ready,
+        import_advertising_source, import_lost_rent_summary,
         init_report_tables,
     )
 
@@ -273,6 +291,10 @@ def import_downloaded(downloads):
         "projected_occupancy": import_projected_occupancy,
         "lease_expiration_renewal": import_lease_expiration_renewal,
         "monthly_transaction_summary": import_monthly_transaction_summary,
+        "make_ready_summary": import_make_ready,
+        "closed_make_ready": import_closed_make_ready,
+        "advertising_source": import_advertising_source,
+        "lost_rent_summary": import_lost_rent_summary,
     }
 
     total = 0
@@ -302,14 +324,19 @@ def import_downloaded(downloads):
                 importer = IMPORTERS.get(parsed_type)
                 count = 0
                 if importer:
-                    count = importer(conn, records, str(temp_path), str(dl["file_id"]))
+                    # advertising_source takes timeframe_tag kwarg
+                    if parsed_type == 'advertising_source' and dl.get('timeframe_tag'):
+                        count = importer(conn, records, str(temp_path), str(dl["file_id"]), timeframe_tag=dl['timeframe_tag'])
+                    else:
+                        count = importer(conn, records, str(temp_path), str(dl["file_id"]))
 
+                tf_label = f" [{dl['timeframe_tag']}]" if dl.get('timeframe_tag') else ''
                 if count > 0:
-                    print(f"  ✓ {prop} / {parsed_type}: {count} records")
+                    print(f"  ✓ {prop} / {parsed_type}{tf_label}: {count} records")
                     total += count
-                    results.setdefault(prop, {})[parsed_type] = count
+                    results.setdefault(prop, {})[f"{parsed_type}{tf_label}"] = count
                 else:
-                    print(f"  ⚠ {prop} / {parsed_type}: 0 imported from {len(records)} parsed")
+                    print(f"  ⚠ {prop} / {parsed_type}{tf_label}: 0 imported from {len(records)} parsed")
             else:
                 print(f"  - {prop} / {rtype}: no records parsed")
         except Exception as e:
@@ -335,19 +362,21 @@ def create_instances_with_fallback(needed):
 
             verbose = (date_offset == 0 and idx == 0)
             response = create_instance(item["report_def"], item["prop_detail"],
-                                       date_offset=date_offset, verbose=verbose)
+                                       date_offset=date_offset, verbose=verbose,
+                                       timeframe_tag=item.get("timeframe_tag"))
+            tf_label = f" [{item['timeframe_tag']}]" if item.get('timeframe_tag') else ''
             if response:
                 item["instance_id"] = response.get("instanceId")
                 item["date_used"] = target
                 if not verbose:
-                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}... ✓\n")
+                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}{tf_label}... ✓\n")
                 break
             else:
                 if date_offset < MAX_DATE_RETRIES - 1:
-                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}... ✗ (date {target}), retrying -1d\n")
+                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}{tf_label}... ✗ (date {target}), retrying -1d\n")
                     time.sleep(2)  # pause before date retry
                 else:
-                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}... ✗ all dates failed\n")
+                    sys.stdout.write(f"  {item['prop_name']} / {item['report_type']}{tf_label}... ✗ all dates failed\n")
             sys.stdout.flush()
 
         # Rate limit: 0.5s per request, 3s pause every 20
@@ -364,29 +393,53 @@ def create_instances_with_fallback(needed):
 def main():
     total_props = len(ALL_PROPERTIES)
     total_reports = len(REPORT_TYPES)
+    # Count jobs including timeframe variants
+    total_jobs = 0
+    for rtype, rdef in REPORT_TYPES.items():
+        tf_count = len(rdef.get('timeframe_variants', [])) or 1
+        total_jobs += total_props * tf_count
 
     print("=" * 60)
     print("  REALPAGE REPORT DOWNLOADER v2 (daily fresh)")
     print(f"  {datetime.now().isoformat()}")
     print(f"  Strategy: create → poll /my/report-instances → download")
-    print(f"  {total_props} properties × {total_reports} reports = {total_props * total_reports} total")
+    print(f"  {total_props} properties × {total_reports} report types = {total_jobs} jobs")
     print(f"  Reports: {', '.join(REPORT_TYPES.keys())}")
+    tf_reports = [f"{k}×{len(v.get('timeframe_variants',[]))}tf" for k,v in REPORT_TYPES.items() if v.get('timeframe_variants')]
+    if tf_reports:
+        print(f"  Timeframe variants: {', '.join(tf_reports)}")
     print("=" * 60)
 
     # ── Build full list of ALL property/report combos ─────────
     needed = []
     for pid, prop_info in ALL_PROPERTIES.items():
         for rtype, rdef in REPORT_TYPES.items():
-            needed.append({
-                "prop_id": pid,
-                "prop_name": prop_info["name"],
-                "prop_detail": prop_info["detail"],
-                "report_type": rtype,
-                "report_def": rdef,
-                "instance_id": None,
-                "file_id": None,
-                "content": None,
-            })
+            tf_variants = rdef.get('timeframe_variants')
+            if tf_variants:
+                for tf in tf_variants:
+                    needed.append({
+                        "prop_id": pid,
+                        "prop_name": prop_info["name"],
+                        "prop_detail": prop_info["detail"],
+                        "report_type": rtype,
+                        "report_def": rdef,
+                        "instance_id": None,
+                        "file_id": None,
+                        "content": None,
+                        "timeframe_tag": tf,
+                    })
+            else:
+                needed.append({
+                    "prop_id": pid,
+                    "prop_name": prop_info["name"],
+                    "prop_detail": prop_info["detail"],
+                    "report_type": rtype,
+                    "report_def": rdef,
+                    "instance_id": None,
+                    "file_id": None,
+                    "content": None,
+                    "timeframe_tag": None,
+                })
 
     print(f"\n📊 Requesting {len(needed)} reports for {total_props} properties")
 

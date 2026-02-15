@@ -35,6 +35,14 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'projected_occupancy'
         elif 'MONTHLY TRANSACTION SUMMARY' in row_text:
             return 'monthly_transaction_summary'
+        elif 'MAKE READY SUMMARY' in row_text and 'CLOSED' not in row_text:
+            return 'make_ready_summary'
+        elif 'CLOSED MAKE READY' in row_text:
+            return 'closed_make_ready'
+        elif 'PRIMARY ADVERTISING SOURCE' in row_text:
+            return 'advertising_source'
+        elif 'LOST RENT SUMMARY' in row_text:
+            return 'lost_rent_summary'
     
     return None
 
@@ -1250,6 +1258,304 @@ def parse_monthly_transaction_summary(file_path: str, property_id: str = None) -
     return records
 
 
+def parse_make_ready_summary(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Make Ready Summary report (report 4186).
+    Units in make-ready pipeline, grouped by unit with WO sub-rows.
+    Col mapping: c1=days_vacant, c2=date_vacated, c6=date_due, c9=unit, c10=sqft, c11=num_WOs.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+
+    def safe_int(val):
+        try:
+            return int(float(val)) if pd.notna(val) else 0
+        except:
+            return 0
+
+    def safe_str(val):
+        if pd.notna(val):
+            s = str(val).strip()
+            return s if s and s != 'nan' else None
+        return None
+
+    # Find header row (contains "Days vacant" and "Unit")
+    header_row = None
+    for i in range(min(15, len(df))):
+        row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist()).lower()
+        if 'days vacant' in row_text and 'unit' in row_text:
+            header_row = i
+            break
+
+    if header_row is None:
+        return []
+
+    records = []
+    for i in range(header_row + 1, len(df)):
+        unit_val = df.iloc[i, 9] if 9 < df.shape[1] else None
+        if pd.isna(unit_val):
+            continue
+        unit_str = str(unit_val).strip()
+        if not unit_str or 'total' in unit_str.lower():
+            continue
+
+        records.append({
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'unit': unit_str,
+            'sqft': safe_int(df.iloc[i, 10]) if 10 < df.shape[1] else 0,
+            'days_vacant': safe_int(df.iloc[i, 1]) if 1 < df.shape[1] else 0,
+            'date_vacated': safe_str(df.iloc[i, 2]) if 2 < df.shape[1] else None,
+            'date_due': safe_str(df.iloc[i, 6]) if 6 < df.shape[1] else None,
+            'num_work_orders': safe_int(df.iloc[i, 11]) if 11 < df.shape[1] else 0,
+            'status': 'open',
+        })
+
+    return records
+
+
+def parse_closed_make_ready(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Closed Make Ready Summary report (report 4189).
+    Completed make-ready WOs, grouped by unit.
+    Col mapping: c2=unit, c5=num_WOs, c10=date_closed, c12=amount_charged.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+
+    def safe_int(val):
+        try:
+            return int(float(val)) if pd.notna(val) else 0
+        except:
+            return 0
+
+    def safe_float(val):
+        try:
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', ''))
+        except:
+            return 0.0
+
+    def safe_str(val):
+        if pd.notna(val):
+            s = str(val).strip()
+            return s if s and s != 'nan' else None
+        return None
+
+    # Find header rows (row with "Bldg" and "Unit")
+    header_row = None
+    for i in range(min(15, len(df))):
+        row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist()).lower()
+        if 'bldg' in row_text and 'unit' in row_text:
+            header_row = i
+            break
+
+    if header_row is None:
+        return []
+
+    records = []
+    for i in range(header_row + 1, len(df)):
+        unit_val = df.iloc[i, 2] if 2 < df.shape[1] else None
+        if pd.isna(unit_val):
+            continue
+        unit_str = str(unit_val).strip()
+        if not unit_str or 'total' in unit_str.lower() or 'grand' in unit_str.lower():
+            continue
+
+        # Get the first date_closed for this unit from its WO sub-rows
+        date_closed = safe_str(df.iloc[i, 10]) if 10 < df.shape[1] else None
+        if not date_closed:
+            # Check next row for date
+            for j in range(i + 1, min(i + 10, len(df))):
+                dc = df.iloc[j, 10] if 10 < df.shape[1] else None
+                if pd.notna(dc):
+                    date_closed = safe_str(dc)
+                    break
+
+        records.append({
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'unit': unit_str,
+            'num_work_orders': safe_int(df.iloc[i, 5]) if 5 < df.shape[1] else 0,
+            'date_closed': date_closed,
+            'amount_charged': safe_float(df.iloc[i, 12]) if 12 < df.shape[1] else 0.0,
+        })
+
+    return records
+
+
+def parse_advertising_source(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Primary Advertising Source Evaluation report (report 4158).
+    37-column wide layout. Only parse first section (before "Totals:" row).
+    Col mapping: c0=source, c2=new_prospects, c7=phone_calls, c13=visits(leasing),
+    c15=return_visits, c19=leases, c25=cancelled_denied, c29=net_leases,
+    c35=prospect_to_lease_pct, c36=visit_to_lease_pct.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+
+    # Extract date range from header area
+    date_range = ''
+    for i in range(min(10, len(df))):
+        val = df.iloc[i, 3] if 3 < df.shape[1] else None
+        if pd.notna(val) and 'through' in str(val):
+            date_range = str(val).strip()
+            break
+
+    COL = {
+        'source': 0, 'new_prospects': 2, 'phone_calls': 7,
+        'visits': 13, 'return_visits': 15,
+        'leases': 19, 'cancelled_denied': 25, 'net_leases': 29,
+        'prospect_to_lease_pct': 35, 'visit_to_lease_pct': 36,
+    }
+
+    def safe_int(val):
+        try:
+            return int(float(val)) if pd.notna(val) else 0
+        except:
+            return 0
+
+    def safe_pct(val):
+        try:
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace('%', '').replace(',', '').strip())
+        except:
+            return 0.0
+
+    # Find first "Advertising Source" header row
+    start_row = None
+    for i in range(min(20, len(df))):
+        val = df.iloc[i, 0]
+        if pd.notna(val) and 'Advertising Source' in str(val):
+            start_row = i + 1
+            break
+
+    if start_row is None:
+        return []
+
+    records = []
+    for i in range(start_row, len(df)):
+        src = df.iloc[i, 0]
+        if pd.notna(src):
+            src_str = str(src).strip()
+            if src_str == 'Totals:' or src_str.startswith('Contact Types'):
+                break
+            if not src_str or src_str.startswith('*'):
+                continue
+
+            row = {}
+            for field, col in COL.items():
+                if field == 'source':
+                    row[field] = src_str
+                elif field in ('prospect_to_lease_pct', 'visit_to_lease_pct'):
+                    row[field] = safe_pct(df.iloc[i, col]) if col < df.shape[1] else 0.0
+                else:
+                    row[field] = safe_int(df.iloc[i, col]) if col < df.shape[1] else 0
+
+            # Only include rows with any activity
+            if any(row.get(f, 0) > 0 for f in ['new_prospects', 'phone_calls', 'visits', 'leases', 'net_leases']):
+                row['property_id'] = property_id
+                row['property_name'] = property_name
+                row['report_date'] = report_date
+                row['date_range'] = date_range
+                records.append(row)
+
+    return records
+
+
+def parse_lost_rent_summary(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """
+    Parse Lost Rent Summary report (report 4279).
+    Clean tabular format starting at row 7 (header at row 6).
+    Col mapping: c0=location_id, c1=location_name, c2=unit, c3=resident_name,
+    c4=move_in_date, c5=move_out_date, c6=days_occupied, c7=market_rent,
+    c8=lease_rent, c9=rent_charged, c12=loss_to_rent, c14=gain_to_rent,
+    c16=vacancy_current, c17=vacancy_adjustments, c18=market_rent_calculated,
+    c19=lost_rent_not_charged.
+    """
+    df = pd.read_excel(file_path, sheet_name=0, header=None)
+    info = extract_property_info(df)
+    property_name = info['property_name']
+    report_date = info['report_date']
+
+    # Extract fiscal period
+    fiscal_period = None
+    for i in range(min(6, len(df))):
+        for c in range(min(10, df.shape[1])):
+            val = df.iloc[i, c]
+            if pd.notna(val) and 'Fiscal period' in str(val):
+                fp_match = re.search(r'(\d{6})', str(val))
+                if fp_match:
+                    fiscal_period = fp_match.group(1)
+                break
+
+    # Find header row (contains "Market Rent" and "Bldg-Unit")
+    header_row = None
+    for i in range(min(10, len(df))):
+        row_text = ' '.join(str(x) for x in df.iloc[i].dropna().tolist()).lower()
+        if 'market rent' in row_text and ('bldg' in row_text or 'unit' in row_text):
+            header_row = i
+            break
+
+    if header_row is None:
+        return []
+
+    def safe_float(val):
+        try:
+            if pd.isna(val):
+                return 0.0
+            return float(str(val).replace(',', ''))
+        except:
+            return 0.0
+
+    def safe_str(val):
+        if pd.notna(val):
+            s = str(val).strip()
+            return s if s and s != 'nan' else None
+        return None
+
+    records = []
+    for i in range(header_row + 1, len(df)):
+        unit_val = df.iloc[i, 2] if 2 < df.shape[1] else None
+        if pd.isna(unit_val):
+            continue
+        unit_str = str(unit_val).strip()
+        if not unit_str or 'total' in unit_str.lower() or 'grand' in unit_str.lower():
+            continue
+
+        records.append({
+            'property_id': property_id,
+            'property_name': property_name,
+            'report_date': report_date,
+            'fiscal_period': fiscal_period,
+            'unit': unit_str,
+            'move_in_date': safe_str(df.iloc[i, 4]) if 4 < df.shape[1] else None,
+            'move_out_date': safe_str(df.iloc[i, 5]) if 5 < df.shape[1] else None,
+            'market_rent': safe_float(df.iloc[i, 7]) if 7 < df.shape[1] else 0.0,
+            'lease_rent': safe_float(df.iloc[i, 8]) if 8 < df.shape[1] else 0.0,
+            'rent_charged': safe_float(df.iloc[i, 9]) if 9 < df.shape[1] else 0.0,
+            'loss_to_rent': safe_float(df.iloc[i, 12]) if 12 < df.shape[1] else 0.0,
+            'gain_to_rent': safe_float(df.iloc[i, 14]) if 14 < df.shape[1] else 0.0,
+            'vacancy_current': safe_float(df.iloc[i, 16]) if 16 < df.shape[1] else 0.0,
+            'vacancy_adjustments': safe_float(df.iloc[i, 17]) if 17 < df.shape[1] else 0.0,
+            'market_rent_calculated': safe_float(df.iloc[i, 18]) if 18 < df.shape[1] else 0.0,
+            'lost_rent_not_charged': safe_float(df.iloc[i, 19]) if 19 < df.shape[1] else 0.0,
+        })
+
+    return records
+
+
 def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
@@ -1272,6 +1578,10 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'projected_occupancy': 'projected_occupancy',
             'lease_expiration_renewal': 'lease_expiration_renewal',
             'monthly_transaction_summary': 'monthly_transaction_summary',
+            'make_ready_summary': 'make_ready_summary',
+            'closed_make_ready': 'closed_make_ready',
+            'advertising_source': 'advertising_source',
+            'lost_rent_summary': 'lost_rent_summary',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -1293,6 +1603,14 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_projected_occupancy(file_path, property_id)
     elif report_type == 'monthly_transaction_summary':
         records = parse_monthly_transaction_summary(file_path, property_id)
+    elif report_type == 'make_ready_summary':
+        records = parse_make_ready_summary(file_path, property_id)
+    elif report_type == 'closed_make_ready':
+        records = parse_closed_make_ready(file_path, property_id)
+    elif report_type == 'advertising_source':
+        records = parse_advertising_source(file_path, property_id)
+    elif report_type == 'lost_rent_summary':
+        records = parse_lost_rent_summary(file_path, property_id)
     else:
         records = []
     

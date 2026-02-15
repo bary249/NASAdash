@@ -41,9 +41,35 @@ interface FinancialSummary {
   collection_rate: number;
 }
 
+interface PaymentMethod {
+  method: string;
+  amount: number;
+}
+
+interface ComputedMetrics {
+  total_units: number;
+  occupied_units: number;
+  vacant_units: number;
+  avg_market_rent: number;
+  avg_effective_rent: number;
+  rev_pau: number;
+  economic_occupancy: number;
+  loss_to_lease_pct: number;
+  concession_total: number;
+  concession_pct: number;
+  bad_debt_total: number;
+  bad_debt_pct: number;
+  vacancy_loss_total: number;
+  vacancy_loss_pct: number;
+  other_income: number;
+  other_income_per_unit: number;
+  payment_methods: PaymentMethod[];
+}
+
 interface FinancialsData {
   property_id: string;
   summary: FinancialSummary;
+  computed?: ComputedMetrics;
   charges: TransactionItem[];
   losses: TransactionItem[];
   payments: TransactionItem[];
@@ -51,6 +77,7 @@ interface FinancialsData {
 
 interface Props {
   propertyId: string;
+  propertyIds?: string[];
 }
 
 function fmt(value: number): string {
@@ -134,20 +161,138 @@ function TransactionTable({ items, title }: { items: TransactionItem[]; title: s
   );
 }
 
-export default function FinancialsSection({ propertyId }: Props) {
+function pct(value: number): string {
+  return `${value >= 0 ? '' : '-'}${Math.abs(value).toFixed(2)}%`;
+}
+
+function mergeComputed(items: ComputedMetrics[]): ComputedMetrics {
+  const sum = (fn: (c: ComputedMetrics) => number) => items.reduce((a, c) => a + fn(c), 0);
+  const totalUnits = sum(c => c.total_units);
+  const occUnits = sum(c => c.occupied_units);
+  const totalCollections = items.reduce((a, c) => a + c.rev_pau * c.total_units, 0);
+  const totalPossible = totalCollections / (items[0]?.economic_occupancy / 100 || 1);
+  // Merge payment methods
+  const pmMap = new Map<string, number>();
+  for (const c of items) {
+    for (const pm of c.payment_methods) {
+      pmMap.set(pm.method, (pmMap.get(pm.method) || 0) + pm.amount);
+    }
+  }
+  return {
+    total_units: totalUnits,
+    occupied_units: occUnits,
+    vacant_units: sum(c => c.vacant_units),
+    avg_market_rent: totalUnits > 0 ? Math.round(sum(c => c.avg_market_rent * c.total_units) / totalUnits * 100) / 100 : 0,
+    avg_effective_rent: occUnits > 0 ? Math.round(sum(c => c.avg_effective_rent * c.occupied_units) / occUnits * 100) / 100 : 0,
+    rev_pau: totalUnits > 0 ? Math.round(totalCollections / totalUnits * 100) / 100 : 0,
+    economic_occupancy: totalPossible > 0 ? Math.round(totalCollections / totalPossible * 1000) / 10 : 0,
+    loss_to_lease_pct: items.length > 0 ? Math.round(sum(c => c.loss_to_lease_pct) / items.length * 100) / 100 : 0,
+    concession_total: sum(c => c.concession_total),
+    concession_pct: items.length > 0 ? Math.round(sum(c => c.concession_pct * c.total_units) / (totalUnits || 1) * 100) / 100 : 0,
+    bad_debt_total: sum(c => c.bad_debt_total),
+    bad_debt_pct: items.length > 0 ? Math.round(sum(c => c.bad_debt_pct * c.total_units) / (totalUnits || 1) * 100) / 100 : 0,
+    vacancy_loss_total: sum(c => c.vacancy_loss_total),
+    vacancy_loss_pct: items.length > 0 ? Math.round(sum(c => c.vacancy_loss_pct * c.total_units) / (totalUnits || 1) * 100) / 100 : 0,
+    other_income: sum(c => c.other_income),
+    other_income_per_unit: totalUnits > 0 ? Math.round(sum(c => c.other_income) / totalUnits * 100) / 100 : 0,
+    payment_methods: Array.from(pmMap.entries()).map(([method, amount]) => ({ method, amount: Math.round(amount * 100) / 100 })).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
+  };
+}
+
+function mergeSummaries(items: FinancialSummary[]): FinancialSummary {
+  const sum = (fn: (s: FinancialSummary) => number) => items.reduce((a, s) => a + fn(s), 0);
+  const totalPossible = sum(s => s.total_possible_collections);
+  const totalCollections = sum(s => s.total_monthly_collections);
+  return {
+    fiscal_period: items[0].fiscal_period,
+    report_date: items[0].report_date,
+    gross_market_rent: sum(s => s.gross_market_rent),
+    gain_to_lease: sum(s => s.gain_to_lease),
+    loss_to_lease: sum(s => s.loss_to_lease),
+    gross_potential: sum(s => s.gross_potential),
+    total_other_charges: sum(s => s.total_other_charges),
+    total_possible_collections: totalPossible,
+    total_collection_losses: sum(s => s.total_collection_losses),
+    total_adjustments: sum(s => s.total_adjustments),
+    past_due_end_prior: sum(s => s.past_due_end_prior),
+    prepaid_end_prior: sum(s => s.prepaid_end_prior),
+    past_due_end_current: sum(s => s.past_due_end_current),
+    prepaid_end_current: sum(s => s.prepaid_end_current),
+    net_change_past_due_prepaid: sum(s => s.net_change_past_due_prepaid),
+    total_losses_and_adjustments: sum(s => s.total_losses_and_adjustments),
+    current_monthly_collections: sum(s => s.current_monthly_collections),
+    total_monthly_collections: totalCollections,
+    collection_rate: totalPossible > 0 ? Math.round(totalCollections / totalPossible * 1000) / 10 : 0,
+  };
+}
+
+function mergeTransactions(arrays: TransactionItem[][]): TransactionItem[] {
+  const map = new Map<string, TransactionItem>();
+  for (const items of arrays) {
+    for (const item of items) {
+      const key = `${item.code}|${item.description}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.ytd_last_month += item.ytd_last_month;
+        existing.this_month += item.this_month;
+        existing.ytd_through += item.ytd_through;
+      } else {
+        map.set(key, { ...item });
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+export default function FinancialsSection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<FinancialsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [propCount, setPropCount] = useState(0);
+
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+  const isMulti = effectiveIds.length > 1;
 
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
     setError(null);
-    api.getFinancials(propertyId)
-      .then(setData)
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [propertyId]);
+    setData(null);
+
+    const fetchAll = async () => {
+      try {
+        const results = await Promise.all(
+          effectiveIds.map(id => api.getFinancials(id).catch(() => null))
+        );
+        const valid = results.filter(Boolean) as FinancialsData[];
+        if (valid.length === 0) {
+          setError('No financial data available for selected properties.');
+          return;
+        }
+        setPropCount(valid.length);
+        if (valid.length === 1) {
+          setData(valid[0]);
+          return;
+        }
+        // Merge into consolidated view
+        const merged: FinancialsData = {
+          property_id: 'consolidated',
+          summary: mergeSummaries(valid.map(d => d.summary)),
+          computed: mergeComputed(valid.filter(d => d.computed).map(d => d.computed!)),
+          charges: mergeTransactions(valid.map(d => d.charges)),
+          losses: mergeTransactions(valid.map(d => d.losses)),
+          payments: mergeTransactions(valid.map(d => d.payments)),
+        };
+        setData(merged);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (
@@ -182,7 +327,7 @@ export default function FinancialsSection({ propertyId }: Props) {
       <SectionHeader
         title="Financials"
         icon={DollarSign}
-        subtitle={`${formatPeriod(s.fiscal_period)} · Report date ${s.report_date}`}
+        subtitle={`${isMulti ? `${propCount} Properties (Consolidated) · ` : ''}${formatPeriod(s.fiscal_period)} · Report date ${s.report_date}`}
       />
 
       {/* KPI Row */}
@@ -250,10 +395,63 @@ export default function FinancialsSection({ propertyId }: Props) {
         </div>
       </div>
 
+      {/* Revenue Optimization Metrics */}
+      {data.computed && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Revenue Optimization</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-100">
+            <MetricCell label="RevPAU" value={fmt(data.computed.rev_pau)} sub="Revenue per available unit" />
+            <MetricCell label="Avg Effective Rent" value={fmt(data.computed.avg_effective_rent)} sub={`Market: ${fmt(data.computed.avg_market_rent)}`} />
+            <MetricCell label="Economic Occupancy" value={`${data.computed.economic_occupancy}%`} sub="Collections ÷ Possible" />
+            <MetricCell label="Other Income / Unit" value={fmt(data.computed.other_income_per_unit)} sub={`Total: ${fmt(data.computed.other_income)}`} />
+            <MetricCell label="Loss-to-Lease" value={pct(data.computed.loss_to_lease_pct)} sub="% of Gross Market Rent" warn={Math.abs(data.computed.loss_to_lease_pct) > 3} />
+            <MetricCell label="Concessions" value={pct(data.computed.concession_pct)} sub={fmt(data.computed.concession_total)} warn={data.computed.concession_pct > 3} />
+            <MetricCell label="Bad Debt" value={pct(data.computed.bad_debt_pct)} sub={fmt(data.computed.bad_debt_total)} warn={data.computed.bad_debt_pct > 1} />
+            <MetricCell label="Vacancy Loss" value={pct(data.computed.vacancy_loss_pct)} sub={fmt(data.computed.vacancy_loss_total)} warn={data.computed.vacancy_loss_pct > 5} />
+          </div>
+        </div>
+      )}
+
+      {/* Payment Methods Breakdown */}
+      {data.computed && data.computed.payment_methods.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Payment Methods</span>
+          </div>
+          <div className="px-5 py-3">
+            {data.computed.payment_methods.map((pm, i) => {
+              const maxAmt = Math.max(...data.computed!.payment_methods.map(p => Math.abs(p.amount)));
+              const barPct = maxAmt > 0 ? Math.abs(pm.amount) / maxAmt * 100 : 0;
+              return (
+                <div key={i} className="flex items-center gap-3 py-1.5">
+                  <div className="w-48 text-xs text-slate-600 shrink-0 truncate">{pm.method}</div>
+                  <div className="flex-1 h-4 bg-slate-50 rounded overflow-hidden">
+                    <div className="h-full bg-indigo-100 rounded" style={{ width: `${Math.max(barPct, 1)}%` }} />
+                  </div>
+                  <div className="w-24 text-xs font-medium text-slate-700 tabular-nums text-right shrink-0">{fmt(pm.amount)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Transaction Detail */}
       <TransactionTable items={data.charges} title="Revenue & Charges" />
       <TransactionTable items={data.losses} title="Losses & Concessions" />
       <TransactionTable items={data.payments} title="Payments Received" />
+    </div>
+  );
+}
+
+function MetricCell({ label, value, sub, warn }: { label: string; value: string; sub?: string; warn?: boolean }) {
+  return (
+    <div className="bg-white px-4 py-3">
+      <div className="text-[10px] text-slate-400 uppercase tracking-wider font-medium mb-0.5">{label}</div>
+      <div className={`text-base font-bold tabular-nums ${warn ? 'text-rose-600' : 'text-slate-800'}`}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-400 mt-0.5">{sub}</div>}
     </div>
   );
 }

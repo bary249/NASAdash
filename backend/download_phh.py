@@ -62,16 +62,35 @@ REPORT_TYPES = {k: v for k, v in DEFINITIONS["reports"].items() if v.get("status
 
 
 # ── Core functions ──────────────────────────────────────────
-def build_payload(report_def, property_detail, date_offset=0):
+def compute_dates(timeframe_tag: str = None, date_offset: int = 0) -> dict:
+    """Compute date ranges for a given timeframe tag."""
     target = datetime.now() - timedelta(days=date_offset)
+    today = target
     dates = {
-        "start_date": f"01/01/{target.year}",
-        "end_date": target.strftime("%m/%d/%Y"),
-        "as_of_date": target.strftime("%m/%d/%Y"),
-        "start_month": target.strftime("%m/%Y"),
-        "end_month": target.strftime("%m/%Y"),
-        "fiscal_period": target.strftime("%m%Y"),
+        "as_of_date": today.strftime("%m/%d/%Y"),
+        "start_month": today.strftime("%m/%Y"),
+        "end_month": today.strftime("%m/%Y"),
+        "fiscal_period": today.strftime("%m%Y"),
+        "exp_start_date": today.strftime("%m/%d/%Y"),
+        "exp_end_date": (today + timedelta(days=365)).strftime("%m/%d/%Y"),
     }
+    if timeframe_tag == 'mtd':
+        dates["start_date"] = f"{today.month:02d}/01/{today.year}"
+        dates["end_date"] = today.strftime("%m/%d/%Y")
+    elif timeframe_tag == 'l30':
+        dates["start_date"] = (today - timedelta(days=30)).strftime("%m/%d/%Y")
+        dates["end_date"] = today.strftime("%m/%d/%Y")
+    elif timeframe_tag == 'l7':
+        dates["start_date"] = (today - timedelta(days=7)).strftime("%m/%d/%Y")
+        dates["end_date"] = today.strftime("%m/%d/%Y")
+    else:  # ytd or default
+        dates["start_date"] = f"01/01/{today.year}"
+        dates["end_date"] = today.strftime("%m/%d/%Y")
+    return dates
+
+
+def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None):
+    dates = compute_dates(timeframe_tag, date_offset)
     parameters = []
     for param in report_def["parameters"]:
         value = param["value"]
@@ -96,10 +115,10 @@ def build_payload(report_def, property_detail, date_offset=0):
     }
 
 
-def create_instance(report_def, property_detail, date_offset=0):
+def create_instance(report_def, property_detail, date_offset=0, timeframe_tag=None):
     url = f"{BASE_URL}/reports/{report_def['report_id']}/report-instances"
     try:
-        resp = CLIENT.post(url, headers=HEADERS, json=build_payload(report_def, property_detail, date_offset))
+        resp = CLIENT.post(url, headers=HEADERS, json=build_payload(report_def, property_detail, date_offset, timeframe_tag))
         if resp.status_code in (200, 201):
             return resp.json()
         else:
@@ -164,6 +183,8 @@ def import_all(downloads):
         import_monthly_summary, import_lease_expiration, import_activity,
         import_projected_occupancy, import_lease_expiration_renewal,
         import_monthly_transaction_summary,
+        import_make_ready, import_closed_make_ready,
+        import_advertising_source, import_lost_rent_summary,
         init_report_tables,
     )
     conn = sqlite3.connect(DB_PATH)
@@ -179,6 +200,10 @@ def import_all(downloads):
         "projected_occupancy": import_projected_occupancy,
         "lease_expiration_renewal": import_lease_expiration_renewal,
         "monthly_transaction_summary": import_monthly_transaction_summary,
+        "make_ready_summary": import_make_ready,
+        "closed_make_ready": import_closed_make_ready,
+        "advertising_source": import_advertising_source,
+        "lost_rent_summary": import_lost_rent_summary,
     }
     total = 0
     for dl in downloads:
@@ -196,9 +221,14 @@ def import_all(downloads):
                     r["property_name"] = dl["prop_name"]
                 importer = IMPORTERS.get(parsed_type)
                 if importer:
-                    count = importer(conn, records, str(temp), str(dl["file_id"]))
+                    # advertising_source takes timeframe_tag kwarg
+                    if parsed_type == 'advertising_source' and dl.get('timeframe_tag'):
+                        count = importer(conn, records, str(temp), str(dl["file_id"]), timeframe_tag=dl['timeframe_tag'])
+                    else:
+                        count = importer(conn, records, str(temp), str(dl["file_id"]))
+                    tf_label = f" [{dl['timeframe_tag']}]" if dl.get('timeframe_tag') else ''
                     if count > 0:
-                        print(f"  ✓ {dl['prop_name']} / {parsed_type}: {count} records")
+                        print(f"  ✓ {dl['prop_name']} / {parsed_type}{tf_label}: {count} records")
                         total += count
         except Exception as e:
             print(f"  ✗ {dl['prop_name']} / {dl['report_type']}: {e}")
@@ -219,13 +249,20 @@ def main():
     if args.only_reports:
         report_types = {k: v for k, v in report_types.items() if k in args.only_reports}
 
-    total_jobs = len(PHH_PROPERTIES) * len(report_types)
+    # Count total jobs including timeframe variants
+    total_jobs = 0
+    for rtype, rdef in report_types.items():
+        tf_count = len(rdef.get('timeframe_variants', [])) or 1
+        total_jobs += len(PHH_PROPERTIES) * tf_count
     print("=" * 60)
     print("  PHH REPORT DOWNLOADER")
     print(f"  {datetime.now().isoformat()}")
-    print(f"  {len(PHH_PROPERTIES)} properties × {len(report_types)} reports = {total_jobs}")
+    print(f"  {len(PHH_PROPERTIES)} properties × {len(report_types)} reports = {total_jobs} jobs")
     print(f"  Properties: {', '.join(p['propertyName'] for p in PHH_PROPERTIES.values())}")
     print(f"  Reports: {', '.join(report_types.keys())}")
+    tf_reports = [f"{k}×{len(v.get('timeframe_variants',[]))}" for k,v in report_types.items() if v.get('timeframe_variants')]
+    if tf_reports:
+        print(f"  Timeframe variants: {', '.join(tf_reports)}")
     print("=" * 60)
 
     # Step 1: Create instances
@@ -235,24 +272,48 @@ def main():
 
     for pid, pdetail in PHH_PROPERTIES.items():
         for rtype, rdef in report_types.items():
-            for date_offset in range(MAX_DATE_RETRIES):
-                resp = create_instance(rdef, pdetail, date_offset=date_offset)
-                if resp:
-                    needed.append({
-                        "prop_id": pid, "prop_name": pdetail["propertyName"],
-                        "prop_detail": pdetail, "report_type": rtype, "report_def": rdef,
-                        "instance_id": resp.get("instanceId"),
-                        "file_id": None, "content": None,
-                    })
-                    sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✓\n")
-                    break
-                elif date_offset < MAX_DATE_RETRIES - 1:
-                    sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✗ retrying...\n")
-                    time.sleep(1)
-                else:
-                    sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✗ failed\n")
-            sys.stdout.flush()
-            time.sleep(0.5)
+            # Check if this report has timeframe variants
+            tf_variants = rdef.get('timeframe_variants')
+            if tf_variants:
+                for tf in tf_variants:
+                    for date_offset in range(MAX_DATE_RETRIES):
+                        resp = create_instance(rdef, pdetail, date_offset=date_offset, timeframe_tag=tf)
+                        if resp:
+                            needed.append({
+                                "prop_id": pid, "prop_name": pdetail["propertyName"],
+                                "prop_detail": pdetail, "report_type": rtype, "report_def": rdef,
+                                "instance_id": resp.get("instanceId"),
+                                "file_id": None, "content": None,
+                                "timeframe_tag": tf,
+                            })
+                            sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} [{tf}] ✓\n")
+                            break
+                        elif date_offset < MAX_DATE_RETRIES - 1:
+                            time.sleep(1)
+                        else:
+                            sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} [{tf}] ✗ failed\n")
+                    sys.stdout.flush()
+                    time.sleep(0.5)
+            else:
+                for date_offset in range(MAX_DATE_RETRIES):
+                    resp = create_instance(rdef, pdetail, date_offset=date_offset)
+                    if resp:
+                        needed.append({
+                            "prop_id": pid, "prop_name": pdetail["propertyName"],
+                            "prop_detail": pdetail, "report_type": rtype, "report_def": rdef,
+                            "instance_id": resp.get("instanceId"),
+                            "file_id": None, "content": None,
+                            "timeframe_tag": None,
+                        })
+                        sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✓\n")
+                        break
+                    elif date_offset < MAX_DATE_RETRIES - 1:
+                        sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✗ retrying...\n")
+                        time.sleep(1)
+                    else:
+                        sys.stdout.write(f"  {pdetail['propertyName']} / {rtype} ✗ failed\n")
+                sys.stdout.flush()
+                time.sleep(0.5)
 
     created = len([n for n in needed if n.get("instance_id")])
     print(f"  Created {created}/{total_jobs}")

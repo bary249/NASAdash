@@ -368,6 +368,30 @@ export const api = {
     payments: { group: string; group_name: string; code: string; description: string; ytd_last_month: number; this_month: number; ytd_through: number }[];
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/financials`),
 
+  // Marketing (Primary Advertising Source)
+  getMarketing: (propertyId: string, timeframe: string = 'ytd'): Promise<{
+    property_id: string;
+    date_range: string;
+    timeframe: string;
+    sources: { source: string; new_prospects: number; phone_calls: number; visits: number; return_visits: number; leases: number; net_leases: number; cancelled_denied: number; prospect_to_lease_pct: number; visit_to_lease_pct: number }[];
+    totals: { total_prospects: number; total_calls: number; total_visits: number; total_leases: number; total_net_leases: number; overall_prospect_to_lease: number; overall_visit_to_lease: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/marketing?timeframe=${timeframe}`),
+
+  // Maintenance / Make Ready
+  getMaintenance: (propertyId: string): Promise<{
+    property_id: string;
+    pipeline: { unit: string; sqft: number; days_vacant: number; date_vacated: string; date_due: string; num_work_orders: number; unit_status: string; lease_status: string }[];
+    completed: { unit: string; num_work_orders: number; date_closed: string; amount_charged: number }[];
+    summary: { units_in_pipeline: number; avg_days_vacant: number; overdue_count: number; completed_this_period: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/maintenance`),
+
+  // Lost Rent Summary (unit-level loss-to-lease)
+  getLostRent: (propertyId: string): Promise<{
+    property_id: string;
+    units: { unit: string; market_rent: number; lease_rent: number; rent_charged: number; lost_rent: number; loss_pct: number; move_out_date: string }[];
+    summary: { fiscal_period: string; total_units: number; occupied_count: number; vacant_count: number; avg_market_rent: number; avg_lease_rent: number; total_lost_rent: number; loss_to_lease_pct: number; avg_loss_per_unit: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/lost-rent`),
+
   // Risk Scores (Churn & Delinquency Prediction)
   getRiskScores: (propertyId: string): Promise<{
     property_id: string;

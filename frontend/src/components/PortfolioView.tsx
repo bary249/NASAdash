@@ -133,6 +133,11 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
         setProperties(summaries);
         setLoading(false);
 
+        // Auto-select all properties on load so multi-property view works immediately
+        if (selectedPropertyIds.size === 0) {
+          setSelectedPropertyIds(new Set(props.map(p => p.id)));
+        }
+
         // Load metrics for each property using portfolio API
         await Promise.all(
           props.map(async (p, idx) => {

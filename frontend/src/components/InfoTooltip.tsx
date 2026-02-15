@@ -9,7 +9,7 @@ interface InfoTooltipProps {
 
 export function InfoTooltip({ text, size = 12 }: InfoTooltipProps) {
   const [open, setOpen] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
+  const btnRef = useRef<HTMLSpanElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
 
@@ -35,15 +35,17 @@ export function InfoTooltip({ text, size = 12 }: InfoTooltipProps) {
 
   return (
     <>
-      <button
+      <span
         ref={btnRef}
-        type="button"
+        role="button"
+        tabIndex={0}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        className="text-slate-300 hover:text-slate-500 transition-colors focus:outline-none inline-flex"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); setOpen(o => !o); } }}
+        className="text-slate-300 hover:text-slate-500 transition-colors focus:outline-none inline-flex cursor-pointer"
         aria-label="Calculation info"
       >
         <HelpCircle style={{ width: size, height: size }} />
-      </button>
+      </span>
       {open && createPortal(
         <div
           ref={tipRef}

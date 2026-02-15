@@ -35,7 +35,8 @@
         {"name": "IncludeSystem", "value": "Yes"},
         {"name": "leasingAgents", "value": "All"}
       ],
-      "status": "complete"
+      "status": "complete",
+      "timeframe_variants": ["ytd", "mtd", "l30", "l7"]
     },
     "rent_roll": {
       "report_id": 4043,
@@ -202,6 +203,70 @@
         {"name": "weeksProjectedCount", "value": "12"}
       ],
       "status": "complete"
+    },
+    "make_ready_summary": {
+      "report_id": 4186,
+      "report_key": "38D4F1F9-2166-429B-A44D-82335A8ACB59",
+      "name": "Make Ready Summary",
+      "formats": {
+        "pdf": "2040",
+        "excel": "2041"
+      },
+      "parameters": [
+        {"name": "UnitList", "value": "ALL"}
+      ],
+      "status": "complete",
+      "notes": "Units in make-ready pipeline. Days vacant, dates, sqft, WOs. Negative days = future move-out."
+    },
+    "closed_make_ready": {
+      "report_id": 4189,
+      "report_key": "A59CA732-0086-4655-82BA-4742D7B2F604",
+      "name": "Closed Make Ready Summary",
+      "formats": {
+        "pdf": "2083",
+        "excel": "2084"
+      },
+      "parameters": [
+        {"name": "StartDate", "value": "{{start_date}}"},
+        {"name": "EndDate", "value": "{{end_date}}"},
+        {"name": "ExcludeExternalRequests", "value": "0"},
+        {"name": "SortBy", "value": "Unit"},
+        {"name": "IncludeParam", "value": "1"}
+      ],
+      "status": "complete",
+      "notes": "Completed make-ready WOs. Unit, WO#, service issue, worker, date closed, amount."
+    },
+    "advertising_source": {
+      "report_id": 4158,
+      "report_key": "1D5BAA01-369A-49B5-A400-E88F423BA57E",
+      "name": "Primary Advertising Source Evaluation",
+      "formats": {
+        "pdf": "1",
+        "word": "2",
+        "excel": "3"
+      },
+      "parameters": [
+        {"name": "startdate", "value": "{{start_date}}"},
+        {"name": "enddate", "value": "{{end_date}}"}
+      ],
+      "status": "complete",
+      "notes": "Marketing funnel by source: prospects, calls, visits, leases, conversion rates.",
+      "timeframe_variants": ["ytd", "mtd", "l30", "l7"]
+    },
+    "lost_rent_summary": {
+      "report_id": 4279,
+      "report_key": "AD3AB1DD-B8CC-410E-BF14-8F76DF3C83A5",
+      "name": "Lost Rent Summary",
+      "formats": {
+        "excel": "2121"
+      },
+      "parameters": [
+        {"name": "AR_FiscalPeriodSelect", "value": "{{fiscal_period}}"},
+        {"name": "SubProperty", "value": "- all subproperties-"},
+        {"name": "ShowLostRentOnly", "value": "0"}
+      ],
+      "status": "complete",
+      "notes": "Unit-level market vs lease rent. xlsx format (use openpyxl). Gold for loss-to-lease analysis."
     }
   },
   "properties": {

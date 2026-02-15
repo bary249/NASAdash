@@ -42,12 +42,6 @@ function getOccupancyHealth(value: number): HealthStatus {
   return 'critical';
 }
 
-function getAgedVacancyHealth(value: number): HealthStatus {
-  if (value === 0) return 'good';
-  if (value <= 2) return 'warning';
-  return 'critical';
-}
-
 
 const healthDot: Record<HealthStatus, string> = {
   good: 'bg-emerald-500',

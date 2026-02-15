@@ -144,7 +144,7 @@ interface FunnelKPICardProps {
   onClick?: () => void;
 }
 
-export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen = 0, tourToApp = 0, timeLabel, onClick }: FunnelKPICardProps) {
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick }: FunnelKPICardProps) {
   const stages = [
     { label: 'Leads', value: leads },
     { label: 'Tours', value: tours },

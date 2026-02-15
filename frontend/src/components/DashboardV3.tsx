@@ -13,7 +13,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { 
-  RefreshCw, Settings, Eye, EyeOff, LogOut,
+  RefreshCw, Eye, EyeOff, LogOut,
   Building2, DollarSign, TrendingUp, TrendingDown, Home, ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';

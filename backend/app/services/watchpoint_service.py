@@ -33,6 +33,8 @@ AVAILABLE_METRICS = {
     "renewal_rate": {"label": "Renewal Rate %", "unit": "%", "direction": "higher_better"},
     "avg_rent": {"label": "Avg In-Place Rent", "unit": "$", "direction": "higher_better"},
     "loss_to_lease_pct": {"label": "Loss-to-Lease %", "unit": "%", "direction": "lower_better"},
+    "atr": {"label": "ATR (Units)", "unit": "units", "direction": "lower_better"},
+    "atr_pct": {"label": "ATR %", "unit": "%", "direction": "lower_better"},
     "aged_vacancy_90": {"label": "Aged Vacancy 90+ Days", "unit": "units", "direction": "lower_better"},
     "response_rate": {"label": "Review Response Rate %", "unit": "%", "direction": "higher_better"},
     "google_rating": {"label": "Google Rating", "unit": "stars", "direction": "higher_better"},

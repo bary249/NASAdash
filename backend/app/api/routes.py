@@ -2895,6 +2895,29 @@ async def _gather_current_metrics(property_id: str) -> dict:
         pass
     
     try:
+        import sqlite3 as _sq
+        _conn = _sq.connect(UNIFIED_DB_PATH)
+        _c = _conn.cursor()
+        _c.execute("""
+            SELECT total_units, vacant_units, preleased_vacant, notice_units
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ?
+            ORDER BY snapshot_date DESC LIMIT 1
+        """, (property_id,))
+        _row = _c.fetchone()
+        _conn.close()
+        if _row:
+            total_u = _row[0] or 0
+            vacant = _row[1] or 0
+            preleased = _row[2] or 0
+            on_notice = _row[3] or 0
+            atr = max(0, vacant + on_notice - preleased)
+            metrics["atr"] = atr
+            metrics["atr_pct"] = round(atr / total_u * 100, 1) if total_u > 0 else 0
+    except Exception:
+        pass
+    
+    try:
         from app.services.google_reviews_service import get_property_reviews
         reviews = await get_property_reviews(property_id)
         if reviews and not reviews.get("error"):

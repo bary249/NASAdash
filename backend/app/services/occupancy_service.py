@@ -4,17 +4,14 @@ Implements Module 1 (Occupancy & Exposure) and Module 2 (Marketing Funnel) from 
 READ-ONLY: Only retrieves and transforms data, no modifications.
 """
 import logging
+import sqlite3
 from typing import List, Optional, Dict, Any
 from datetime import date, timedelta
-from app.clients.yardi_client import YardiClient
-from app.clients.realpage_client import RealPageClient
 from app.models import (
     Timeframe, OccupancyMetrics, ExposureMetrics, LeasingFunnelMetrics,
     UnitRaw, ResidentRaw, ProspectRaw, PropertyInfo
 )
-from app.models.unified import PMSSource
 from app.db.schema import UNIFIED_DB_PATH
-from app.property_config.properties import get_pms_config, ALL_PROPERTIES
 from app.services.timeframe import (
     get_date_range, format_date_iso, format_date_yardi,
     parse_yardi_date, days_between, is_within_days, is_in_period
@@ -24,68 +21,89 @@ logger = logging.getLogger(__name__)
 
 
 class OccupancyService:
-    """Service for calculating occupancy and leasing metrics from PMS data."""
+    """Service for occupancy and leasing metrics. Reads from unified.db ONLY."""
     
     def __init__(self):
-        self.yardi = YardiClient()
+        pass
     
-    def _get_realpage_client(self, property_id: str) -> RealPageClient:
-        """Get a RealPage client configured for the specific property."""
-        pms_config = get_pms_config(property_id)
-        return RealPageClient(
-            pmcid=pms_config.realpage_pmcid,
-            siteid=pms_config.realpage_siteid,
-            licensekey=pms_config.realpage_licensekey,
-        )
+    # ---- Unified DB helpers ----
     
-    def _get_pms_type(self, property_id: str) -> PMSSource:
-        """Determine PMS type for a property."""
-        if property_id in ALL_PROPERTIES:
-            return get_pms_config(property_id).pms_type
-        
-        # Check unified.db for RealPage properties
-        import sqlite3
-        from pathlib import Path
+    def _get_db_units(self, property_id: str) -> List[dict]:
+        """Read units from unified.db."""
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM unified_units WHERE unified_property_id = ?", (property_id,))
+            rows = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+            # Normalize field names for backward compat
+            for u in rows:
+                u["unit_id"] = u.get("unit_number") or u.get("pms_unit_id", "")
+                u["occupancy_status"] = u.get("status", "vacant")
+                u["ready_status"] = "ready" if u.get("made_ready_date") else "not_ready"
+                u["available"] = u.get("status") == "vacant" and bool(u.get("made_ready_date"))
+                u["days_vacant"] = u.get("days_vacant") or 0
+            return rows
+        except Exception as e:
+            logger.warning(f"[OCCUPANCY] Failed to read units from DB for {property_id}: {e}")
+            return []
+    
+    def _get_db_residents(self, property_id: str, status: Optional[str] = None) -> List[dict]:
+        """Read residents from unified.db."""
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            if status and status.lower() != "all":
+                cursor.execute(
+                    "SELECT * FROM unified_residents WHERE unified_property_id = ? AND LOWER(status) = LOWER(?)",
+                    (property_id, status)
+                )
+            else:
+                cursor.execute("SELECT * FROM unified_residents WHERE unified_property_id = ?", (property_id,))
+            rows = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+            # Normalize field names for backward compat
+            for r in rows:
+                r["unit"] = r.get("unit_number", "")
+                r["resident_id"] = r.get("pms_resident_id", "")
+                r["rent"] = r.get("current_rent", 0)
+                r["status"] = (r.get("status") or "Current").capitalize()
+            return rows
+        except Exception as e:
+            logger.warning(f"[OCCUPANCY] Failed to read residents from DB for {property_id}: {e}")
+            return []
+    
+    def _get_property_name(self, property_id: str) -> str:
+        """Get property name from unified.db."""
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
-            cursor.execute("SELECT pms_source FROM unified_properties WHERE unified_property_id = ?", (property_id,))
+            cursor.execute("SELECT name FROM unified_properties WHERE unified_property_id = ?", (property_id,))
             row = cursor.fetchone()
             conn.close()
-            if row and row[0] == 'realpage':
-                return PMSSource.REALPAGE
+            return row[0] if row else property_id
         except Exception:
-            pass
-        
-        return PMSSource.YARDI
+            return property_id
     
     async def get_property_list(self) -> List[PropertyInfo]:
-        """Get list of all properties from Yardi and unified.db (RealPage)."""
-        import sqlite3
-        from pathlib import Path
-        
+        """Get list of all properties from unified.db."""
         properties = []
         
-        # Get RealPage properties from unified.db first
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT unified_property_id, name, city, state, address
                 FROM unified_properties
-                WHERE pms_source = 'realpage'
             """)
             prop_rows = cursor.fetchall()
             
             # Derive floor count per property from unit numbers
-            # Heuristic: unit 502 → floor 5, unit 1134 → floor 11
-            # Skip 5-digit units (garden-style BBBUU encoding) and max floor > 20
             floor_counts: dict = {}
             has_5digit: set = set()
-            cursor.execute("""
-                SELECT unified_property_id, unit_number
-                FROM unified_units
-            """)
+            cursor.execute("SELECT unified_property_id, unit_number FROM unified_units")
             for urow in cursor.fetchall():
                 pid, unum = urow[0], urow[1]
                 try:
@@ -93,16 +111,12 @@ class OccupancyService:
                     if num >= 10000:
                         has_5digit.add(pid)
                         continue
-                    if num >= 100:
-                        floor = num // 100
-                    else:
-                        floor = 1
+                    floor = num // 100 if num >= 100 else 1
                     if pid not in floor_counts:
                         floor_counts[pid] = set()
                     floor_counts[pid].add(floor)
                 except (ValueError, TypeError):
                     pass
-            # Remove properties with building-encoded units or unreasonable floor counts
             for pid in has_5digit:
                 floor_counts.pop(pid, None)
             for pid in list(floor_counts.keys()):
@@ -136,34 +150,6 @@ class OccupancyService:
         except Exception:
             pass
         
-        # Get Yardi properties
-        try:
-            data = await self.yardi.get_property_configurations()
-            
-            if isinstance(data, dict):
-                result = data.get("GetPropertyConfigurationsResult", data)
-                if isinstance(result, dict):
-                    props = result.get("Properties", result)
-                    if isinstance(props, dict):
-                        prop_list = props.get("Property", [])
-                    else:
-                        prop_list = props
-                    
-                    if isinstance(prop_list, dict):
-                        prop_list = [prop_list]
-                    
-                    for p in prop_list if isinstance(prop_list, list) else []:
-                        address = p.get("Address", {})
-                        properties.append(PropertyInfo(
-                            id=p.get("Code", p.get("PropertyCode", "")),
-                            name=p.get("MarketingName", p.get("Name", p.get("Code", ""))),
-                            city=address.get("City", "") if isinstance(address, dict) else "",
-                            state=address.get("State", "") if isinstance(address, dict) else "",
-                            address=address.get("Address1", "") if isinstance(address, dict) else ""
-                        ))
-        except Exception:
-            pass
-        
         return properties
     
     async def get_occupancy_metrics(
@@ -172,106 +158,18 @@ class OccupancyService:
         timeframe: Timeframe = Timeframe.CM
     ) -> OccupancyMetrics:
         """
-        Calculate occupancy metrics per spec Module 1.
-        
-        For YTD: Returns averaged occupancy over the period.
-        For CM/PM: Returns point-in-time occupancy.
+        Get occupancy metrics from unified.db.
+        Primary source: unified_occupancy_metrics table.
+        Fallback: compute from unified_units + unified_residents.
         """
-        period_start, period_end = get_date_range(timeframe)
-        today = date.today()
-        
-        pms_type = self._get_pms_type(property_id)
-        
-        # Get unit data based on PMS type
-        if pms_type == PMSSource.REALPAGE:
-            # Use unified_occupancy_metrics as primary source (has correct preleased data)
-            unified_result = await self._get_occupancy_from_unified(property_id, timeframe)
-            if unified_result.total_units > 0:
-                return unified_result
-            
-            # Fall back to SOAP API if unified.db has no data
-            if property_id not in ALL_PROPERTIES:
-                return unified_result
-            
-            units = await self._get_realpage_units(property_id)
-            # Get future residents (Applicant - Lease Signed) from RealPage
-            future_list = await self._get_realpage_future_residents(property_id)
-            property_name = ALL_PROPERTIES.get(property_id, type('', (), {'name': property_id})).name
-            
-            # If no units from API, return empty
-            if not units:
-                return unified_result
-        else:
-            units_data = await self.yardi.get_unit_information(property_id)
-            units = self._extract_units(units_data)
-            future_residents = await self.yardi.get_residents_by_status(property_id, "Future")
-            future_list = self._extract_residents_raw(future_residents, "Future")
-            property_name = self._extract_property_name_from_units(units_data, property_id)
-        
-        total_units = len(units)
-        occupied_units = sum(1 for u in units if u.get("occupancy_status") == "occupied")
-        vacant_units = total_units - occupied_units
-        
-        # Preleased vacant: vacant units that have a future lease
-        preleased_units = set(r.get("unit", "") for r in future_list)
-        preleased_vacant = sum(1 for u in units 
-                              if u.get("occupancy_status") == "vacant" 
-                              and u.get("unit_id") in preleased_units)
-        
-        leased_units = occupied_units + preleased_vacant
-        
-        # Calculate available units (RealPage specific)
-        available_units = 0
-        if pms_type == PMSSource.REALPAGE:
-            available_units = sum(1 for u in units if u.get("available", False))
-        else:
-            # For Yardi, available = vacant and ready
-            available_units = sum(1 for u in units 
-                                if u.get("occupancy_status") == "vacant" 
-                                and u.get("ready_status") == "ready")
-        
-        # Vacancy breakdown
-        vacant_ready = sum(1 for u in units 
-                         if u.get("occupancy_status") == "vacant" 
-                         and u.get("ready_status") == "ready")
-        vacant_not_ready = vacant_units - vacant_ready
-        
-        # Aged vacancy (>90 days)
-        aged_vacancy = sum(1 for u in units 
-                         if u.get("occupancy_status") == "vacant"
-                         and u.get("days_vacant", 0) > 90)
-        
-        # Calculate percentages
-        physical_occupancy = round(occupied_units / total_units * 100, 1) if total_units > 0 else 0
-        leased_percentage = round(leased_units / total_units * 100, 1) if total_units > 0 else 0
-        
-        return OccupancyMetrics(
-            property_id=property_id,
-            property_name=property_name,
-            timeframe=timeframe.value,
-            period_start=format_date_iso(period_start),
-            period_end=format_date_iso(period_end),
-            total_units=total_units,
-            occupied_units=occupied_units,
-            vacant_units=vacant_units,
-            leased_units=leased_units,
-            preleased_vacant=preleased_vacant,
-            physical_occupancy=physical_occupancy,
-            leased_percentage=leased_percentage,
-            vacant_ready=vacant_ready,
-            vacant_not_ready=vacant_not_ready,
-            available_units=available_units,
-            aged_vacancy_90_plus=aged_vacancy
-        )
+        return await self._get_occupancy_from_unified(property_id, timeframe)
     
     async def _get_occupancy_from_unified(
         self,
         property_id: str,
         timeframe: Timeframe = Timeframe.CM
     ) -> OccupancyMetrics:
-        """Fallback to read occupancy from unified.db for synced RealPage data."""
-        import sqlite3
-        from pathlib import Path
+        """Read occupancy from unified.db."""
         
         period_start, period_end = get_date_range(timeframe)
         
@@ -348,39 +246,21 @@ class OccupancyService:
         timeframe: Timeframe = Timeframe.CM
     ) -> ExposureMetrics:
         """
-        Calculate exposure metrics per spec Module 1.
+        Calculate exposure metrics from unified.db.
         
         Exposure = (Vacant + Pending Move-outs) - Pending Move-ins
         """
         period_start, period_end = get_date_range(timeframe)
         today = date.today()
         
-        pms_type = self._get_pms_type(property_id)
+        # Read all data from unified DB
+        units = self._get_db_units(property_id)
+        all_residents = self._get_db_residents(property_id)
         
-        if pms_type == PMSSource.REALPAGE:
-            # RealPage path
-            units = await self._get_realpage_units(property_id)
-            all_residents = await self._get_all_realpage_residents(property_id)
-            future_residents = await self._get_realpage_future_residents(property_id)
-            
-            # Filter by status
-            notice_residents = [r for r in all_residents if r.get("status") == "Notice"]
-            past_residents = [r for r in all_residents if r.get("status") == "Past"]
-            current_residents = [r for r in all_residents if r.get("status") == "Current"]
-        else:
-            # Yardi path
-            notice_data = await self.yardi.get_residents_by_status(property_id, "Notice")
-            past_data = await self.yardi.get_residents_by_status(property_id, "Past")
-            future_data = await self.yardi.get_residents_by_status(property_id, "Future")
-            current_data = await self.yardi.get_residents_by_status(property_id, "Current")
-            
-            notice_residents = self._extract_residents_raw(notice_data, "Notice")
-            past_residents = self._extract_residents_raw(past_data, "Past")
-            future_residents = self._extract_residents_raw(future_data, "Future")
-            current_residents = self._extract_residents_raw(current_data, "Current")
-            
-            units_data = await self.yardi.get_unit_information(property_id)
-            units = self._extract_units(units_data)
+        notice_residents = [r for r in all_residents if r.get("status", "").lower() == "notice"]
+        past_residents = [r for r in all_residents if r.get("status", "").lower() == "past"]
+        current_residents = [r for r in all_residents if r.get("status", "").lower() == "current"]
+        future_residents = [r for r in all_residents if r.get("status", "").lower() == "future"]
         
         # Total notices
         notices_total = len(notice_residents)
@@ -435,77 +315,30 @@ class OccupancyService:
         timeframe: Timeframe = Timeframe.CM
     ) -> LeasingFunnelMetrics:
         """
-        Calculate leasing funnel metrics per spec Module 2.
-        
-        Lead: Unique contact/inquiry (Guest Card)
-        Tour: Verified visit (Show event)
-        Application: Submitted application
-        Lease Sign: Countersigned lease
-        
-        For RealPage properties: Uses imported Excel report data if available.
+        Get leasing funnel metrics from unified.db.
+        Uses imported Excel report data (imported_leasing_activity table).
+        Returns empty metrics if no imported data is available.
         """
         period_start, period_end = get_date_range(timeframe)
-        pms_type = self._get_pms_type(property_id)
         
-        # For RealPage properties, try to use imported Excel data first
-        if pms_type == PMSSource.REALPAGE:
-            imported_data = self._get_imported_leasing_data(property_id, period_start, period_end)
-            if imported_data:
-                return self._build_funnel_from_imported(property_id, timeframe, period_start, period_end, imported_data)
+        # Try imported leasing data (from RealPage Excel reports or Yardi sync)
+        imported_data = self._get_imported_leasing_data(property_id, period_start, period_end)
+        if imported_data:
+            return self._build_funnel_from_imported(property_id, timeframe, period_start, period_end, imported_data)
         
-        # Fall back to Yardi guest activity
-        guest_data = await self.yardi.get_guest_activity(
-            property_id, 
-            format_date_yardi(period_start),
-            format_date_yardi(period_end)
-        )
-        
-        events = self._extract_events(guest_data)
-        
-        # Count by event type
-        # Lead = first contact (Email, CallFromProspect, Webservice, Walkin)
-        leads = sum(1 for e in events 
-                   if e.get("event_type") in ["Email", "CallFromProspect", "Webservice", "Walkin"]
-                   and e.get("first_contact") == True)
-        
-        # Tour = Show event
-        tours = sum(1 for e in events if e.get("event_type") == "Show")
-        
-        # Application = Application event
-        applications = sum(1 for e in events if e.get("event_type") == "Application")
-        
-        # Lease Sign = LeaseSign event (must be countersigned per spec)
-        lease_signs = sum(1 for e in events if e.get("event_type") == "LeaseSign")
-        
-        # Denials
-        denials = sum(1 for e in events if e.get("event_type") == "ApplicationDenied")
-        
-        # Calculate conversion rates
-        lead_to_tour = round(tours / leads * 100, 1) if leads > 0 else 0
-        tour_to_app = round(applications / tours * 100, 1) if tours > 0 else 0
-        app_to_lease = round(lease_signs / applications * 100, 1) if applications > 0 else 0
-        lead_to_lease = round(lease_signs / leads * 100, 1) if leads > 0 else 0
-        
+        # No imported data available — return empty metrics
         return LeasingFunnelMetrics(
             property_id=property_id,
             timeframe=timeframe.value,
             period_start=format_date_iso(period_start),
             period_end=format_date_iso(period_end),
-            leads=leads,
-            tours=tours,
-            applications=applications,
-            lease_signs=lease_signs,
-            denials=denials,
-            lead_to_tour_rate=lead_to_tour,
-            tour_to_app_rate=tour_to_app,
-            app_to_lease_rate=app_to_lease,
-            lead_to_lease_rate=lead_to_lease
+            leads=0, tours=0, applications=0, lease_signs=0, denials=0,
+            lead_to_tour_rate=0, tour_to_app_rate=0,
+            app_to_lease_rate=0, lead_to_lease_rate=0
         )
     
     def _get_imported_leasing_data(self, property_id: str, period_start: date, period_end: date) -> Optional[Dict[str, Any]]:
         """Get imported leasing activity data from database."""
-        import sqlite3
-        from app.db.schema import UNIFIED_DB_PATH
         
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
@@ -624,14 +457,8 @@ class OccupancyService:
         )
     
     async def get_raw_units(self, property_id: str) -> List[dict]:
-        """Get raw unit data for drill-through. Supports both Yardi and RealPage."""
-        pms_type = self._get_pms_type(property_id)
-        
-        if pms_type == PMSSource.REALPAGE:
-            return await self._get_realpage_units(property_id)
-        else:
-            units_data = await self.yardi.get_unit_information(property_id)
-            return self._extract_units(units_data)
+        """Get raw unit data for drill-through from unified.db."""
+        return self._get_db_units(property_id)
     
     async def get_raw_residents(
         self, 
@@ -641,7 +468,7 @@ class OccupancyService:
         metric_filter: Optional[str] = None
     ) -> List[dict]:
         """
-        Get raw resident data for drill-through.
+        Get raw resident data for drill-through from unified.db.
         
         metric_filter options:
         - "move_ins": Only residents who moved in during the period
@@ -652,74 +479,42 @@ class OccupancyService:
         """
         period_start, period_end = get_date_range(timeframe)
         today = date.today()
-        all_residents = []
         
-        pms_type = self._get_pms_type(property_id)
-        
-        # For RealPage, use the unified resident fetch
-        if pms_type == PMSSource.REALPAGE:
-            rp_residents = await self._get_all_realpage_residents(property_id)
-            # Also get applicants as future residents
-            future_residents = await self._get_realpage_future_residents(property_id)
-            
-            # Map RealPage status to filter
-            for r in rp_residents:
-                r_status = r.get("status", "").lower()
-                if status != "all" and r_status != status.lower():
-                    continue
-                all_residents.append(r)
-            
-            # Add future residents (applicants)
-            if status == "all" or status.lower() == "future":
-                for r in future_residents:
-                    all_residents.append(r)
-            
-            return all_residents
-        
-        # Yardi flow
         # Determine which statuses to query based on metric_filter
         if metric_filter == "move_ins":
-            statuses = ["Current", "Future"]
+            db_status = "all"  # Need current + future
         elif metric_filter == "move_outs":
-            statuses = ["Past"]
+            db_status = "past"
         elif metric_filter in ["notices_30", "notices_60"]:
-            statuses = ["Notice"]
-        elif status == "all":
-            statuses = ["Current", "Notice", "Past", "Future"]
+            db_status = "notice"
         else:
-            statuses = [status]
+            db_status = status
         
-        for s in statuses:
-            data = await self.yardi.get_residents_by_status(property_id, s)
-            residents = self._extract_residents_raw(data, s)
-            
-            for r in residents:
-                # Apply metric-specific filtering to match exact counts
-                if metric_filter == "move_ins":
-                    # Only include if move-in date is within period
-                    move_in = parse_yardi_date(r.get("move_in_date", ""))
-                    if move_in and is_in_period(move_in, period_start, period_end):
-                        all_residents.append(r)
-                elif metric_filter == "move_outs":
-                    # Only include if move-out date is within period
-                    move_out = parse_yardi_date(r.get("move_out_date", ""))
-                    if move_out and is_in_period(move_out, period_start, period_end):
-                        all_residents.append(r)
-                elif metric_filter == "notices_30":
-                    # Notices with move-out in next 30 days
-                    move_out = parse_yardi_date(r.get("move_out_date", "") or r.get("lease_end", ""))
-                    if move_out and is_within_days(move_out, today, 30):
-                        all_residents.append(r)
-                elif metric_filter == "notices_60":
-                    # Notices with move-out in next 60 days
-                    move_out = parse_yardi_date(r.get("move_out_date", "") or r.get("lease_end", ""))
-                    if move_out and is_within_days(move_out, today, 60):
-                        all_residents.append(r)
-                else:
-                    # No special filter - return all matching status
-                    all_residents.append(r)
+        raw_residents = self._get_db_residents(property_id, db_status if db_status != "all" else None)
         
-        return all_residents
+        if not metric_filter:
+            return raw_residents
+        
+        # Apply metric-specific filtering
+        filtered = []
+        for r in raw_residents:
+            if metric_filter == "move_ins":
+                move_in = parse_yardi_date(r.get("move_in_date", ""))
+                if move_in and is_in_period(move_in, period_start, period_end):
+                    filtered.append(r)
+            elif metric_filter == "move_outs":
+                move_out = parse_yardi_date(r.get("move_out_date", ""))
+                if move_out and is_in_period(move_out, period_start, period_end):
+                    filtered.append(r)
+            elif metric_filter == "notices_30":
+                move_out = parse_yardi_date(r.get("move_out_date", "") or r.get("lease_end", ""))
+                if move_out and is_within_days(move_out, today, 30):
+                    filtered.append(r)
+            elif metric_filter == "notices_60":
+                move_out = parse_yardi_date(r.get("move_out_date", "") or r.get("lease_end", ""))
+                if move_out and is_within_days(move_out, today, 60):
+                    filtered.append(r)
+        return filtered
     
     async def get_raw_prospects(
         self, 
@@ -727,29 +522,8 @@ class OccupancyService:
         stage: Optional[str] = None,
         timeframe: Timeframe = Timeframe.CM
     ) -> List[dict]:
-        """Get raw prospect data for drill-through."""
-        period_start, period_end = get_date_range(timeframe)
-        
-        data = await self.yardi.get_guest_activity(
-            property_id,
-            format_date_yardi(period_start),
-            format_date_yardi(period_end)
-        )
-        
-        prospects = self._extract_prospects(data)
-        
-        # Filter by stage if specified
-        if stage:
-            stage_events = {
-                "leads": ["Email", "CallFromProspect", "Webservice", "Walkin"],
-                "tours": ["Show"],
-                "applications": ["Application"],
-                "lease_signs": ["LeaseSign"]
-            }
-            if stage in stage_events:
-                prospects = [p for p in prospects if p.get("last_event") in stage_events[stage]]
-        
-        return prospects
+        """Get raw prospect data. Returns empty — prospect data not stored in unified.db."""
+        return []
     
     async def get_occupancy_trend(
         self, 
@@ -790,19 +564,13 @@ class OccupancyService:
         prior_end = start_date - timedelta(days=1)
         prior_start = prior_end - timedelta(days=period_days)
         
-        pms_type = self._get_pms_type(property_id)
-        logger.info(f"[TREND] Property {property_id} uses {pms_type.value}")
+        logger.info(f"[TREND] Property {property_id}")
         logger.info(f"[TREND] Period: {start_date} to {end_date} ({period_days} days)")
         logger.info(f"[TREND] Prior: {prior_start} to {prior_end}")
         
-        # Get all residents (current, past, future) to reconstruct history
-        if pms_type == PMSSource.REALPAGE:
-            residents = await self._get_all_realpage_residents(property_id)
-            units = await self._get_realpage_units(property_id)
-        else:
-            residents = await self._get_all_yardi_residents(property_id)
-            units_data = await self.yardi.get_unit_information(property_id)
-            units = self._extract_units(units_data)
+        # Get all data from unified DB
+        residents = self._get_db_residents(property_id)
+        units = self._get_db_units(property_id)
         
         total_units = len(units)
         
@@ -887,16 +655,9 @@ class OccupancyService:
         logger.info(f"[ALL_TRENDS] Current: {start_date} to {end_date} ({period_days} days)")
         logger.info(f"[ALL_TRENDS] Prior: {prior_start} to {prior_end}")
         
-        pms_type = self._get_pms_type(property_id)
-        
-        # Get all data needed for calculations
-        if pms_type == PMSSource.REALPAGE:
-            residents = await self._get_all_realpage_residents(property_id)
-            units = await self._get_realpage_units(property_id)
-        else:
-            residents = await self._get_all_yardi_residents(property_id)
-            units_data = await self.yardi.get_unit_information(property_id)
-            units = self._extract_units(units_data)
+        # Get all data from unified DB
+        residents = self._get_db_residents(property_id)
+        units = self._get_db_units(property_id)
         
         total_units = len(units)
         
@@ -1005,47 +766,27 @@ class OccupancyService:
         period_start: date, 
         period_end: date
     ) -> Dict[str, Any]:
-        """Get funnel metric counts for a specific period."""
-        try:
-            guest_data = await self.yardi.get_guest_activity(
-                property_id, 
-                format_date_yardi(period_start),
-                format_date_yardi(period_end)
-            )
-            events = self._extract_events(guest_data)
-            
-            leads = sum(1 for e in events 
-                       if e.get("event_type") in ["Email", "CallFromProspect", "Webservice", "Walkin"]
-                       and e.get("first_contact") == True)
-            tours = sum(1 for e in events if e.get("event_type") == "Show")
-            applications = sum(1 for e in events if e.get("event_type") == "Application")
-            lease_signs = sum(1 for e in events if e.get("event_type") == "LeaseSign")
-            
-            # Calculate conversion rates
+        """Get funnel metric counts for a specific period from imported data."""
+        imported_data = self._get_imported_leasing_data(property_id, period_start, period_end)
+        if imported_data:
+            totals = imported_data.get('totals', {})
+            consultants = imported_data.get('by_consultant', [])
+            leads = sum(c.get('new_prospects', 0) for c in consultants) or totals.get('activities', 0)
+            tours = sum(c.get('visits', 0) for c in consultants)
+            applications = imported_data.get('applications', 0)
+            lease_signs = sum(c.get('leases', 0) for c in consultants)
             lead_to_tour = round(tours / leads * 100, 1) if leads > 0 else 0
             tour_to_app = round(applications / tours * 100, 1) if tours > 0 else 0
             lead_to_lease = round(lease_signs / leads * 100, 1) if leads > 0 else 0
-            
             return {
-                "leads": leads,
-                "tours": tours,
-                "applications": applications,
-                "lease_signs": lease_signs,
-                "lead_to_tour_rate": lead_to_tour,
-                "tour_to_app_rate": tour_to_app,
-                "lead_to_lease_rate": lead_to_lease,
+                "leads": leads, "tours": tours, "applications": applications,
+                "lease_signs": lease_signs, "lead_to_tour_rate": lead_to_tour,
+                "tour_to_app_rate": tour_to_app, "lead_to_lease_rate": lead_to_lease,
             }
-        except Exception as e:
-            logger.warning(f"Failed to get funnel data for {property_id}: {e}")
-            return {
-                "leads": 0,
-                "tours": 0,
-                "applications": 0,
-                "lease_signs": 0,
-                "lead_to_tour_rate": 0,
-                "tour_to_app_rate": 0,
-                "lead_to_lease_rate": 0,
-            }
+        return {
+            "leads": 0, "tours": 0, "applications": 0, "lease_signs": 0,
+            "lead_to_tour_rate": 0, "tour_to_app_rate": 0, "lead_to_lease_rate": 0,
+        }
     
     def _calculate_occupied_at_date(self, residents: List[dict], target_date: date) -> int:
         """
@@ -1073,292 +814,6 @@ class OccupancyService:
         
         return len(occupied_units)
     
-    async def _get_all_yardi_residents(self, property_id: str) -> List[dict]:
-        """Get all residents (current, past, future) from Yardi."""
-        all_residents = []
-        for status in ["Current", "Past", "Future", "Notice"]:
-            data = await self.yardi.get_residents_by_status(property_id, status)
-            all_residents.extend(self._extract_residents_raw(data, status))
-        return all_residents
-    
-    async def _get_all_realpage_residents(self, property_id: str) -> List[dict]:
-        """Get all residents from RealPage."""
-        client = self._get_realpage_client(property_id)
-        residents = await client.get_residents(property_id, status=None)  # All statuses
-        
-        # RealPage doesn't have "Notice" status - residents who gave notice are still "Current"
-        # Re-categorize Current residents with notice_date to "Notice" status
-        for r in residents:
-            if r.get("status") == "Current" and r.get("notice_date"):
-                r["status"] = "Notice"
-        
-        return residents
-    
-    async def _get_realpage_future_residents(self, property_id: str) -> List[dict]:
-        """Get future residents (Applicant - Lease Signed) from RealPage."""
-        client = self._get_realpage_client(property_id)
-        all_residents = await client.get_residents(property_id, status=None)
-        
-        # Filter for "Applicant - Lease Signed" only (exclude "Former Applicant")
-        future_residents = []
-        for r in all_residents:
-            status = r.get("status", "").lower()
-            # Must contain "applicant" but NOT "former"
-            if "applicant" in status and "former" not in status:
-                future_residents.append({
-                    "unit": r.get("unit", ""),
-                    "first_name": r.get("first_name", ""),
-                    "last_name": r.get("last_name", ""),
-                    "move_in_date": r.get("move_in_date", ""),
-                    "status": "Future",
-                })
-        
-        logger.info(f"[REALPAGE] Found {len(future_residents)} future residents (Applicant - Lease Signed)")
-        return future_residents
-    
-    async def _get_realpage_units(self, property_id: str) -> List[dict]:
-        """Get units from RealPage with occupancy status and drill-through fields."""
-        client = self._get_realpage_client(property_id)
-        units_raw = await client.get_units_raw(property_id)
-        today = date.today()
-        
-        units = []
-        for u in units_raw:
-            # Map RealPage fields to standard format
-            vacant = u.get("Vacant", "F") == "T"
-            available = u.get("Available", "F") == "T"
-            on_notice_date = u.get("OnNoticeForDate", "")
-            available_date_str = u.get("AvailableDate", "")
-            made_ready_date = u.get("UnitMadeReadyDate", "")
-            
-            # Calculate days vacant (from available_date if vacant)
-            days_vacant = 0
-            if vacant and available_date_str:
-                try:
-                    avail_date = parse_yardi_date(available_date_str)
-                    if avail_date and avail_date <= today:
-                        days_vacant = (today - avail_date).days
-                except:
-                    pass
-            
-            units.append({
-                "unit_id": u.get("UnitID", ""),
-                "unit_number": u.get("UnitNumber", ""),
-                "occupancy_status": "vacant" if vacant else "occupied",
-                "ready_status": "ready" if made_ready_date else "not_ready",
-                "available": available,  # RealPage Available flag (vacant ready OR occupied on notice)
-                "floorplan": u.get("FloorplanName", ""),
-                "bedrooms": int(u.get("Bedrooms", 0) or 0),
-                "bathrooms": float(u.get("Bathrooms", 0) or 0),
-                "square_feet": int(u.get("RentableSqft", 0) or 0),
-                "market_rent": float(u.get("MarketRent", 0) or 0),
-                "available_date": available_date_str,
-                "on_notice_date": on_notice_date,
-                "made_ready_date": made_ready_date,
-                "days_vacant": days_vacant
-            })
-        return units
-    
-    # ---- Private extraction methods ----
-    
-    def _extract_property_name_from_units(self, units_data: dict, default: str) -> str:
-        """Extract property name from Yardi units response."""
-        property_name = default
-        if isinstance(units_data, dict):
-            result = units_data.get("GetUnitInformationResult", units_data)
-            if isinstance(result, dict):
-                ui = result.get("UnitInformation", result)
-                if isinstance(ui, dict):
-                    prop = ui.get("Property", ui)
-                    if isinstance(prop, dict):
-                        property_name = prop.get("@attributes", {}).get("MarketingName", default)
-        return property_name
-    
-    def _extract_units(self, data: dict) -> List[dict]:
-        """Extract unit list from Yardi response."""
-        units = []
-        seen_ids = set()
-        today = date.today()
-        
-        if isinstance(data, dict):
-            result = data.get("GetUnitInformationResult", data)
-            if isinstance(result, dict):
-                unit_info = result.get("UnitInformation", result)
-            else:
-                unit_info = result
-            if isinstance(unit_info, dict):
-                prop = unit_info.get("Property", unit_info)
-                if isinstance(prop, dict):
-                    units_container = prop.get("Units", prop)
-                    if isinstance(units_container, dict):
-                        unit_data = units_container.get("UnitInfo", [])
-                    else:
-                        unit_data = units_container
-                    
-                    if isinstance(unit_data, dict):
-                        unit_data = [unit_data]
-                    
-                    for u in unit_data if isinstance(unit_data, list) else []:
-                        unit_elem = u.get("Unit", u)
-                        unit_id = str(u.get("UnitID", ""))
-                        
-                        if unit_id in seen_ids:
-                            continue
-                        seen_ids.add(unit_id)
-                        
-                        if isinstance(unit_elem, dict):
-                            status_desc = unit_elem.get("UnitEconomicStatusDescription", "").lower()
-                            
-                            is_vacant = "vacant" in status_desc
-                            is_ready = "ready" in status_desc or "market ready" in status_desc
-                            
-                            # Calculate days vacant
-                            available_date_str = unit_elem.get("DateAvailable", "")
-                            available_date = parse_yardi_date(available_date_str)
-                            days_vacant = days_between(available_date, today) if available_date and is_vacant else 0
-                            
-                            units.append({
-                                "unit_id": unit_id,
-                                "floorplan": unit_elem.get("FloorplanName", ""),
-                                "unit_type": unit_elem.get("UnitType", unit_elem.get("FloorplanName", "")),
-                                "unit_number": unit_elem.get("UnitID", ""),
-                                "bedrooms": self._safe_int(unit_elem.get("UnitBedrooms", 0)),
-                                "bathrooms": self._safe_float(unit_elem.get("UnitBathrooms", 0)),
-                                "square_feet": self._safe_int(unit_elem.get("MinSquareFeet", 0)),
-                                "market_rent": self._safe_float(unit_elem.get("MarketRent", 0)),
-                                "status": unit_elem.get("UnitEconomicStatusDescription", ""),
-                                "occupancy_status": "vacant" if is_vacant else "occupied",
-                                "ready_status": "ready" if is_ready else "not_ready",
-                                "available": is_vacant and is_ready,  # Available = vacant AND ready
-                                "days_vacant": days_vacant,
-                                "available_date": available_date_str
-                            })
-        return units
-    
-    def _extract_residents_raw(self, data: dict, status: str) -> List[dict]:
-        """Extract resident list from Yardi response."""
-        residents = []
-        if isinstance(data, dict):
-            result = data.get("GetResidentsByStatusResult", data)
-            if isinstance(result, dict):
-                mits = result.get("MITS-ResidentData", result)
-            else:
-                mits = result
-            
-            if isinstance(mits, dict):
-                prop_res = mits.get("PropertyResidents", mits)
-                if isinstance(prop_res, dict):
-                    res_container = prop_res.get("Residents", prop_res)
-                    if isinstance(res_container, dict):
-                        res_data = res_container.get("Resident", [])
-                    else:
-                        res_data = res_container
-                    
-                    if isinstance(res_data, dict):
-                        res_data = [res_data]
-                    
-                    for r in res_data if isinstance(res_data, list) else []:
-                        residents.append({
-                            "resident_id": r.get("@attributes", {}).get("tCode", r.get("tCode", "")),
-                            "first_name": r.get("FirstName", ""),
-                            "last_name": r.get("LastName", ""),
-                            "unit": r.get("UnitCode", ""),
-                            "rent": self._safe_float(r.get("Rent", 0)),
-                            "status": r.get("Status", status),
-                            "move_in_date": r.get("MoveInDate", ""),
-                            "move_out_date": r.get("MoveOutDate", ""),
-                            "lease_start": r.get("LeaseFromDate", ""),
-                            "lease_end": r.get("LeaseToDate", ""),
-                            "notice_date": r.get("NoticeDate", "")
-                        })
-        return residents
-    
-    def _extract_events(self, data: dict) -> List[dict]:
-        """Extract guest activity events from Yardi ILS response."""
-        events = []
-        if isinstance(data, dict):
-            result = data.get("GetYardiGuestActivity_LoginResult", data)
-            if isinstance(result, dict):
-                lead_mgmt = result.get("LeadManagement", result)
-            else:
-                lead_mgmt = result
-            
-            if isinstance(lead_mgmt, dict):
-                prospects_container = lead_mgmt.get("Prospects", lead_mgmt)
-                if isinstance(prospects_container, dict):
-                    prospects = prospects_container.get("Prospect", [])
-                else:
-                    prospects = prospects_container
-                
-                if isinstance(prospects, dict):
-                    prospects = [prospects]
-                
-                for p in prospects if isinstance(prospects, list) else []:
-                    events_container = p.get("Events", {})
-                    if isinstance(events_container, dict):
-                        event_list = events_container.get("Event", [])
-                    else:
-                        event_list = events_container
-                    
-                    if isinstance(event_list, dict):
-                        event_list = [event_list]
-                    
-                    for i, e in enumerate(event_list if isinstance(event_list, list) else []):
-                        event_type = e.get("@attributes", {}).get("EventType", e.get("EventType", ""))
-                        events.append({
-                            "event_type": event_type,
-                            "event_date": e.get("@attributes", {}).get("EventDate", e.get("EventDate", "")),
-                            "first_contact": i == 0  # First event is first contact
-                        })
-        return events
-    
-    def _extract_prospects(self, data: dict) -> List[dict]:
-        """Extract prospect list from Yardi ILS response."""
-        prospects = []
-        if isinstance(data, dict):
-            result = data.get("GetYardiGuestActivity_LoginResult", data)
-            if isinstance(result, dict):
-                lead_mgmt = result.get("LeadManagement", result)
-            else:
-                lead_mgmt = result
-            
-            if isinstance(lead_mgmt, dict):
-                prospects_container = lead_mgmt.get("Prospects", lead_mgmt)
-                if isinstance(prospects_container, dict):
-                    prospect_list = prospects_container.get("Prospect", [])
-                else:
-                    prospect_list = prospects_container
-                
-                if isinstance(prospect_list, dict):
-                    prospect_list = [prospect_list]
-                
-                for p in prospect_list if isinstance(prospect_list, list) else []:
-                    customers = p.get("Customers", {})
-                    customer = customers.get("Customer", {}) if isinstance(customers, dict) else {}
-                    name = customer.get("Name", {}) if isinstance(customer, dict) else {}
-                    prefs = p.get("CustomerPreferences", {})
-                    
-                    events = p.get("Events", {})
-                    event_list = events.get("Event", []) if isinstance(events, dict) else []
-                    if isinstance(event_list, dict):
-                        event_list = [event_list]
-                    
-                    last_event = event_list[-1] if event_list else {}
-                    event_type = last_event.get("@attributes", {}).get("EventType", last_event.get("EventType", "")) if isinstance(last_event, dict) else ""
-                    event_date = last_event.get("@attributes", {}).get("EventDate", last_event.get("EventDate", "")) if isinstance(last_event, dict) else ""
-                    
-                    prospects.append({
-                        "first_name": name.get("FirstName", "") if isinstance(name, dict) else "",
-                        "last_name": name.get("LastName", "") if isinstance(name, dict) else "",
-                        "email": customer.get("Email", "") if isinstance(customer, dict) else "",
-                        "phone": "",
-                        "desired_floorplan": prefs.get("DesiredFloorplan", "") if isinstance(prefs, dict) else "",
-                        "target_move_in": prefs.get("TargetMoveInDate", "") if isinstance(prefs, dict) else "",
-                        "last_event": event_type,
-                        "event_date": event_date,
-                        "event_count": len(event_list)
-                    })
-        return prospects
     
     # ---- Helper methods ----
     
@@ -1406,23 +861,26 @@ class OccupancyService:
     async def get_amenities(self, property_id: str, item_type: Optional[str] = None) -> List[dict]:
         """
         Get rentable items (amenities) for a property.
-        Currently only supports RealPage properties - reads from local DB.
+        Reads from realpage_raw.db using pms_property_id from unified_properties.
         """
-        pms_type = self._get_pms_type(property_id)
+        import os
         
-        if pms_type == "realpage":
-            # Get site_id from property config
-            pms_config = get_pms_config(property_id)
-            site_id = pms_config.realpage_siteid
+        try:
+            # Look up the RealPage site_id from unified_properties
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT pms_property_id FROM unified_properties WHERE unified_property_id = ? AND pms_source = 'realpage'",
+                (property_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
             
-            if not site_id:
+            if not row:
                 return []
+            site_id = row[0]
             
-            # Read from local RealPage database
-            import sqlite3
-            import os
             db_path = os.path.join(os.path.dirname(__file__), "../db/data/realpage_raw.db")
-            
             if not os.path.exists(db_path):
                 return []
             
@@ -1430,9 +888,8 @@ class OccupancyService:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Filter by site_id
             query = "SELECT * FROM realpage_rentable_items WHERE site_id = ?"
-            params = [site_id]
+            params: list = [site_id]
             if item_type:
                 query += " AND LOWER(item_type) LIKE ?"
                 params.append(f"%{item_type.lower()}%")
@@ -1442,8 +899,7 @@ class OccupancyService:
             conn.close()
             
             return [dict(row) for row in rows]
-        else:
-            # Yardi doesn't have this API
+        except Exception:
             return []
     
     async def get_amenities_summary(self, property_id: str) -> dict:

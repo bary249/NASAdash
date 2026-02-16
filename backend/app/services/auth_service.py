@@ -27,12 +27,12 @@ JWT_EXPIRATION = 86400  # 24 hours
 # User registry — passwords are bcrypt hashed, NEVER stored in plaintext
 USERS: Dict[str, Dict[str, Any]] = {
     "PHH": {
-        "password_hash": "$2b$12$bIiFCNTEHPiSTjfAVvVJgupehEC9tCAX7FfJx17g9EhMlgY078PGy",
+        "password_hash": "$2b$12$IIgzab3L79.HsrJLyTpLlOLOXwjD.Cocf7YXnjkHlhKX9j/1bxvlO",
         "owner_group": "PHH",
         "display_name": "PHH Group",
     },
     "Kairoi": {
-        "password_hash": "$2b$12$swL89x.QO0kaTVIUIt7LNu1WEg2qbos51rw95q2ywWeYMIzxsOUPm",
+        "password_hash": "$2b$12$luZ9TaR3qdm4R4fpYMg2WuQrsvaONvW.K.F.GC/i4X6YY9jGyIwDe",
         "owner_group": "Kairoi",
         "display_name": "Kairoi Residential",
     },

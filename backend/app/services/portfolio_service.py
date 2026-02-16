@@ -4,11 +4,9 @@ Supports two aggregation modes: weighted average and row metrics.
 
 READ-ONLY OPERATIONS ONLY.
 """
+import sqlite3
 from typing import List, Dict, Optional
 from app.db.schema import UNIFIED_DB_PATH
-from app.clients.pms_interface import PMSInterface, PMSType
-from app.clients.yardi_client import YardiClient
-from app.clients.realpage_client import RealPageClient
 from app.models.unified import (
     AggregationMode,
     PMSSource,
@@ -25,7 +23,7 @@ from app.models.unified import (
 
 class PortfolioService:
     """
-    Aggregates metrics across multiple properties from different PMS systems.
+    Aggregates metrics across multiple properties. Reads from unified.db ONLY.
     
     Supports two aggregation modes:
     - WEIGHTED_AVERAGE: Calculate metrics per property, then weighted average
@@ -33,13 +31,10 @@ class PortfolioService:
     """
     
     def __init__(self):
-        self._clients: Dict[str, PMSInterface] = {}
+        pass
     
     def _get_units_from_db(self, property_id: str) -> Optional[List[Dict]]:
-        """Try to get units from unified.db for a property."""
-        import sqlite3
-        from pathlib import Path
-        
+        """Get units from unified.db for a property."""
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -62,10 +57,7 @@ class PortfolioService:
         return None
     
     def _get_residents_from_db(self, property_id: str) -> Optional[List[Dict]]:
-        """Try to get residents from unified.db for a property."""
-        import sqlite3
-        from pathlib import Path
-        
+        """Get residents from unified.db for a property."""
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -87,10 +79,7 @@ class PortfolioService:
         return None
     
     def _get_occupancy_from_db(self, property_id: str) -> Optional[Dict]:
-        """Try to get occupancy from unified.db for a property."""
-        import sqlite3
-        from pathlib import Path
-        
+        """Get occupancy from unified.db for a property."""
         try:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
@@ -137,24 +126,6 @@ class PortfolioService:
             pass
         return None
     
-    def _get_client(self, config: PMSConfig) -> PMSInterface:
-        """Get or create a PMS client for the given configuration."""
-        cache_key = f"{config.pms_type}:{config.property_id}"
-        
-        if cache_key not in self._clients:
-            if config.pms_type == PMSSource.YARDI:
-                self._clients[cache_key] = YardiClient()
-            elif config.pms_type == PMSSource.REALPAGE:
-                self._clients[cache_key] = RealPageClient(
-                    pmcid=config.realpage_pmcid,
-                    siteid=config.realpage_siteid,
-                    licensekey=config.realpage_licensekey,
-                )
-            else:
-                raise ValueError(f"Unsupported PMS type: {config.pms_type}")
-        
-        return self._clients[cache_key]
-    
     async def get_portfolio_occupancy(
         self,
         configs: List[PMSConfig],
@@ -185,17 +156,9 @@ class PortfolioService:
         property_metrics: List[UnifiedOccupancy] = []
         
         for config in configs:
-            # Try to get from unified.db first (faster, no API call)
             metrics = self._get_occupancy_from_db(config.property_id)
-            
-            # Fall back to API if not in database
             if not metrics:
-                try:
-                    client = self._get_client(config)
-                    metrics = await client.get_occupancy_metrics(config.property_id)
-                except Exception:
-                    # Skip properties that fail
-                    continue
+                continue
             
             property_metrics.append(UnifiedOccupancy(
                 property_id=config.property_id,
@@ -259,52 +222,28 @@ class PortfolioService:
         property_metrics: List[UnifiedOccupancy] = []
         
         for config in configs:
-            # Try to get metrics from unified.db first
             db_metrics = self._get_occupancy_from_db(config.property_id)
+            if not db_metrics:
+                continue
             
-            if db_metrics:
-                # Use database metrics directly
-                property_metrics.append(UnifiedOccupancy(
-                    property_id=config.property_id,
-                    pms_source=PMSSource(config.pms_type),
-                    total_units=db_metrics["total_units"],
-                    occupied_units=db_metrics["occupied_units"],
-                    vacant_units=db_metrics["vacant_units"],
-                    leased_units=db_metrics["leased_units"],
-                    preleased_vacant=db_metrics.get("preleased_vacant", 0),
-                    available_units=db_metrics.get("available_units", 0),
-                    vacant_ready=db_metrics.get("vacant_ready", 0),
-                    vacant_not_ready=db_metrics.get("vacant_not_ready", 0),
-                    physical_occupancy=db_metrics["physical_occupancy"],
-                    leased_percentage=db_metrics["leased_percentage"],
-                ))
-                # Create mock units for calculation
-                for _ in range(db_metrics["occupied_units"]):
-                    all_units.append({"status": "occupied", "_property_id": config.property_id})
-                for _ in range(db_metrics["vacant_units"]):
-                    all_units.append({"status": "vacant", "_property_id": config.property_id})
-            else:
-                # Fall back to API
-                try:
-                    client = self._get_client(config)
-                    units = await client.get_units(config.property_id)
-                    
-                    # Tag units with property info
-                    for unit in units:
-                        unit["_property_id"] = config.property_id
-                        unit["_pms_source"] = config.pms_type
-                    
-                    all_units.extend(units)
-                    
-                    # Also store per-property for breakdown
-                    metrics = await client.get_occupancy_metrics(config.property_id)
-                    property_metrics.append(UnifiedOccupancy(
-                        property_id=config.property_id,
-                        pms_source=PMSSource(config.pms_type),
-                        **metrics
-                    ))
-                except Exception:
-                    continue
+            property_metrics.append(UnifiedOccupancy(
+                property_id=config.property_id,
+                pms_source=PMSSource(config.pms_type),
+                total_units=db_metrics["total_units"],
+                occupied_units=db_metrics["occupied_units"],
+                vacant_units=db_metrics["vacant_units"],
+                leased_units=db_metrics["leased_units"],
+                preleased_vacant=db_metrics.get("preleased_vacant", 0),
+                available_units=db_metrics.get("available_units", 0),
+                vacant_ready=db_metrics.get("vacant_ready", 0),
+                vacant_not_ready=db_metrics.get("vacant_not_ready", 0),
+                physical_occupancy=db_metrics["physical_occupancy"],
+                leased_percentage=db_metrics["leased_percentage"],
+            ))
+            for _ in range(db_metrics["occupied_units"]):
+                all_units.append({"status": "occupied", "_property_id": config.property_id})
+            for _ in range(db_metrics["vacant_units"]):
+                all_units.append({"status": "vacant", "_property_id": config.property_id})
         
         # Calculate from combined raw data
         total_units = len(all_units)
@@ -359,107 +298,98 @@ class PortfolioService:
         else:
             return await self._pricing_weighted_average(configs)
     
+    def _get_pricing_from_db(self, property_id: str) -> Optional[Dict]:
+        """Get pricing from unified.db for a property."""
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT floorplan, unit_count, avg_square_feet,
+                       in_place_rent, asking_rent
+                FROM unified_pricing_metrics
+                WHERE unified_property_id = ?
+                AND snapshot_date = (
+                    SELECT MAX(snapshot_date) FROM unified_pricing_metrics
+                    WHERE unified_property_id = ?
+                )
+            """, (property_id, property_id))
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                return None
+            
+            total_units = sum(r[1] or 0 for r in rows)
+            total_sf = sum((r[1] or 0) * (r[2] or 0) for r in rows)
+            total_ip = sum((r[1] or 0) * (r[3] or 0) for r in rows)
+            total_ask = sum((r[1] or 0) * (r[4] or 0) for r in rows)
+            
+            if total_units > 0:
+                avg_sf = total_sf / total_units
+                avg_ip = total_ip / total_units
+                avg_ask = total_ask / total_units
+            else:
+                avg_sf = avg_ip = avg_ask = 0
+            
+            return {
+                "in_place_rent": avg_ip,
+                "asking_rent": avg_ask,
+                "in_place_per_sf": avg_ip / avg_sf if avg_sf > 0 else 0,
+                "asking_per_sf": avg_ask / avg_sf if avg_sf > 0 else 0,
+                "rent_growth": ((avg_ask / avg_ip) - 1) * 100 if avg_ip > 0 else 0,
+                "total_units": total_units,
+            }
+        except Exception:
+            return None
+    
     async def _pricing_weighted_average(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioPricing:
-        """Calculate pricing using weighted average."""
-        all_units: List[dict] = []
-        all_leases: List[dict] = []
+        """Calculate pricing using weighted average from unified.db."""
+        property_ids = [c.property_id for c in configs]
+        total_units = 0
+        weighted_ip = 0
+        weighted_ask = 0
+        weighted_ip_sf = 0
+        weighted_ask_sf = 0
         
         for config in configs:
-            client = self._get_client(config)
-            units = await client.get_units(config.property_id)
-            leases = await client.get_lease_data(config.property_id)
-            
-            for unit in units:
-                unit["_property_id"] = config.property_id
-            for lease in leases:
-                lease["_property_id"] = config.property_id
-            
-            all_units.extend(units)
-            all_leases.extend(leases)
+            pricing = self._get_pricing_from_db(config.property_id)
+            if not pricing or pricing["total_units"] == 0:
+                continue
+            n = pricing["total_units"]
+            total_units += n
+            weighted_ip += pricing["in_place_rent"] * n
+            weighted_ask += pricing["asking_rent"] * n
+            weighted_ip_sf += pricing["in_place_per_sf"] * n
+            weighted_ask_sf += pricing["asking_per_sf"] * n
         
-        # Calculate portfolio-wide pricing
-        return self._calculate_pricing_metrics(
-            all_units, 
-            all_leases, 
-            [c.property_id for c in configs],
-            AggregationMode.WEIGHTED_AVERAGE
+        if total_units > 0:
+            avg_ip = weighted_ip / total_units
+            avg_ask = weighted_ask / total_units
+            avg_ip_sf = weighted_ip_sf / total_units
+            avg_ask_sf = weighted_ask_sf / total_units
+            growth = ((avg_ask / avg_ip) - 1) * 100 if avg_ip > 0 else 0
+        else:
+            avg_ip = avg_ask = avg_ip_sf = avg_ask_sf = growth = 0
+        
+        return PortfolioPricing(
+            property_ids=property_ids,
+            aggregation_mode=AggregationMode.WEIGHTED_AVERAGE,
+            total_in_place_rent=round(avg_ip, 2),
+            total_in_place_per_sf=round(avg_ip_sf, 2),
+            total_asking_rent=round(avg_ask, 2),
+            total_asking_per_sf=round(avg_ask_sf, 2),
+            total_rent_growth=round(growth, 2),
         )
     
     async def _pricing_row_metrics(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioPricing:
-        """Calculate pricing from combined raw data."""
-        all_units: List[dict] = []
-        all_leases: List[dict] = []
-        
-        for config in configs:
-            client = self._get_client(config)
-            units = await client.get_units(config.property_id)
-            leases = await client.get_lease_data(config.property_id)
-            
-            for unit in units:
-                unit["_property_id"] = config.property_id
-            for lease in leases:
-                lease["_property_id"] = config.property_id
-            
-            all_units.extend(units)
-            all_leases.extend(leases)
-        
-        return self._calculate_pricing_metrics(
-            all_units,
-            all_leases,
-            [c.property_id for c in configs],
-            AggregationMode.ROW_METRICS
-        )
-    
-    def _calculate_pricing_metrics(
-        self,
-        units: List[dict],
-        leases: List[dict],
-        property_ids: List[str],
-        mode: AggregationMode
-    ) -> PortfolioPricing:
-        """Calculate pricing metrics from unit and lease data."""
-        # Create lease lookup by unit
-        lease_by_unit = {l.get("unit_id"): l for l in leases}
-        
-        # Calculate totals
-        total_sf = sum(u.get("square_feet", 0) for u in units)
-        total_market_rent = sum(u.get("market_rent", 0) for u in units)
-        
-        # In-place rent from leases, fallback to occupied units' market rent
-        total_in_place = sum(l.get("rent_amount", 0) for l in leases)
-        occupied_units = [u for u in units if u.get("status") == "occupied"]
-        occupied_sf = sum(u.get("square_feet", 0) for u in occupied_units)
-        
-        # Fallback: if no lease rent data, use market rent from occupied units
-        if total_in_place == 0 and occupied_units:
-            total_in_place = sum(u.get("market_rent", 0) for u in occupied_units)
-        
-        # Calculate averages
-        unit_count = len(units)
-        occupied_count = len(occupied_units)
-        
-        avg_asking = total_market_rent / unit_count if unit_count > 0 else 0
-        avg_asking_sf = total_market_rent / total_sf if total_sf > 0 else 0
-        avg_in_place = total_in_place / occupied_count if occupied_count > 0 else 0
-        avg_in_place_sf = total_in_place / occupied_sf if occupied_sf > 0 else 0
-        
-        rent_growth = ((avg_asking / avg_in_place) - 1) * 100 if avg_in_place > 0 else 0
-        
-        return PortfolioPricing(
-            property_ids=property_ids,
-            aggregation_mode=mode,
-            total_in_place_rent=round(avg_in_place, 2),
-            total_in_place_per_sf=round(avg_in_place_sf, 2),
-            total_asking_rent=round(avg_asking, 2),
-            total_asking_per_sf=round(avg_asking_sf, 2),
-            total_rent_growth=round(rent_growth, 2),
-        )
+        """Calculate pricing from combined unified.db data (same as weighted avg for DB source)."""
+        return await self._pricing_weighted_average(configs)
     
     async def get_all_units(
         self,
@@ -471,17 +401,9 @@ class PortfolioService:
         all_units: List[UnifiedUnit] = []
         
         for config in configs:
-            # Try database first
-            db_units = self._get_units_from_db(config.property_id)
-            if db_units:
-                units = db_units
-            else:
-                # Fall back to API
-                try:
-                    client = self._get_client(config)
-                    units = await client.get_units(config.property_id)
-                except Exception:
-                    continue
+            units = self._get_units_from_db(config.property_id)
+            if not units:
+                continue
             
             for unit in units:
                 # Determine ready_status and available from unit data
@@ -535,17 +457,9 @@ class PortfolioService:
         all_residents: List[UnifiedResident] = []
         
         for config in configs:
-            # Try database first
-            db_residents = self._get_residents_from_db(config.property_id)
-            if db_residents:
-                residents = db_residents
-            else:
-                # Fall back to API
-                try:
-                    client = self._get_client(config)
-                    residents = await client.get_residents(config.property_id, status)
-                except Exception:
-                    continue
+            residents = self._get_residents_from_db(config.property_id)
+            if not residents:
+                continue
             
             for res in residents:
                 # Re-categorize Current residents with notice_date to "Notice" status
@@ -589,17 +503,18 @@ class PortfolioService:
         all_units = await self.get_all_units(configs)
         all_residents = await self.get_all_residents(configs, status="current")
         
-        # Get property names
+        # Get property names from unified.db
         property_names = []
-        for config in configs:
-            client = self._get_client(config)
-            properties = await client.get_properties()
-            for prop in properties:
-                if prop.get("property_id") == config.property_id:
-                    property_names.append(prop.get("name", config.property_id))
-                    break
-            else:
-                property_names.append(config.property_id)
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            cursor = conn.cursor()
+            for config in configs:
+                cursor.execute("SELECT name FROM unified_properties WHERE unified_property_id = ?", (config.property_id,))
+                row = cursor.fetchone()
+                property_names.append(row[0] if row else config.property_id)
+            conn.close()
+        except Exception:
+            property_names = [c.property_id for c in configs]
         
         return PortfolioSummary(
             property_ids=[c.property_id for c in configs],

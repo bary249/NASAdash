@@ -360,7 +360,17 @@ async def get_leasing_funnel(
         pass
     
     # Return empty metrics if no data available
-    return await occupancy_service.get_leasing_funnel(property_id, timeframe)
+    try:
+        return await occupancy_service.get_leasing_funnel(property_id, timeframe)
+    except Exception:
+        from app.services.timeframe import get_date_range
+        ps, pe = get_date_range(timeframe)
+        return LeasingFunnelMetrics(
+            property_id=property_id, timeframe=timeframe.value,
+            period_start=ps.strftime('%Y-%m-%d'), period_end=pe.strftime('%Y-%m-%d'),
+            leads=0, tours=0, applications=0, lease_signs=0, denials=0,
+            lead_to_tour_rate=0, tour_to_app_rate=0, app_to_lease_rate=0, lead_to_lease_rate=0,
+        )
 
 
 @router.get("/properties/{property_id}/pricing", response_model=UnitPricingMetrics)
@@ -2768,26 +2778,38 @@ async def chat_with_ai(
     history = request.get("history", [])
     
     try:
-        # Gather property data for context
-        occupancy = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
-        exposure = await occupancy_service.get_exposure_metrics(property_id, Timeframe.CM)
-        funnel = await occupancy_service.get_leasing_funnel(property_id, Timeframe.CM)
-        pricing = await pricing_service.get_unit_pricing(property_id)
+        # Gather property data for context (each wrapped to handle PHH/non-Yardi properties)
+        property_data = {"property_id": property_id, "property_name": property_id}
         
-        # Get raw data for deeper context
-        units_raw = await occupancy_service.get_raw_units(property_id)
-        residents_raw = await occupancy_service.get_raw_residents(property_id, "all", Timeframe.CM)
-        
-        property_data = {
-            "property_id": property_id,
-            "property_name": occupancy.property_name,
-            "occupancy": occupancy.model_dump() if hasattr(occupancy, 'model_dump') else vars(occupancy),
-            "exposure": exposure.model_dump() if hasattr(exposure, 'model_dump') else vars(exposure),
-            "funnel": funnel.model_dump() if hasattr(funnel, 'model_dump') else vars(funnel),
-            "pricing": pricing.model_dump() if hasattr(pricing, 'model_dump') else vars(pricing),
-            "units": units_raw,
-            "residents": residents_raw,
-        }
+        try:
+            occupancy = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+            property_data["property_name"] = occupancy.property_name
+            property_data["occupancy"] = occupancy.model_dump() if hasattr(occupancy, 'model_dump') else vars(occupancy)
+        except Exception:
+            pass
+        try:
+            exposure = await occupancy_service.get_exposure_metrics(property_id, Timeframe.CM)
+            property_data["exposure"] = exposure.model_dump() if hasattr(exposure, 'model_dump') else vars(exposure)
+        except Exception:
+            pass
+        try:
+            funnel = await occupancy_service.get_leasing_funnel(property_id, Timeframe.CM)
+            property_data["funnel"] = funnel.model_dump() if hasattr(funnel, 'model_dump') else vars(funnel)
+        except Exception:
+            pass
+        try:
+            pricing = await pricing_service.get_unit_pricing(property_id)
+            property_data["pricing"] = pricing.model_dump() if hasattr(pricing, 'model_dump') else vars(pricing)
+        except Exception:
+            pass
+        try:
+            property_data["units"] = await occupancy_service.get_raw_units(property_id)
+        except Exception:
+            property_data["units"] = []
+        try:
+            property_data["residents"] = await occupancy_service.get_raw_residents(property_id, "all", Timeframe.CM)
+        except Exception:
+            property_data["residents"] = []
         
         response = await chat_service.chat(message, property_data, history)
         return {"response": response}

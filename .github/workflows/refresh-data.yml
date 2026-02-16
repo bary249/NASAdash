@@ -6,10 +6,14 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch: # Manual trigger from GitHub UI
 
+# PHH property IDs (Nexus East + Parkside) — restrict ETL until full portfolio is needed
+env:
+  PHH_TARGET: "5472172 5536211"
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -41,7 +45,7 @@ jobs:
       - name: Check token
         run: python auto_token.py --check
 
-      - name: Run full data pipeline
+      - name: Run PHH data pipeline
         env:
           REALPAGE_EMAIL: ${{ secrets.REALPAGE_EMAIL }}
           REALPAGE_PASSWORD: ${{ secrets.REALPAGE_PASSWORD }}
@@ -51,7 +55,7 @@ jobs:
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
-        run: python refresh_all.py
+        run: python refresh_all.py --target $PHH_TARGET
 
       - name: Validate data before push
         run: python validate_data.py

@@ -40,35 +40,67 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
+// ── In-memory response cache ──
+// Prevents redundant fetches when switching properties back and forth
+// and deduplicates in-flight requests from parallel component mounts.
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const responseCache = new Map<string, { data: unknown; ts: number }>();
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+function getCached<T>(url: string): T | undefined {
+  const entry = responseCache.get(url);
+  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.data as T;
+  if (entry) responseCache.delete(url);
+  return undefined;
+}
+
 async function fetchJson<T>(url: string, retries = 2): Promise<T> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const response = await fetch(url, { headers: getAuthHeaders() });
-      if (response.status === 401) {
-        // Token expired or invalid — clear auth and reload to show login
-        localStorage.removeItem('ownerDashAuth');
-        window.location.reload();
-        throw new Error('Session expired');
+  // 1. Return from cache if fresh
+  const cached = getCached<T>(url);
+  if (cached !== undefined) return cached;
+
+  // 2. Deduplicate in-flight requests to the same URL
+  const inflight = inflightRequests.get(url);
+  if (inflight) return inflight as Promise<T>;
+
+  const request = (async (): Promise<T> => {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const response = await fetch(url, { headers: getAuthHeaders() });
+        if (response.status === 401) {
+          localStorage.removeItem('ownerDashAuth');
+          window.location.reload();
+          throw new Error('Session expired');
+        }
+        if (response.ok) {
+          const data: T = await response.json();
+          responseCache.set(url, { data, ts: Date.now() });
+          return data;
+        }
+        // Retry on 500/502/503/504 (cold start / transient errors)
+        if (attempt < retries && response.status >= 500) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`API error: ${response.status} ${response.statusText}`);
+      } catch (err) {
+        // Retry on network errors (fetch failure / timeout)
+        if (attempt < retries && err instanceof TypeError) {
+          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          continue;
+        }
+        throw err;
       }
-      if (response.ok) {
-        return response.json();
-      }
-      // Retry on 500/502/503/504 (cold start / transient errors)
-      if (attempt < retries && response.status >= 500) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    } catch (err) {
-      // Retry on network errors (fetch failure / timeout)
-      if (attempt < retries && err instanceof TypeError) {
-        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-      throw err;
     }
+    throw new Error('Request failed after retries');
+  })();
+
+  inflightRequests.set(url, request);
+  try {
+    return await request;
+  } finally {
+    inflightRequests.delete(url);
   }
-  throw new Error('Request failed after retries');
 }
 
 export const api = {

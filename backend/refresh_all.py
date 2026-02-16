@@ -80,18 +80,33 @@ def run_step(label: str, cmd: list, cwd: str = None, timeout: int = 600) -> dict
         return {"success": False, "duration": time.time() - start, "output": str(e)}
 
 
+# Global target property IDs (set via --target CLI arg)
+_TARGET_IDS: list[str] = []
+
+
 def step_api() -> dict:
     """Step 1: Pull SOAP API data for all properties."""
     banner("STEP 1/5: SOAP API PULL")
+    cmd = [PYTHON, "-u", "pull_all_api_data.py"]
+    if _TARGET_IDS:
+        # pull_all_api_data uses --only with unified_id, not propertyId
+        # Skip API pull when targeting — reports are the main data source
+        print(f"  Skipping SOAP API pull (targeting {len(_TARGET_IDS)} properties via reports)")
+        return {"success": True, "duration": 0, "output": "skipped (--target mode)"}
     print("  Pulling units, residents, leases for all Kairoi properties...")
-    return run_step("API Pull", [PYTHON, "-u", "pull_all_api_data.py"], timeout=900)
+    return run_step("API Pull", cmd, timeout=900)
 
 
 def step_reports() -> dict:
     """Step 2: Download RealPage reports for all properties."""
     banner("STEP 2/5: REPORT DOWNLOADS")
-    print("  Downloading box_score, rent_roll, delinquency, lease_exp, projected_occ, activity...")
-    return run_step("Reports", [PYTHON, "-u", "download_reports_v2.py"], timeout=1200)
+    cmd = [PYTHON, "-u", "download_reports_v2.py"]
+    if _TARGET_IDS:
+        cmd += ["--target"] + _TARGET_IDS
+        print(f"  Downloading reports for {len(_TARGET_IDS)} targeted properties...")
+    else:
+        print("  Downloading box_score, rent_roll, delinquency, lease_exp, projected_occ, activity...")
+    return run_step("Reports", cmd, timeout=1200)
 
 
 def step_sync() -> dict:
@@ -146,7 +161,14 @@ Steps:
         "--only", nargs="+", choices=list(STEP_FNS.keys()),
         help="Only run these steps"
     )
+    parser.add_argument(
+        "--target", nargs="+",
+        help="Only refresh these RealPage property IDs (e.g. 5472172 5536211 for PHH)"
+    )
     args = parser.parse_args()
+
+    global _TARGET_IDS
+    _TARGET_IDS = args.target or []
 
     skip_set = set(args.skip or [])
     only_set = set(args.only or [])

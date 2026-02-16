@@ -1,0 +1,62 @@
+name: Refresh PHH Data Only
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Refresh RealPage token
+        env:
+          REALPAGE_EMAIL: ${{ secrets.REALPAGE_EMAIL }}
+          REALPAGE_PASSWORD: ${{ secrets.REALPAGE_PASSWORD }}
+        run: python auto_token.py --force
+
+      - name: Download PHH reports only
+        run: python download_reports_v2.py --target 5472172 5536211
+
+      - name: Sync to unified DB
+        run: python -m app.db.sync_realpage_to_unified
+
+      - name: Validate data
+        run: python validate_data.py
+
+      - name: Push DBs to Railway
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+        run: python push_to_deployed.py
+
+      - name: Smoke test
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+        run: |
+          sleep 10
+          BACKEND="${RAILWAY_API_URL:-https://brilliant-upliftment-production-3a4d.up.railway.app}"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/health")
+          echo "  /api/v2/health: $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ Health check failed"; exit 1; }
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/marketing?timeframe=mtd")
+          echo "  /parkside/marketing: $STATUS"
+          [ "$STATUS" -lt 500 ] 2>/dev/null || { echo "❌ Marketing error ($STATUS)"; exit 1; }
+          echo "✅ PHH smoke test passed"

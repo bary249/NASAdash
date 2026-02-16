@@ -130,27 +130,74 @@ function InsightCard({ icon: Icon, label, value, subtitle, color }: {
   );
 }
 
-export function ResidentRiskSection({ propertyId }: Props) {
+export function ResidentRiskSection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<RiskData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   useEffect(() => {
     setData(null);
     setError(null);
     setLoading(true);
 
-    api.getRiskScores(propertyId)
-      .then(setData)
-      .catch(err => {
-        if (err.message?.includes('404')) {
-          setData(null);
-        } else {
-          setError(err.message || 'Failed to load risk scores');
-        }
-      })
-      .finally(() => setLoading(false));
-  }, [propertyId]);
+    if (effectiveIds.length === 1) {
+      api.getRiskScores(effectiveIds[0])
+        .then(setData)
+        .catch(err => {
+          if (err.message?.includes('404')) setData(null);
+          else setError(err.message || 'Failed to load risk scores');
+        })
+        .finally(() => setLoading(false));
+    } else {
+      // Multi-property: fetch all and merge
+      Promise.all(effectiveIds.map(id => api.getRiskScores(id).catch(() => null)))
+        .then(results => {
+          const valid = results.filter(Boolean) as RiskData[];
+          if (valid.length === 0) { setData(null); return; }
+          if (valid.length === 1) { setData(valid[0]); return; }
+          const totalScored = valid.reduce((s, d) => s + d.total_scored, 0);
+          if (totalScored === 0) { setData(null); return; }
+          // Weighted average scores
+          const wAvg = (getter: (d: RiskData) => number) =>
+            valid.reduce((s, d) => s + getter(d) * d.total_scored, 0) / totalScored;
+          setData({
+            property_id: 'multi',
+            snapshot_date: valid[0].snapshot_date,
+            total_scored: totalScored,
+            notice_count: valid.reduce((s, d) => s + (d.notice_count || 0), 0),
+            at_risk_total: valid.reduce((s, d) => s + (d.at_risk_total || 0), 0),
+            churn: {
+              avg_score: Math.round(wAvg(d => d.churn.avg_score) * 100) / 100,
+              median_score: Math.round(wAvg(d => d.churn.median_score) * 100) / 100,
+              high_risk: valid.reduce((s, d) => s + d.churn.high_risk, 0),
+              medium_risk: valid.reduce((s, d) => s + d.churn.medium_risk, 0),
+              low_risk: valid.reduce((s, d) => s + d.churn.low_risk, 0),
+              threshold_high: valid[0].churn.threshold_high,
+              threshold_low: valid[0].churn.threshold_low,
+            },
+            delinquency: {
+              avg_score: Math.round(wAvg(d => d.delinquency.avg_score) * 100) / 100,
+              median_score: Math.round(wAvg(d => d.delinquency.median_score) * 100) / 100,
+              high_risk: valid.reduce((s, d) => s + d.delinquency.high_risk, 0),
+              medium_risk: valid.reduce((s, d) => s + d.delinquency.medium_risk, 0),
+              low_risk: valid.reduce((s, d) => s + d.delinquency.low_risk, 0),
+            },
+            insights: {
+              pct_scheduled_moveout: Math.round(wAvg(d => d.insights.pct_scheduled_moveout) * 10) / 10,
+              pct_with_app: Math.round(wAvg(d => d.insights.pct_with_app) * 10) / 10,
+              avg_tenure_months: Math.round(wAvg(d => d.insights.avg_tenure_months) * 10) / 10,
+              avg_rent: Math.round(wAvg(d => d.insights.avg_rent)),
+              avg_open_tickets: Math.round(wAvg(d => d.insights.avg_open_tickets) * 10) / 10,
+            },
+          });
+        })
+        .catch(err => setError(err instanceof Error ? err.message : 'Failed'))
+        .finally(() => setLoading(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (

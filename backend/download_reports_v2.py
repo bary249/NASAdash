@@ -175,6 +175,7 @@ TABLE_MAP = {
     "advertising_source": "realpage_advertising_source",
     "lost_rent_summary": "realpage_lost_rent_summary",
     "move_out_reasons": "realpage_move_out_reasons",
+    "lease_details": "realpage_lease_details",
 }
 
 
@@ -185,7 +186,7 @@ def cleanup_report_files():
         return 0
     removed = 0
     for f in dl_dir.iterdir():
-        if f.suffix in (".xls", ".xlsx"):
+        if f.suffix in (".xls", ".xlsx", ".csv"):
             f.unlink()
             removed += 1
     return removed
@@ -242,8 +243,8 @@ def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None
         "scheduledDate": "",
         "scheduledTime": "",
         "scheduleDateTime": None,
-        "reportFormat": report_def["formats"].get("excel", "3"),
-        "reportFormatName": "Excel",
+        "reportFormat": report_def["formats"].get(report_def.get("download_format", "excel"), "3"),
+        "reportFormatName": report_def.get("download_format", "Excel").upper() if report_def.get("download_format") else "Excel",
         "emaiTo": "",
         "properties": [property_detail["propertyId"]],
         "propertyDetailList": [property_detail],
@@ -286,6 +287,7 @@ def import_downloaded(downloads):
         import_make_ready, import_closed_make_ready,
         import_advertising_source, import_lost_rent_summary,
         import_move_out_reasons,
+        import_lease_details,
         init_report_tables,
     )
 
@@ -309,6 +311,7 @@ def import_downloaded(downloads):
         "advertising_source": import_advertising_source,
         "lost_rent_summary": import_lost_rent_summary,
         "move_out_reasons": import_move_out_reasons,
+        "lease_details": import_lease_details,
     }
 
     total = 0
@@ -322,7 +325,8 @@ def import_downloaded(downloads):
         rtype = dl["report_type"]
         prop_id = dl["prop_id"]
 
-        temp_path = SCRIPT_DIR / f"temp_{dl['file_id']}.xlsx"
+        ext = ".csv" if dl.get("report_def", {}).get("download_format") == "csv" else ".xlsx"
+        temp_path = SCRIPT_DIR / f"temp_{dl['file_id']}{ext}"
         temp_path.write_bytes(dl["content"])
 
         try:

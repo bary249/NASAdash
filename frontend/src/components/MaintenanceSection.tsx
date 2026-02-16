@@ -69,21 +69,42 @@ function StatCard({ icon: Icon, label, value, subtext, variant = 'default' }: { 
   );
 }
 
-export default function MaintenanceSection({ propertyId }: Props) {
+export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<MaintenanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'pipeline' | 'completed'>('pipeline');
 
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
+
   useEffect(() => {
-    if (!propertyId) return;
+    if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
     setError(null);
-    api.getMaintenance(propertyId)
-      .then(setData)
-      .catch(err => setError(err.message))
+    Promise.all(effectiveIds.map(id => api.getMaintenance(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(Boolean) as MaintenanceData[];
+        if (valid.length === 0) { setData(null); return; }
+        if (valid.length === 1) { setData(valid[0]); return; }
+        const pipeline = valid.flatMap(d => d.pipeline || []);
+        const completed = valid.flatMap(d => d.completed || []);
+        const avgDaysVacant = pipeline.length > 0 ? Math.round(pipeline.reduce((s, u) => s + (u.days_vacant || 0), 0) / pipeline.length) : 0;
+        setData({
+          property_id: 'multi',
+          pipeline,
+          completed,
+          summary: {
+            units_in_pipeline: pipeline.length,
+            avg_days_vacant: avgDaysVacant,
+            overdue_count: valid.reduce((s, d) => s + (d.summary?.overdue_count || 0), 0),
+            completed_this_period: valid.reduce((s, d) => s + (d.summary?.completed_this_period || 0), 0),
+          },
+        });
+      })
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed'))
       .finally(() => setLoading(false));
-  }, [propertyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (

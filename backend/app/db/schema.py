@@ -629,6 +629,12 @@ CREATE TABLE IF NOT EXISTS unified_units (
     on_notice_date TEXT,
     made_ready_date TEXT,
     excluded_from_occupancy INTEGER DEFAULT 0,
+    is_preleased INTEGER DEFAULT 0,
+    in_place_rent REAL,
+    lease_start TEXT,
+    lease_end TEXT,
+    move_in_date TEXT,
+    sqft INTEGER,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(unified_property_id, pms_unit_id),
     FOREIGN KEY (unified_property_id) REFERENCES unified_properties(unified_property_id)
@@ -669,10 +675,18 @@ CREATE TABLE IF NOT EXISTS unified_leases (
     pms_resident_id TEXT,
     pms_unit_id TEXT,
     unit_number TEXT,
+    resident_name TEXT,
+    status TEXT,
+    lease_type TEXT,
     rent_amount REAL,
     lease_start TEXT,
     lease_end TEXT,
     lease_term_months INTEGER,
+    move_in_date TEXT,
+    move_out_date TEXT,
+    next_lease_id TEXT,
+    floorplan TEXT,
+    sqft INTEGER,
     is_renewal INTEGER DEFAULT 0,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (unified_property_id) REFERENCES unified_properties(unified_property_id)
@@ -907,6 +921,197 @@ CREATE INDEX IF NOT EXISTS idx_ah_quotes_issued ON anyonehome_quotes(issued_on);
 CREATE INDEX IF NOT EXISTS idx_ah_quotes_status ON anyonehome_quotes(quote_status);
 CREATE INDEX IF NOT EXISTS idx_ah_funnel_property ON anyonehome_funnel_metrics(ah_property_id);
 CREATE INDEX IF NOT EXISTS idx_ah_funnel_date ON anyonehome_funnel_metrics(snapshot_date);
+
+-- =============================================================================
+-- UNIFIED REPORT TABLES (migrated from PMS-specific raw DBs)
+-- All keyed by unified_property_id, normalized across Yardi + RealPage
+-- =============================================================================
+
+-- Unified Financial Summary (from realpage_monthly_transaction_summary / Yardi GL)
+CREATE TABLE IF NOT EXISTS unified_financial_summary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    report_date TEXT,
+    fiscal_period TEXT,
+    gross_market_rent REAL,
+    gain_to_lease REAL,
+    loss_to_lease REAL,
+    gross_potential REAL,
+    total_other_charges REAL,
+    total_possible_collections REAL,
+    total_collection_losses REAL,
+    total_adjustments REAL,
+    past_due_end_prior REAL,
+    prepaid_end_prior REAL,
+    past_due_end_current REAL,
+    prepaid_end_current REAL,
+    net_change_past_due_prepaid REAL,
+    total_losses_and_adjustments REAL,
+    current_monthly_collections REAL,
+    total_monthly_collections REAL,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_fin_summary_prop ON unified_financial_summary(unified_property_id);
+
+-- Unified Financial Detail (from realpage_monthly_transaction_detail / Yardi GL detail)
+CREATE TABLE IF NOT EXISTS unified_financial_detail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    fiscal_period TEXT,
+    transaction_group TEXT,
+    transaction_code TEXT,
+    description TEXT,
+    ytd_last_month REAL,
+    this_month REAL,
+    ytd_through_month REAL,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_fin_detail_prop ON unified_financial_detail(unified_property_id);
+
+-- Unified Lease Expirations (from realpage_lease_expiration_renewal report 4156)
+CREATE TABLE IF NOT EXISTS unified_lease_expirations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    unit_number TEXT,
+    floorplan TEXT,
+    resident_name TEXT,
+    lease_end_date TEXT,
+    decision TEXT,
+    actual_rent REAL,
+    new_rent REAL,
+    new_lease_start TEXT,
+    new_lease_term INTEGER,
+    sqft INTEGER,
+    report_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_lease_exp_prop ON unified_lease_expirations(unified_property_id);
+
+-- Unified Activity (from realpage_activity / Yardi guest activity)
+CREATE TABLE IF NOT EXISTS unified_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    resident_name TEXT,
+    activity_type TEXT,
+    activity_type_raw TEXT,
+    activity_date TEXT,
+    leasing_agent TEXT,
+    source TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_activity_prop ON unified_activity(unified_property_id);
+CREATE INDEX IF NOT EXISTS idx_unified_activity_date ON unified_activity(unified_property_id, activity_date);
+
+-- Unified Projected Occupancy (from realpage_projected_occupancy report 3842)
+CREATE TABLE IF NOT EXISTS unified_projected_occupancy (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    week_ending TEXT,
+    total_units INTEGER,
+    occupied_begin INTEGER,
+    pct_occupied_begin REAL,
+    scheduled_move_ins INTEGER,
+    scheduled_move_outs INTEGER,
+    occupied_end INTEGER,
+    pct_occupied_end REAL,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_proj_occ_prop ON unified_projected_occupancy(unified_property_id);
+
+-- Unified Maintenance / Make-Ready (from realpage_make_ready + realpage_closed_make_ready)
+CREATE TABLE IF NOT EXISTS unified_maintenance (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    record_type TEXT NOT NULL DEFAULT 'open',
+    unit TEXT,
+    sqft REAL,
+    days_vacant INTEGER,
+    date_vacated TEXT,
+    date_due TEXT,
+    num_work_orders INTEGER,
+    date_closed TEXT,
+    amount_charged REAL,
+    status TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_maintenance_prop ON unified_maintenance(unified_property_id);
+
+-- Unified Move-Out Reasons (from realpage_move_out_reasons report 3879)
+CREATE TABLE IF NOT EXISTS unified_move_out_reasons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    resident_type TEXT,
+    category TEXT,
+    category_count INTEGER,
+    category_pct REAL,
+    reason TEXT,
+    reason_count INTEGER,
+    reason_pct REAL,
+    date_range TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_move_out_prop ON unified_move_out_reasons(unified_property_id);
+
+-- Unified Advertising Sources (from realpage_advertising_source)
+CREATE TABLE IF NOT EXISTS unified_advertising_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    source_name TEXT,
+    new_prospects INTEGER,
+    visits INTEGER,
+    leases INTEGER,
+    net_leases INTEGER,
+    cancelled_denied INTEGER,
+    prospect_to_lease_pct REAL,
+    visit_to_lease_pct REAL,
+    date_range TEXT,
+    timeframe_tag TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_ad_sources_prop ON unified_advertising_sources(unified_property_id);
+
+-- Unified Lost Rent (from realpage_lost_rent_summary report 4279)
+CREATE TABLE IF NOT EXISTS unified_lost_rent (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    unit_number TEXT,
+    market_rent REAL,
+    lease_rent REAL,
+    rent_charged REAL,
+    loss_to_rent REAL,
+    gain_to_rent REAL,
+    vacancy_current REAL,
+    lost_rent_not_charged REAL,
+    move_in_date TEXT,
+    move_out_date TEXT,
+    fiscal_period TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_lost_rent_prop ON unified_lost_rent(unified_property_id);
+
+-- Unified Amenities / Rentable Items (from realpage_rentable_items SOAP)
+CREATE TABLE IF NOT EXISTS unified_amenities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    item_type TEXT,
+    item_description TEXT,
+    monthly_charge REAL,
+    status TEXT,
+    unit_number TEXT,
+    resident_name TEXT,
+    lease_id TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_amenities_prop ON unified_amenities(unified_property_id);
 """
 
 

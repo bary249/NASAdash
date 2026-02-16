@@ -74,9 +74,10 @@ interface PortfolioViewProps {
   onSelectedPropertyIdsChange?: (ids: Set<string>) => void;
   selectedOwnerGroup?: string;
   onOwnerGroupChange?: (group: string) => void;
+  onDataReady?: () => void;
 }
 
-export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange }: PortfolioViewProps) {
+export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange, onDataReady }: PortfolioViewProps) {
   const [expanded, setExpanded] = useState(true);
   const [properties, setProperties] = useState<PropertySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -227,9 +228,11 @@ export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externa
             }
           })
         );
+        onDataReady?.();
       } catch (err) {
         console.error('Failed to load portfolio:', err);
         setLoading(false);
+        onDataReady?.();
       }
     }
 

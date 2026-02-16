@@ -147,11 +147,9 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     api.getPortfolioProperties(selectedOwnerGroup || undefined)
       .then(list => {
         setGroupPropertyIds(list.map(p => p.id));
-        setPortfolioReady(true);
       })
       .catch(() => {
         setGroupPropertyIds([]);
-        setPortfolioReady(true);
       });
   }, [selectedOwnerGroup]);
 
@@ -189,11 +187,37 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
       .then(result => setMarketComps(result.comps))
       .catch(err => console.warn('Failed to fetch market comps:', err));
     
-    // Fetch pricing
-    api.getPricing(effectivePropertyId)
-      .then(setPricing)
+    // Fetch pricing (multi-prop merge)
+    const pricingIds = activePropertyIds.length > 0 ? activePropertyIds : [effectivePropertyId];
+    Promise.all(pricingIds.map(id => api.getPricing(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(Boolean) as UnitPricingMetrics[];
+        if (valid.length === 0) { setPricing(null); return; }
+        if (valid.length === 1) { setPricing(valid[0]); return; }
+        // Merge: weighted avg for rents based on floorplan unit counts
+        const allFloorplans = valid.flatMap(p => p.floorplans || []);
+        const totalUnits = allFloorplans.reduce((s, fp) => s + fp.unit_count, 0);
+        const wAvgAsk = totalUnits > 0
+          ? Math.round(allFloorplans.reduce((s, fp) => s + fp.asking_rent * fp.unit_count, 0) / totalUnits)
+          : 0;
+        const wAvgInPlace = totalUnits > 0
+          ? Math.round(allFloorplans.reduce((s, fp) => s + fp.in_place_rent * fp.unit_count, 0) / totalUnits)
+          : 0;
+        const totalSf = allFloorplans.reduce((s, fp) => s + fp.square_feet * fp.unit_count, 0);
+        setPricing({
+          property_id: 'multi',
+          property_name: `${valid.length} Properties`,
+          floorplans: allFloorplans,
+          total_in_place_rent: wAvgInPlace,
+          total_in_place_per_sf: totalSf > 0 ? Math.round(allFloorplans.reduce((s, fp) => s + fp.in_place_rent_per_sf * fp.unit_count * fp.square_feet, 0) / totalSf * 100) / 100 : 0,
+          total_asking_rent: wAvgAsk,
+          total_asking_per_sf: totalSf > 0 ? Math.round(allFloorplans.reduce((s, fp) => s + fp.asking_rent_per_sf * fp.unit_count * fp.square_feet, 0) / totalSf * 100) / 100 : 0,
+          total_rent_growth: wAvgInPlace > 0 ? Math.round((wAvgAsk - wAvgInPlace) / wAvgInPlace * 1000) / 10 : 0,
+        });
+      })
       .catch(err => console.warn('Failed to fetch pricing:', err));
-  }, [effectivePropertyId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectivePropertyId, activePropertyIds.join(',')]);
 
   // AI search handler
   const handleAISearch = async (query: string, isAI: boolean) => {
@@ -379,6 +403,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
               onSelectedPropertyIdsChange={handleSelectedPropertyIdsChange}
               selectedOwnerGroup={selectedOwnerGroup}
               onOwnerGroupChange={setSelectedOwnerGroup}
+              onDataReady={() => setPortfolioReady(true)}
             />
           </div>
 
@@ -700,9 +725,38 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     { key: 'status', label: 'Status' },
     { key: 'sqft', label: 'SqFt', format: (v: unknown) => v ? String(v) : '—' },
     { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
-    { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
+    { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown, row?: any) => {
+      if (!v) return '—';
+      const formatted = `$${Number(v).toLocaleString()}`;
+      return row?.rent_is_estimated ? `~${formatted}` : formatted;
+    }, cellClassName: (_v: unknown, row?: any) => row?.rent_is_estimated ? 'text-gray-400 italic' : 'text-gray-900' },
     { key: 'lease_end', label: 'Lease End' },
     { key: 'days_vacant', label: 'Days Vacant', format: (v: unknown) => v != null ? `${v}d` : '—' },
+  ];
+
+  const VACANT_COLUMNS = UNIT_COLUMNS.filter(c => c.key !== 'lease_end');
+  const NOTICE_COLUMNS = UNIT_COLUMNS.filter(c => c.key !== 'days_vacant');
+  const PRELEASED_COLUMNS = [
+    { key: 'unit', label: 'Unit' },
+    { key: 'floorplan', label: 'Floorplan' },
+    { key: 'status', label: 'Status' },
+    { key: 'sqft', label: 'SqFt', format: (v: unknown) => v ? String(v) : '—' },
+    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
+    { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown, row?: any) => {
+      if (!v) return '—';
+      const formatted = `$${Number(v).toLocaleString()}`;
+      return row?.rent_is_estimated ? `~${formatted}` : formatted;
+    }, cellClassName: (_v: unknown, row?: any) => row?.rent_is_estimated ? 'text-gray-400 italic' : 'text-gray-900' },
+    { key: 'lease_end', label: 'Lease End', format: (_v: unknown, row?: any) => {
+      // Only show lease_end for occupied (NTVL) units
+      if (row?.status === 'Occupied-NTVL') return row?.lease_end || '—';
+      return '—';
+    }},
+    { key: 'lease_start', label: 'Lease Start', format: (_v: unknown, row?: any) => {
+      // Only show lease_start for Vacant-Leased units
+      if (row?.status === 'Vacant-Leased') return row?.lease_start || '—';
+      return '—';
+    }},
   ];
 
   const FORECAST_UNIT_COLUMNS = [
@@ -766,14 +820,18 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       if (type === 'availability') {
         setKpiDrillTitle(`Units — ${param || 'All'}`);
         setKpiDrillColumns(UNIT_COLUMNS);
-        const result = await api.getAvailabilityUnits(propertyId, param || undefined);
-        setKpiDrillData(result.units);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id, param || undefined).catch(() => ({ units: [], count: 0 })))
+        );
+        setKpiDrillData(results.flatMap((r: any) => r.units || []));
       } else if (type === 'availability_status') {
-        const label = param === 'notice' ? 'Notice Units' : param === 'vacant' ? 'Vacant Units' : `${param} Units`;
+        const label = param === 'notice' ? 'Notice Units' : param === 'vacant' ? 'Vacant Units' : param === 'preleased' ? 'Pre-leased Units' : `${param} Units`;
         setKpiDrillTitle(label);
-        setKpiDrillColumns(UNIT_COLUMNS);
-        const result = await api.getAvailabilityUnits(propertyId, undefined, param);
-        setKpiDrillData(result.units);
+        setKpiDrillColumns(param === 'notice' ? NOTICE_COLUMNS : param === 'vacant' ? VACANT_COLUMNS : param === 'preleased' ? PRELEASED_COLUMNS : UNIT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id, undefined, param).catch(() => ({ units: [], count: 0 })))
+        );
+        setKpiDrillData(results.flatMap((r: any) => r.units || []));
       } else if (type === 'forecast_notice') {
         setKpiDrillTitle(`Notice Move-Out Units${weekLabel}`);
         setKpiDrillColumns(FORECAST_UNIT_COLUMNS);
@@ -816,17 +874,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         setKpiDrillColumns(TRADEOUT_COLUMNS);
         setKpiDrillData(tradeoutData?.tradeouts || []);
       } else if (type === 'atr') {
-        setKpiDrillTitle('ATR Units — Vacant + On Notice');
+        setKpiDrillTitle('ATR Units — Vacant + On Notice (excl. Pre-leased)');
         setKpiDrillColumns(UNIT_COLUMNS);
+        // Use backend ?status=atr filter for exact ATR match (vacant + notice, excl pre-leased)
         const results = await Promise.all(
-          propertyIds.map(id => api.getAvailabilityUnits(id).catch(() => ({ units: [], count: 0 })))
+          propertyIds.map(id => api.getAvailabilityUnits(id, undefined, 'atr').catch(() => ({ units: [], count: 0 })))
         );
-        const allUnits = results.flatMap((r: any) => r.units || []);
-        // Show Vacant + On Notice + Admin/Down (NOT Vacant-Leased — those are pre-leased and subtracted)
-        // Admin/Down included because box_score counts them within vacant_units (down=0)
-        const atrUnits = allUnits.filter((u: any) =>
-          ['Vacant', 'Occupied-NTV', 'Occupied-NTVL', 'Admin/Down'].includes(u.status)
-        );
+        const atrUnits = results.flatMap((r: any) => r.units || []);
         setKpiDrillData(atrUnits);
       } else if (type === 'renewals') {
         setKpiDrillTitle('Renewal Leases — Rent vs Prior');
@@ -840,7 +894,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     }
   }, [propertyId, forecast, tradeoutData, showsL7, renewalData, filterUnitsByWeek]);
 
-  const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out') => {
+  const openDrill = useCallback(async (days: number, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out', month?: string) => {
     setDrillFilter(filter);
     const labels: Record<string, string> = {
       renewed: 'Renewed Leases',
@@ -851,18 +905,21 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       moved_out: 'Moved Out',
     };
     const label = filter ? labels[filter] || 'All Leases' : 'All Expiring Leases';
-    setDrillTitle(`${label} — Next ${days} Days`);
+    const periodLabel = month ? month : `Next ${days} Days`;
+    setDrillTitle(`${label} — ${periodLabel}`);
     setDrillOpen(true);
     setDrillLoading(true);
     try {
-      const result = await api.getExpirationDetails(propertyId, days, filter);
-      setDrillData(result.leases);
+      const results = await Promise.all(
+        propertyIds.map(id => api.getExpirationDetails(id, days, filter, month).catch(() => ({ leases: [], count: 0 })))
+      );
+      setDrillData(results.flatMap(r => r.leases || []));
     } catch {
       setDrillData([]);
     } finally {
       setDrillLoading(false);
     }
-  }, [propertyId]);
+  }, [propertyIds]);
 
   if (loading) {
     return (
@@ -1062,43 +1119,60 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             {expirations?.periods
               ?.filter(p => renewalViewMode === 'rolling' ? p.label.endsWith('d') : !p.label.endsWith('d'))
               .map(p => {
+              const isRolling = p.label.endsWith('d');
               const days = p.label === '30d' ? 30 : p.label === '60d' ? 60 : 90;
+              // For monthly periods, compute YYYY-MM string from label (e.g. "Feb" → "2026-02")
+              let monthParam: string | undefined;
+              if (!isRolling) {
+                const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                const mIdx = monthNames.indexOf(p.label);
+                if (mIdx >= 0) {
+                  const now = new Date();
+                  let y = now.getFullYear();
+                  let m = mIdx + 1;
+                  // If month is before current month, it's next year
+                  if (m < now.getMonth() + 1) y++;
+                  monthParam = `${y}-${String(m).padStart(2, '0')}`;
+                }
+              }
+              const drill = (filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out') =>
+                openDrill(days, filter, monthParam);
               return (
                 <div key={p.label} className="bg-slate-50 rounded-lg p-4 relative">
-                  <div className="text-xs font-medium text-slate-500 uppercase mb-3">{p.label.endsWith('d') ? (p.label === '30d' ? 'Next 30 Days' : p.label === '60d' ? 'Next 60 Days' : 'Next 90 Days') : p.label}</div>
-                  <button onClick={() => openDrill(days)} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                  <div className="text-xs font-medium text-slate-500 uppercase mb-3">{isRolling ? (p.label === '30d' ? 'Next 30 Days' : p.label === '60d' ? 'Next 60 Days' : 'Next 90 Days') : p.label}</div>
+                  <button onClick={() => drill()} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-slate-800">{p.expirations}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">expiring</span>
                     <InfoTooltip text="Total leases with end dates in this period. Click to see all units." />
                   </button>
-                  <button onClick={() => openDrill(days, 'renewed')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                  <button onClick={() => drill('renewed')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-emerald-600">{p.renewals}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">renewed</span>
                     <InfoTooltip text="Resident has signed a renewal lease. The unit is secured for another term." />
                   </button>
                   {(p.vacating ?? 0) > 0 && (
-                    <button onClick={() => openDrill(days, 'vacating')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                    <button onClick={() => drill('vacating')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-rose-500">{p.vacating}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">vacating</span>
                       <InfoTooltip text="Resident has given notice to vacate. Unit will need to be turned and re-leased." />
                     </button>
                   )}
                   {(p.unknown ?? 0) > 0 && (
-                    <button onClick={() => openDrill(days, 'pending')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                    <button onClick={() => drill('pending')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-amber-500">{p.unknown}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">pending</span>
                       <InfoTooltip text="No decision recorded yet. Resident has not renewed or given notice — follow up needed." />
                     </button>
                   )}
                   {(p.mtm ?? 0) > 0 && (
-                    <button onClick={() => openDrill(days, 'mtm')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                    <button onClick={() => drill('mtm')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-slate-400">{p.mtm}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">MTM</span>
                       <InfoTooltip text="Lease converted to month-to-month. Resident stays without a fixed-term renewal." />
                     </button>
                   )}
                   {(p.moved_out ?? 0) > 0 && (
-                    <button onClick={() => openDrill(days, 'moved_out')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
+                    <button onClick={() => drill('moved_out')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-slate-500">{p.moved_out}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">moved out</span>
                       <InfoTooltip text="Resident has already moved out. Unit is vacant or in turnover." />

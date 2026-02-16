@@ -18,16 +18,16 @@
     }
   },
   "7 east apartments": {
-    "cached_at": 1771176557.2158458,
+    "cached_at": 1771263660.436576,
     "data": {
       "rating": 4.3,
-      "review_count": 95,
+      "review_count": 94,
       "place_id": "ChIJUXgF3sm1RIYRR29nE1pBKfk",
       "address": "2025 E 7th St, Austin, TX 78702, USA"
     }
   },
   "aspire 7th and grant apartments": {
-    "cached_at": 1771176558.15308,
+    "cached_at": 1771263661.481884,
     "data": {
       "rating": 4.8,
       "review_count": 156,
@@ -36,7 +36,7 @@
     }
   },
   "block 44 apartments": {
-    "cached_at": 1771176558.98289,
+    "cached_at": 1771263662.2120378,
     "data": {
       "rating": 3.9,
       "review_count": 127,
@@ -45,7 +45,7 @@
     }
   },
   "the broadleaf apartments": {
-    "cached_at": 1771176574.397215,
+    "cached_at": 1771263663.24277,
     "data": {
       "rating": 4.8,
       "review_count": 71,
@@ -54,7 +54,7 @@
     }
   },
   "the confluence apartments": {
-    "cached_at": 1771176592.5273669,
+    "cached_at": 1771263664.172859,
     "data": {
       "rating": 4.4,
       "review_count": 248,
@@ -63,7 +63,7 @@
     }
   },
   "curate at orchard town center apartments": {
-    "cached_at": 1771176593.301232,
+    "cached_at": 1771263665.1402292,
     "data": {
       "rating": 4.6,
       "review_count": 216,
@@ -72,7 +72,7 @@
     }
   },
   "discovery at kingwood apartments": {
-    "cached_at": 1771176594.211745,
+    "cached_at": 1771263666.172253,
     "data": {
       "rating": 4.4,
       "review_count": 291,
@@ -81,7 +81,7 @@
     }
   },
   "eden keller ranch apartments": {
-    "cached_at": 1771176595.131124,
+    "cached_at": 1771263667.1713789,
     "data": {
       "rating": 4.1,
       "review_count": 155,
@@ -90,7 +90,7 @@
     }
   },
   "edison at rino apartments": {
-    "cached_at": 1771176595.902425,
+    "cached_at": 1771263668.136044,
     "data": {
       "rating": 4.4,
       "review_count": 252,
@@ -99,7 +99,7 @@
     }
   },
   "harvest apartments": {
-    "cached_at": 1771176596.888457,
+    "cached_at": 1771263669.141717,
     "data": {
       "rating": 4,
       "review_count": 86,
@@ -108,16 +108,16 @@
     }
   },
   "heights at interlocken apartments": {
-    "cached_at": 1771176598.057892,
+    "cached_at": 1771263670.1319602,
     "data": {
-      "rating": 3.6,
-      "review_count": 239,
+      "rating": 3.7,
+      "review_count": 240,
       "place_id": "ChIJXwjZuoKLa4cR4DZFYclcCQQ",
       "address": "401 Interlocken Blvd, Broomfield, CO 80021, USA"
     }
   },
   "izzy apartments": {
-    "cached_at": 1771176599.0865128,
+    "cached_at": 1771263670.824898,
     "data": {
       "rating": 3.3,
       "review_count": 517,
@@ -126,7 +126,7 @@
     }
   },
   "kalaco apartments": {
-    "cached_at": 1771176599.823877,
+    "cached_at": 1771263671.776685,
     "data": {
       "rating": 5,
       "review_count": 63,
@@ -135,7 +135,7 @@
     }
   },
   "the links at plum creek apartments": {
-    "cached_at": 1771176600.517113,
+    "cached_at": 1771263672.7837381,
     "data": {
       "rating": 4.2,
       "review_count": 186,
@@ -144,7 +144,7 @@
     }
   },
   "luna apartments": {
-    "cached_at": 1771176601.2330198,
+    "cached_at": 1771263673.812782,
     "data": {
       "rating": 3.5,
       "review_count": 32,
@@ -153,7 +153,7 @@
     }
   },
   "nexus east apartments": {
-    "cached_at": 1771176602.184581,
+    "cached_at": 1771263674.789917,
     "data": {
       "rating": 3.9,
       "review_count": 240,
@@ -162,7 +162,7 @@
     }
   },
   "park 17 apartments": {
-    "cached_at": 1771176602.8983989,
+    "cached_at": 1771263675.5639591,
     "data": {
       "rating": 4.6,
       "review_count": 182,
@@ -171,7 +171,7 @@
     }
   },
   "parkside at round rock apartments": {
-    "cached_at": 1771176603.576889,
+    "cached_at": 1771263676.569201,
     "data": {
       "rating": 3.9,
       "review_count": 223,
@@ -180,7 +180,7 @@
     }
   },
   "pearl lantana apartments": {
-    "cached_at": 1771176604.195411,
+    "cached_at": 1771263677.6151118,
     "data": {
       "rating": 4.7,
       "review_count": 283,
@@ -189,7 +189,7 @@
     }
   },
   "ridian apartments": {
-    "cached_at": 1771176604.903842,
+    "cached_at": 1771263678.651499,
     "data": {
       "rating": 4.8,
       "review_count": 33,
@@ -198,7 +198,7 @@
     }
   },
   "slate apartments": {
-    "cached_at": 1771176605.6270888,
+    "cached_at": 1771263679.746454,
     "data": {
       "rating": 3.9,
       "review_count": 12,
@@ -207,16 +207,16 @@
     }
   },
   "sloane apartments": {
-    "cached_at": 1771176606.28127,
+    "cached_at": 1771263681.488469,
     "data": {
       "rating": 4.7,
-      "review_count": 84,
+      "review_count": 86,
       "place_id": "ChIJU0IaMAAzK4gRMUVw4CAapYA",
       "address": "5 York Garden Wy, North York, ON M6A 0G9, Canada"
     }
   },
   "the station at riverfront park apartments": {
-    "cached_at": 1771176606.9123871,
+    "cached_at": 1771263682.281587,
     "data": {
       "rating": 4,
       "review_count": 302,
@@ -225,7 +225,7 @@
     }
   },
   "stonewood apartments": {
-    "cached_at": 1771176607.542985,
+    "cached_at": 1771263683.3661702,
     "data": {
       "rating": 4.1,
       "review_count": 208,
@@ -234,7 +234,7 @@
     }
   },
   "ten50 apartments": {
-    "cached_at": 1771176608.789456,
+    "cached_at": 1771263684.364243,
     "data": {
       "rating": 4.6,
       "review_count": 62,
@@ -243,7 +243,7 @@
     }
   },
   "the alcott apartments": {
-    "cached_at": 1771176609.493891,
+    "cached_at": 1771263685.41249,
     "data": {
       "rating": 4.6,
       "review_count": 172,
@@ -252,7 +252,7 @@
     }
   },
   "the avant apartments": {
-    "cached_at": 1771176610.3783271,
+    "cached_at": 1771263686.3769689,
     "data": {
       "rating": 4.3,
       "review_count": 258,
@@ -261,7 +261,7 @@
     }
   },
   "the hunter apartments": {
-    "cached_at": 1771176611.024674,
+    "cached_at": 1771263687.348228,
     "data": {
       "rating": 4.8,
       "review_count": 16,
@@ -270,7 +270,7 @@
     }
   },
   "the northern apartments": {
-    "cached_at": 1771176611.6758568,
+    "cached_at": 1771263688.299529,
     "data": {
       "rating": 3.6,
       "review_count": 144,
@@ -279,7 +279,7 @@
     }
   },
   "thepearl apartments": {
-    "cached_at": 1771176612.957986,
+    "cached_at": 1771263689.446948,
     "data": {
       "rating": 4.4,
       "review_count": 13,
@@ -288,7 +288,7 @@
     }
   },
   "thequinci apartments": {
-    "cached_at": 1771176613.596569,
+    "cached_at": 1771263690.389366,
     "data": {
       "rating": 4.7,
       "review_count": 51,

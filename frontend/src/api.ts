@@ -87,9 +87,10 @@ export const api = {
   getExpirations: (propertyId: string): Promise<{ periods: { label: string; expirations: number; renewals: number; signed: number; submitted: number; selected: number; renewal_pct: number; vacating?: number; unknown?: number; mtm?: number; moved_out?: number }[] }> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/expirations`),
 
-  getExpirationDetails: (propertyId: string, days: number = 90, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out'): Promise<{ leases: { unit: string; lease_end: string; market_rent: number; status: string; floorplan: string; sqft: number; move_in: string; lease_start: string }[]; count: number }> => {
+  getExpirationDetails: (propertyId: string, days: number = 90, filter?: 'renewed' | 'expiring' | 'vacating' | 'pending' | 'mtm' | 'moved_out', month?: string): Promise<{ leases: { unit: string; lease_end: string; market_rent: number; status: string; floorplan: string; sqft: number; move_in: string; lease_start: string }[]; count: number }> => {
     const params = new URLSearchParams({ days: String(days) });
     if (filter) params.set('filter', filter);
+    if (month) params.set('month', month);
     return fetchJson(`${API_BASE}/properties/${propertyId}/expirations/details?${params}`);
   },
 

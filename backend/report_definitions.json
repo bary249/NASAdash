@@ -268,6 +268,23 @@
       "status": "complete",
       "notes": "Unit-level market vs lease rent. xlsx format (use openpyxl). Gold for loss-to-lease analysis."
     },
+    "lease_details": {
+      "report_id": 4048,
+      "report_key": "69EB8E7D-4158-44CF-AC17-8A07E2F4182C",
+      "name": "Lease Details",
+      "formats": {
+        "xml": "-1",
+        "html": "62",
+        "excel": "63",
+        "csv": "357"
+      },
+      "parameters": [
+        {"name": "CustomReportPickList", "value": "[{\"value\":\"LeaID\",\"filter\":null,\"label\":\"Lease id\",\"sort\":-1},{\"value\":\"fpName\",\"filter\":null,\"label\":\"Floor plan\",\"sort\":-1},{\"value\":\"OccupancyStatus\",\"filter\":null,\"label\":\"Occupancy status\",\"sort\":-1},{\"value\":\"leaBeginDate\",\"filter\":null,\"label\":\"Lease start date\",\"sort\":-1},{\"value\":\"leaEndDate\",\"filter\":null,\"label\":\"Lease end date\",\"sort\":-1},{\"value\":\"leaMoveInDate\",\"filter\":null,\"label\":\"Move-in date\",\"sort\":-1},{\"value\":\"leaMoveOutDate\",\"filter\":null,\"label\":\"Moved out date\",\"sort\":-1},{\"value\":\"leaAppliedDate\",\"filter\":null,\"label\":\"Applied date\",\"sort\":-1},{\"value\":\"leaLeaseApprovedDate\",\"filter\":null,\"label\":\"Lease approved date\",\"sort\":-1},{\"value\":\"leaNoticeOnDate\",\"filter\":null,\"label\":\"Notice given date\",\"sort\":-1},{\"value\":\"LeaseTerm\",\"filter\":null,\"label\":\"Lease term\",\"sort\":-1},{\"value\":\"leaseRent\",\"filter\":null,\"label\":\"Lease Rent\",\"sort\":-1},{\"value\":\"leaseRentTotal\",\"filter\":null,\"label\":\"Lease Total\",\"sort\":-1},{\"value\":\"LedgerBalance\",\"filter\":null,\"label\":\"Ledger Balance\",\"sort\":-1},{\"value\":\"MoveOutNoticeType\",\"filter\":null,\"label\":\"Move out notice type\",\"sort\":-1},{\"value\":\"moutName\",\"filter\":null,\"label\":\"Move out reason\",\"sort\":-1}]"}
+      ],
+      "download_format": "csv",
+      "status": "complete",
+      "notes": "Unit-level lease details. Use CSV format (Excel produces HTML-as-xls). Columns configured via CustomReportPickList. Key for filling Vacant-Leased incoming lease_start gaps. Unit number resolved by joining lease_id to realpage_leases."
+    },
     "move_out_reasons": {
       "report_id": 3879,
       "report_key": "4ADC30D4-1C62-47CA-AB30-CD3F2577943B",

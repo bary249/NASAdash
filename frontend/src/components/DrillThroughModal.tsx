@@ -1,10 +1,13 @@
-import { X } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 
 interface Column {
   key: string;
   label: string;
-  format?: (value: unknown) => string;
-  cellClassName?: (value: unknown) => string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  format?: (value: unknown, row?: any) => string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  cellClassName?: (value: unknown, row?: any) => string;
 }
 
 interface DrillThroughModalProps {
@@ -25,6 +28,45 @@ export function DrillThroughModal({
   columns,
   loading = false,
 }: DrillThroughModalProps) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else { setSortKey(null); setSortDir('asc'); }
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortedData = useMemo(() => {
+    if (!sortKey) return data;
+    return [...data].sort((a, b) => {
+      let av = a[sortKey];
+      let bv = b[sortKey];
+      // nulls / '—' last
+      const aNull = av == null || av === '' || av === '—';
+      const bNull = bv == null || bv === '' || bv === '—';
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      // numeric comparison
+      const an = Number(av);
+      const bn = Number(bv);
+      if (!isNaN(an) && !isNaN(bn)) {
+        return sortDir === 'asc' ? an - bn : bn - an;
+      }
+      // string comparison
+      av = String(av).toLowerCase();
+      bv = String(bv).toLowerCase();
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [data, sortKey, sortDir]);
+
   if (!isOpen) return null;
 
   return (
@@ -56,20 +98,28 @@ export function DrillThroughModal({
                     {columns.map((col) => (
                       <th
                         key={col.key}
-                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 transition-colors"
+                        onClick={() => handleSort(col.key)}
                       >
-                        {col.label}
+                        <span className="inline-flex items-center gap-1">
+                          {col.label}
+                          {sortKey === col.key ? (
+                            sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+                          )}
+                        </span>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {data.map((row, idx) => (
+                  {sortedData.map((row, idx) => (
                     <tr key={idx} className="hover:bg-gray-50">
                       {columns.map((col) => (
-                        <td key={col.key} className={`px-4 py-3 text-sm whitespace-nowrap ${col.cellClassName ? col.cellClassName(row[col.key]) : 'text-gray-900'}`}>
+                        <td key={col.key} className={`px-4 py-3 text-sm whitespace-nowrap ${col.cellClassName ? col.cellClassName(row[col.key], row) : 'text-gray-900'}`}>
                           {col.format
-                            ? col.format(row[col.key])
+                            ? col.format(row[col.key], row)
                             : String(row[col.key] ?? '—')}
                         </td>
                       ))}

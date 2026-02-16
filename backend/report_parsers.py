@@ -6,6 +6,8 @@ Parses downloaded Excel reports and extracts structured data for database storag
 
 import pandas as pd
 import re
+import csv
+import io
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -45,6 +47,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'lost_rent_summary'
         elif 'REASONS FOR MOVE OUT' in row_text:
             return 'move_out_reasons'
+        elif 'LEASE DETAILS' in row_text:
+            return 'lease_details'
     
     return None
 
@@ -1625,11 +1629,64 @@ def parse_move_out_reasons(file_path: str, property_id: str = None) -> List[Dict
     return records
 
 
+def parse_lease_details(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """Parse Lease Details report (CSV format from RealPage).
+    
+    CSV columns: Lease id, Floor plan, Occupancy status, Lease start date,
+    Lease end date, Move-in date, Moved out date, Applied date,
+    Lease approved date, Notice given date, Lease term, Lease Rent,
+    Lease Total, Ledger Balance, Move out notice type, Move out reason
+    """
+    records = []
+    content = Path(file_path).read_text(encoding='utf-8', errors='replace')
+    reader = csv.DictReader(io.StringIO(content))
+    
+    for row in reader:
+        def clean_money(v):
+            if not v or not v.strip():
+                return None
+            return float(v.replace(',', '').replace('$', '').strip())
+        
+        def clean_str(v):
+            if not v or not v.strip():
+                return None
+            return v.strip()
+        
+        records.append({
+            'property_id': property_id,
+            'lease_id': clean_str(row.get('Lease id')),
+            'floorplan': clean_str(row.get('Floor plan')),
+            'occupancy_status': clean_str(row.get('Occupancy status')),
+            'lease_start_date': clean_str(row.get('Lease start date')),
+            'lease_end_date': clean_str(row.get('Lease end date')),
+            'move_in_date': clean_str(row.get('Move-in date')),
+            'move_out_date': clean_str(row.get('Moved out date')),
+            'applied_date': clean_str(row.get('Applied date')),
+            'lease_approved_date': clean_str(row.get('Lease approved date')),
+            'notice_given_date': clean_str(row.get('Notice given date')),
+            'lease_term': clean_str(row.get('Lease term')),
+            'lease_rent': clean_money(row.get('Lease Rent')),
+            'lease_total': clean_money(row.get('Lease Total')),
+            'ledger_balance': clean_money(row.get('Ledger Balance')),
+            'move_out_notice_type': clean_str(row.get('Move out notice type')),
+            'move_out_reason': clean_str(row.get('Move out reason')),
+        })
+    
+    return records
+
+
 def parse_report(file_path: str, property_id: str = None, file_id: str = None, report_type_hint: str = None) -> Dict[str, Any]:
     """
     Parse a report file and return structured data.
     Auto-detects report type, falls back to report_type_hint if detection fails.
     """
+    # CSV files: route directly by hint (no Excel auto-detection)
+    if file_path.endswith('.csv') and report_type_hint == 'lease_details':
+        records = parse_lease_details(file_path, property_id)
+        for r in records:
+            r['file_id'] = file_id
+        return {'report_type': 'lease_details', 'records': records, 'file_path': str(file_path), 'file_id': file_id}
+
     try:
         df = pd.read_excel(file_path, sheet_name=0, header=None)
     except Exception as e:
@@ -1652,6 +1709,7 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'advertising_source': 'advertising_source',
             'lost_rent_summary': 'lost_rent_summary',
             'move_out_reasons': 'move_out_reasons',
+            'lease_details': 'lease_details',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -1683,6 +1741,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_lost_rent_summary(file_path, property_id)
     elif report_type == 'move_out_reasons':
         records = parse_move_out_reasons(file_path, property_id)
+    elif report_type == 'lease_details':
+        records = parse_lease_details(file_path, property_id)
     else:
         records = []
     

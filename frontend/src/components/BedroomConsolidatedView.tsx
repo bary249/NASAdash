@@ -69,16 +69,63 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
 
-  const effectiveId = propertyIds && propertyIds.length === 1 ? propertyIds[0] : propertyId;
+  const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   useEffect(() => {
-    if (!effectiveId) return;
+    if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
-    api.getConsolidatedByBedroom(effectiveId)
-      .then(d => setData(d))
+    Promise.all(effectiveIds.map(id => api.getConsolidatedByBedroom(id).catch(() => null)))
+      .then(results => {
+        const valid = results.filter(r => r && r.bedrooms?.length > 0) as { bedrooms: BedroomRow[]; totals: Totals }[];
+        if (valid.length === 0) { setData(null); return; }
+        if (valid.length === 1) { setData(valid[0]); return; }
+        // Merge bedroom rows by bedroom_type
+        const rowMap: Record<string, BedroomRow> = {};
+        for (const d of valid) {
+          for (const b of d.bedrooms) {
+            const key = b.bedroom_type;
+            if (!rowMap[key]) {
+              rowMap[key] = { ...b, floorplans: [...b.floorplans] };
+            } else {
+              const m = rowMap[key];
+              m.floorplan_count += b.floorplan_count;
+              m.floorplans = [...new Set([...m.floorplans, ...b.floorplans])];
+              const totalUnitsNew = m.total_units + b.total_units;
+              m.avg_market_rent = totalUnitsNew > 0 ? (m.avg_market_rent * m.total_units + b.avg_market_rent * b.total_units) / totalUnitsNew : 0;
+              m.avg_in_place_rent = (m.occupied + b.occupied) > 0 ? (m.avg_in_place_rent * m.occupied + b.avg_in_place_rent * b.occupied) / (m.occupied + b.occupied) : 0;
+              m.total_units = totalUnitsNew;
+              m.occupied += b.occupied;
+              m.vacant += b.vacant;
+              m.vacant_leased += b.vacant_leased;
+              m.vacant_not_leased += b.vacant_not_leased;
+              m.on_notice += b.on_notice;
+              m.expiring_90d += b.expiring_90d;
+              m.renewed_90d += b.renewed_90d;
+              m.occupancy_pct = m.total_units > 0 ? Math.round(m.occupied / m.total_units * 1000) / 10 : 0;
+              m.rent_delta = m.avg_market_rent - m.avg_in_place_rent;
+              m.renewal_pct_90d = m.expiring_90d > 0 ? Math.round(m.renewed_90d / m.expiring_90d * 100) : null;
+            }
+          }
+        }
+        const bedrooms = Object.values(rowMap).sort((a, b) => a.bedrooms - b.bedrooms);
+        const totals: Totals = {
+          total_units: bedrooms.reduce((s, b) => s + b.total_units, 0),
+          occupied: bedrooms.reduce((s, b) => s + b.occupied, 0),
+          vacant: bedrooms.reduce((s, b) => s + b.vacant, 0),
+          vacant_leased: bedrooms.reduce((s, b) => s + b.vacant_leased, 0),
+          on_notice: bedrooms.reduce((s, b) => s + b.on_notice, 0),
+          occupancy_pct: 0, expiring_90d: bedrooms.reduce((s, b) => s + b.expiring_90d, 0),
+          renewed_90d: bedrooms.reduce((s, b) => s + b.renewed_90d, 0),
+          renewal_pct_90d: null,
+        };
+        totals.occupancy_pct = totals.total_units > 0 ? Math.round(totals.occupied / totals.total_units * 1000) / 10 : 0;
+        totals.renewal_pct_90d = totals.expiring_90d > 0 ? Math.round(totals.renewed_90d / totals.expiring_90d * 100) : null;
+        setData({ bedrooms, totals });
+      })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [effectiveId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIds.join(',')]);
 
   if (loading) {
     return (

@@ -4,7 +4,7 @@ READ-ONLY OPERATIONS ONLY.
 """
 from fastapi import APIRouter, Query, HTTPException, Depends, Header
 from typing import List, Optional
-from app.db.schema import UNIFIED_DB_PATH, REALPAGE_DB_PATH
+from app.db.schema import UNIFIED_DB_PATH
 from app.services.portfolio_service import PortfolioService
 from app.services.chat_service import chat_service
 from app.services.occupancy_service import OccupancyService
@@ -37,7 +37,6 @@ from app.models.unified import (
 from app.property_config import (
     ALL_PROPERTIES,
     get_property,
-    get_pms_config,
     list_all_properties,
 )
 
@@ -404,7 +403,6 @@ async def get_watchlist(
     from pathlib import Path
     
     db_path = UNIFIED_DB_PATH
-    raw_db = REALPAGE_DB_PATH
     
     # Get all properties
     properties = []
@@ -485,57 +483,53 @@ async def get_watchlist(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build watchlist: {str(e)}")
     
-    # Get renewal rates — prefer report 4156 (realpage_lease_expiration_renewal),
-    # fall back to realpage_leases
+    # Get renewal rates from unified tables
     renewal_map = {}
     try:
-        raw_conn = sqlite3.connect(raw_db)
-        rc = raw_conn.cursor()
+        # Prefer unified_lease_expirations (report 4156), fall back to unified_leases
+        date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
         
-        from app.property_config.properties import ALL_PROPERTIES as all_props
-        date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
-        
-        # Try report 4156 first for each property
+        # Check which properties have report 4156 data
         props_with_4156 = set()
         try:
-            rc.execute("SELECT DISTINCT property_id FROM realpage_lease_expiration_renewal")
-            props_with_4156 = {row[0] for row in rc.fetchall()}
+            cursor.execute("SELECT DISTINCT unified_property_id FROM unified_lease_expirations")
+            props_with_4156 = {row[0] for row in cursor.fetchall()}
         except Exception:
             pass
         
-        for pid, p in all_props.items():
+        rconn = sqlite3.connect(str(db_path))
+        rc = rconn.cursor()
+        
+        for prop in properties:
+            pid = prop["id"]
             try:
-                site_id = p.pms_config.realpage_siteid
-                if not site_id:
-                    continue
-                
-                if site_id in props_with_4156:
+                if pid in props_with_4156:
+                    le_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
                     rc.execute(f"""
                         SELECT COUNT(*) as total,
                                SUM(CASE WHEN decision = 'Renewed' THEN 1 ELSE 0 END) as renewed
-                        FROM realpage_lease_expiration_renewal
-                        WHERE property_id = ?
+                        FROM unified_lease_expirations
+                        WHERE unified_property_id = ?
                           AND lease_end_date IS NOT NULL AND lease_end_date != ''
-                          AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
-                    """, (site_id,))
+                          AND {le_expr} BETWEEN date('now') AND date('now', '+90 days')
+                    """, (pid,))
                 else:
-                    rc.execute("""
+                    rc.execute(f"""
                         SELECT COUNT(*) as total,
-                               SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewed
-                        FROM realpage_leases
-                        WHERE site_id = ?
-                          AND status_text IN ('Current', 'Current - Future')
-                          AND lease_end_date != ''
-                          AND date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))
-                              BETWEEN date('now') AND date('now', '+90 days')
-                    """, (site_id,))
+                               SUM(CASE WHEN status = 'Current - Future' THEN 1 ELSE 0 END) as renewed
+                        FROM unified_leases
+                        WHERE unified_property_id = ?
+                          AND status IN ('Current', 'Current - Future')
+                          AND lease_end IS NOT NULL AND lease_end != ''
+                          AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
+                    """, (pid,))
                 
                 row = rc.fetchone()
                 if row and row[0] > 0:
                     renewal_map[pid] = round(row[1] / row[0] * 100, 1)
             except Exception:
                 continue
-        raw_conn.close()
+        rconn.close()
     except Exception:
         pass
     

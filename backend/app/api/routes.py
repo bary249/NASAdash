@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from datetime import datetime
 
-from app.db.schema import UNIFIED_DB_PATH, REALPAGE_DB_PATH
+from app.db.schema import UNIFIED_DB_PATH
 from app.services.occupancy_service import OccupancyService
 from app.services.pricing_service import PricingService
 from app.services.market_comps_service import MarketCompsService
@@ -141,219 +141,184 @@ async def get_leasing_funnel(
     GET: Leasing funnel metrics (Marketing Pipeline).
     
     Returns: Leads, Tours, Applications, Lease Signs, conversion rates.
-    Data source: imported leasing data from unified.db, falls back to realpage_activity reports.
+    Data source: imported leasing data from unified.db, falls back to unified_activity.
     """
     # First try the service (reads imported_leasing_activity from unified.db)
     result = await occupancy_service.get_leasing_funnel(property_id, timeframe)
     if result.leads > 0:
         return result
     
-    # Fall back to realpage_activity table (downloaded Excel report data)
+    # Fall back to unified_activity table (synced from Excel report data)
     try:
         from app.services.timeframe import get_date_range
         import sqlite3
-        # Look up site_id from unified_properties
-        conn_u = sqlite3.connect(str(UNIFIED_DB_PATH))
-        cur_u = conn_u.cursor()
-        cur_u.execute("SELECT pms_property_id FROM unified_properties WHERE unified_property_id = ? AND pms_source = 'realpage'", (property_id,))
-        site_row = cur_u.fetchone()
-        conn_u.close()
-        if site_row:
-            site_id = site_row[0]
-            raw_db = REALPAGE_DB_PATH
-            if raw_db.exists():
-                conn = sqlite3.connect(str(raw_db))
-                c = conn.cursor()
+        
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        c = conn.cursor()
+        
+        period_start, period_end = get_date_range(timeframe)
+        start_iso = period_start.strftime("%Y-%m-%d")
+        end_iso = period_end.strftime("%Y-%m-%d")
+        
+        # activity_date is already ISO in unified_activity
+        LEAD_TYPES_SQL = "'Online Leasing guest card','Call Center guest card','Internet','Phone call','Event'"
+        TOUR_TYPES_SQL = "'Visit','Visit (return)'"
+        APP_TYPES_SQL = "'Online Leasing pre-qualify','Identity Verification','Online Leasing Agreement'"
+        LEASE_TYPES_SQL = "'Leased'"
+        TOUR_TYPES_ALL_SQL = "'Visit','Visit (return)','Videotelephony - Tour'"
+        
+        c.execute(f"""
+            SELECT
+                (SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                 WHERE unified_property_id = ? AND activity_type IN ({LEAD_TYPES_SQL})
+                 AND resident_name IS NOT NULL AND resident_name != ''
+                 AND activity_date BETWEEN ? AND ?),
+                (SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                 WHERE unified_property_id = ? AND activity_type IN ({TOUR_TYPES_SQL})
+                 AND resident_name IS NOT NULL AND resident_name != ''
+                 AND activity_date BETWEEN ? AND ?),
+                (SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                 WHERE unified_property_id = ? AND activity_type IN ({APP_TYPES_SQL})
+                 AND resident_name IS NOT NULL AND resident_name != ''
+                 AND activity_date BETWEEN ? AND ?),
+                (SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                 WHERE unified_property_id = ? AND activity_type IN ({LEASE_TYPES_SQL})
+                 AND resident_name IS NOT NULL AND resident_name != ''
+                 AND activity_date BETWEEN ? AND ?),
+                (SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                 WHERE unified_property_id = ? AND activity_type IN ({APP_TYPES_SQL})
+                 AND resident_name IS NOT NULL AND resident_name != ''
+                 AND activity_date BETWEEN ? AND ?
+                 AND resident_name NOT IN (
+                     SELECT DISTINCT resident_name FROM unified_activity
+                     WHERE unified_property_id = ? AND activity_type IN ({TOUR_TYPES_ALL_SQL})
+                     AND resident_name IS NOT NULL AND resident_name != ''
+                 )),
+                (SELECT COUNT(DISTINCT a.resident_name) FROM unified_activity a
+                 WHERE a.unified_property_id = ? AND a.activity_type IN ({APP_TYPES_SQL})
+                 AND a.resident_name IS NOT NULL AND a.resident_name != ''
+                 AND a.activity_date BETWEEN ? AND ?
+                 AND a.resident_name IN (
+                     SELECT DISTINCT t.resident_name FROM unified_activity t
+                     WHERE t.unified_property_id = ? AND t.activity_type IN ({TOUR_TYPES_ALL_SQL})
+                     AND t.resident_name IS NOT NULL AND t.resident_name != ''
+                 ))
+        """, (property_id, start_iso, end_iso,
+              property_id, start_iso, end_iso,
+              property_id, start_iso, end_iso,
+              property_id, start_iso, end_iso,
+              property_id, start_iso, end_iso, property_id,
+              property_id, start_iso, end_iso, property_id))
+        row = c.fetchone()
+        
+        if row and any(v > 0 for v in row[:4]):
+            leads, tours, applications, lease_signs, sight_unseen, tour_to_app = row
+            
+            l2t = round(tours / leads * 100, 1) if leads > 0 else 0.0
+            t2a = round(applications / tours * 100, 1) if tours > 0 else 0.0
+            a2l = round(lease_signs / applications * 100, 1) if applications > 0 else 0.0
+            l2l = round(lease_signs / leads * 100, 1) if leads > 0 else 0.0
+            
+            # Marketing metrics from unified_activity
+            avg_days_to_lease = None
+            app_completion_rate = None
+            app_approval_rate = None
+            try:
+                c.execute("""
+                    SELECT resident_name,
+                           MIN(activity_date) as first_contact,
+                           MAX(CASE WHEN activity_type = 'Leased' THEN activity_date END) as leased_date
+                    FROM unified_activity
+                    WHERE unified_property_id = ?
+                      AND resident_name IS NOT NULL AND resident_name != ''
+                      AND activity_date BETWEEN ? AND ?
+                    GROUP BY resident_name
+                    HAVING leased_date IS NOT NULL
+                """, (property_id, start_iso, end_iso))
+                lease_deltas = []
+                for r in c.fetchall():
+                    if r[1] and r[2]:
+                        from datetime import datetime as dt
+                        try:
+                            d1 = dt.strptime(r[1][:10], "%Y-%m-%d")
+                            d2 = dt.strptime(r[2][:10], "%Y-%m-%d")
+                            delta = (d2 - d1).days
+                            if delta >= 0:
+                                lease_deltas.append(delta)
+                        except ValueError:
+                            pass
+                if lease_deltas:
+                    avg_days_to_lease = round(sum(lease_deltas) / len(lease_deltas), 1)
                 
-                # Filter by timeframe — activity_date is MM/DD/YYYY format
-                period_start, period_end = get_date_range(timeframe)
-                start_iso = period_start.strftime("%Y-%m-%d")
-                end_iso = period_end.strftime("%Y-%m-%d")
+                c.execute("""
+                    SELECT resident_name,
+                           GROUP_CONCAT(DISTINCT activity_type) as activities
+                    FROM unified_activity
+                    WHERE unified_property_id = ?
+                      AND resident_name IS NOT NULL AND resident_name != ''
+                      AND activity_date BETWEEN ? AND ?
+                      AND activity_type IN ('Online Leasing pre-qualify', 'Online Leasing Agreement', 'Leased')
+                    GROUP BY resident_name
+                """, (property_id, start_iso, end_iso))
+                prequalify_count = 0
+                agreement_count = 0
+                leased_from_agreement = 0
+                for r in c.fetchall():
+                    acts = r[1] or ''
+                    has_pq = 'Online Leasing pre-qualify' in acts
+                    has_ag = 'Online Leasing Agreement' in acts
+                    has_ls = 'Leased' in acts
+                    if has_pq:
+                        prequalify_count += 1
+                        if has_ag:
+                            agreement_count += 1
+                    if has_ag and has_ls:
+                        leased_from_agreement += 1
                 
-                date_expr = "date(substr(activity_date,7,4) || '-' || substr(activity_date,1,2) || '-' || substr(activity_date,4,2))"
-                
-                # Count unique prospects per funnel stage (deduplicated by resident_name)
-                LEAD_TYPES_SQL = "'Online Leasing guest card','Call Center guest card','Internet','Phone call','Event'"
-                TOUR_TYPES_SQL = "'Visit','Visit (return)'"
-                APP_TYPES_SQL = "'Online Leasing pre-qualify','Identity Verification','Online Leasing Agreement'"
-                LEASE_TYPES_SQL = "'Leased'"
-                
-                TOUR_TYPES_ALL_SQL = "'Visit','Visit (return)','Videotelephony - Tour'"
-                c.execute(f"""
-                    SELECT
-                        (SELECT COUNT(DISTINCT resident_name) FROM realpage_activity
-                         WHERE property_id = ? AND activity_type IN ({LEAD_TYPES_SQL})
-                         AND resident_name IS NOT NULL AND resident_name != ''
-                         AND activity_date IS NOT NULL AND activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?),
-                        (SELECT COUNT(DISTINCT resident_name) FROM realpage_activity
-                         WHERE property_id = ? AND activity_type IN ({TOUR_TYPES_SQL})
-                         AND resident_name IS NOT NULL AND resident_name != ''
-                         AND activity_date IS NOT NULL AND activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?),
-                        (SELECT COUNT(DISTINCT resident_name) FROM realpage_activity
-                         WHERE property_id = ? AND activity_type IN ({APP_TYPES_SQL})
-                         AND resident_name IS NOT NULL AND resident_name != ''
-                         AND activity_date IS NOT NULL AND activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?),
-                        (SELECT COUNT(DISTINCT resident_name) FROM realpage_activity
-                         WHERE property_id = ? AND activity_type IN ({LEASE_TYPES_SQL})
-                         AND resident_name IS NOT NULL AND resident_name != ''
-                         AND activity_date IS NOT NULL AND activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?),
-                        -- Apps without Tour: applied prospects who never had a tour/visit
-                        (SELECT COUNT(DISTINCT resident_name) FROM realpage_activity
-                         WHERE property_id = ? AND activity_type IN ({APP_TYPES_SQL})
-                         AND resident_name IS NOT NULL AND resident_name != ''
-                         AND activity_date IS NOT NULL AND activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?
-                         AND resident_name NOT IN (
-                             SELECT DISTINCT resident_name FROM realpage_activity
-                             WHERE property_id = ? AND activity_type IN ({TOUR_TYPES_ALL_SQL})
-                             AND resident_name IS NOT NULL AND resident_name != ''
-                         )),
-                        -- Tour to App: prospects who toured AND applied
-                        (SELECT COUNT(DISTINCT a.resident_name) FROM realpage_activity a
-                         WHERE a.property_id = ? AND a.activity_type IN ({APP_TYPES_SQL})
-                         AND a.resident_name IS NOT NULL AND a.resident_name != ''
-                         AND a.activity_date IS NOT NULL AND a.activity_date != ''
-                         AND {date_expr} BETWEEN ? AND ?
-                         AND a.resident_name IN (
-                             SELECT DISTINCT t.resident_name FROM realpage_activity t
-                             WHERE t.property_id = ? AND t.activity_type IN ({TOUR_TYPES_ALL_SQL})
-                             AND t.resident_name IS NOT NULL AND t.resident_name != ''
-                         ))
-                """, (site_id, start_iso, end_iso,
-                      site_id, start_iso, end_iso,
-                      site_id, start_iso, end_iso,
-                      site_id, start_iso, end_iso,
-                      site_id, start_iso, end_iso, site_id,
-                      site_id, start_iso, end_iso, site_id))
-                row = c.fetchone()
-                conn.close()
-                
-                if row and any(v > 0 for v in row[:4]):
-                    leads, tours, applications, lease_signs, sight_unseen, tour_to_app = row
-                    
-                    l2t = round(tours / leads * 100, 1) if leads > 0 else 0.0
-                    t2a = round(applications / tours * 100, 1) if tours > 0 else 0.0
-                    a2l = round(lease_signs / applications * 100, 1) if applications > 0 else 0.0
-                    l2l = round(lease_signs / leads * 100, 1) if leads > 0 else 0.0
-                    
-                    # Step 1.2: Derive marketing metrics from prospect-level activity
-                    avg_days_to_lease = None
-                    app_completion_rate = None
-                    app_approval_rate = None
-                    try:
-                        conn2 = sqlite3.connect(str(raw_db))
-                        c2 = conn2.cursor()
-                        date_expr = "date(substr(activity_date,7,4) || '-' || substr(activity_date,1,2) || '-' || substr(activity_date,4,2))"
-                        
-                        # Avg days to lease: first_contact → leased per prospect
-                        c2.execute(f"""
-                            SELECT resident_name,
-                                   MIN({date_expr}) as first_contact,
-                                   MAX(CASE WHEN activity_type = 'Leased' THEN {date_expr} END) as leased_date
-                            FROM realpage_activity
-                            WHERE property_id = ?
-                              AND resident_name IS NOT NULL AND resident_name != ''
-                              AND activity_date IS NOT NULL AND activity_date != ''
-                              AND {date_expr} BETWEEN ? AND ?
-                            GROUP BY resident_name
-                            HAVING leased_date IS NOT NULL
-                        """, (site_id, start_iso, end_iso))
-                        lease_deltas = []
-                        for r in c2.fetchall():
-                            if r[1] and r[2]:
-                                from datetime import datetime as dt
-                                try:
-                                    d1 = dt.strptime(r[1], "%Y-%m-%d")
-                                    d2 = dt.strptime(r[2], "%Y-%m-%d")
-                                    delta = (d2 - d1).days
-                                    if delta >= 0:
-                                        lease_deltas.append(delta)
-                                except ValueError:
-                                    pass
-                        if lease_deltas:
-                            avg_days_to_lease = round(sum(lease_deltas) / len(lease_deltas), 1)
-                        
-                        # App completion rate: pre-qualify → agreement per prospect
-                        c2.execute(f"""
-                            SELECT resident_name,
-                                   GROUP_CONCAT(DISTINCT activity_type) as activities
-                            FROM realpage_activity
-                            WHERE property_id = ?
-                              AND resident_name IS NOT NULL AND resident_name != ''
-                              AND activity_date IS NOT NULL AND activity_date != ''
-                              AND {date_expr} BETWEEN ? AND ?
-                              AND activity_type IN ('Online Leasing pre-qualify', 'Online Leasing Agreement', 'Leased')
-                            GROUP BY resident_name
-                        """, (site_id, start_iso, end_iso))
-                        prequalify_count = 0
-                        agreement_count = 0
-                        leased_from_agreement = 0
-                        for r in c2.fetchall():
-                            acts = r[1] or ''
-                            has_pq = 'Online Leasing pre-qualify' in acts
-                            has_ag = 'Online Leasing Agreement' in acts
-                            has_ls = 'Leased' in acts
-                            if has_pq:
-                                prequalify_count += 1
-                                if has_ag:
-                                    agreement_count += 1
-                            if has_ag:
-                                if has_ls:
-                                    leased_from_agreement += 1
-                        
-                        if prequalify_count > 0:
-                            app_completion_rate = round(agreement_count / prequalify_count * 100, 1)
-                        # App approval rate: agreement → leased
-                        total_agreements = agreement_count  # Those who reached agreement
-                        if total_agreements > 0:
-                            app_approval_rate = round(leased_from_agreement / total_agreements * 100, 1)
-                        
-                        conn2.close()
-                    except Exception as e:
-                        import logging
-                        logging.warning(f"Could not compute marketing metrics for {property_id}: {e}")
-                    
-                    # Enrich with marketing net_leases from advertising source
-                    marketing_net_leases = None
-                    try:
-                        tf_map = {'cm': 'mtd', 'pm': 'mtd', 'ytd': 'ytd', 'l30': 'l30', 'l7': 'l7'}
-                        ad_tf = tf_map.get(timeframe.value, 'mtd')
-                        conn3 = sqlite3.connect(str(raw_db))
-                        c3 = conn3.cursor()
-                        c3.execute("""SELECT SUM(net_leases) FROM realpage_advertising_source
-                                     WHERE property_id = ? AND timeframe_tag = ?""", (site_id, ad_tf))
-                        r3 = c3.fetchone()
-                        if r3 and r3[0] is not None:
-                            marketing_net_leases = int(r3[0])
-                        conn3.close()
-                    except Exception:
-                        pass
-                    
-                    return LeasingFunnelMetrics(
-                        property_id=property_id,
-                        timeframe=timeframe.value,
-                        period_start=start_iso,
-                        period_end=end_iso,
-                        leads=leads,
-                        tours=tours,
-                        applications=applications,
-                        lease_signs=lease_signs,
-                        denials=0,
-                        sight_unseen=sight_unseen or 0,
-                        tour_to_app=tour_to_app or 0,
-                        lead_to_tour_rate=l2t,
-                        tour_to_app_rate=t2a,
-                        app_to_lease_rate=a2l,
-                        lead_to_lease_rate=l2l,
-                        marketing_net_leases=marketing_net_leases,
-                        avg_days_to_lease=avg_days_to_lease,
-                        app_completion_rate=app_completion_rate,
-                        app_approval_rate=app_approval_rate,
-                    )
+                if prequalify_count > 0:
+                    app_completion_rate = round(agreement_count / prequalify_count * 100, 1)
+                if agreement_count > 0:
+                    app_approval_rate = round(leased_from_agreement / agreement_count * 100, 1)
+            except Exception as e:
+                import logging
+                logging.warning(f"Could not compute marketing metrics for {property_id}: {e}")
+            
+            # Net leases from unified_advertising_sources
+            marketing_net_leases = None
+            try:
+                tf_map = {'cm': 'mtd', 'pm': 'mtd', 'ytd': 'ytd', 'l30': 'l30', 'l7': 'l7'}
+                ad_tf = tf_map.get(timeframe.value, 'mtd')
+                c.execute("""SELECT SUM(net_leases) FROM unified_advertising_sources
+                             WHERE unified_property_id = ? AND timeframe_tag = ?""", (property_id, ad_tf))
+                r3 = c.fetchone()
+                if r3 and r3[0] is not None:
+                    marketing_net_leases = int(r3[0])
+            except Exception:
+                pass
+            
+            conn.close()
+            return LeasingFunnelMetrics(
+                property_id=property_id,
+                timeframe=timeframe.value,
+                period_start=start_iso,
+                period_end=end_iso,
+                leads=leads,
+                tours=tours,
+                applications=applications,
+                lease_signs=lease_signs,
+                denials=0,
+                sight_unseen=sight_unseen or 0,
+                tour_to_app=tour_to_app or 0,
+                lead_to_tour_rate=l2t,
+                tour_to_app_rate=t2a,
+                app_to_lease_rate=a2l,
+                lead_to_lease_rate=l2l,
+                marketing_net_leases=marketing_net_leases,
+                avg_days_to_lease=avg_days_to_lease,
+                app_completion_rate=app_completion_rate,
+                app_approval_rate=app_approval_rate,
+            )
+        conn.close()
     except Exception:
         pass
     
@@ -430,63 +395,50 @@ async def get_turn_time(property_id: str):
     """
     GET: Average unit turn time for a property.
     
-    Calculates days between former lease inactive_date and next lease move_in_date
-    for the same unit using realpage_leases data.
+    Calculates days between former lease move_out_date and next lease move_in_date
+    for the same unit using unified_leases data.
     """
     import sqlite3
-    from pathlib import Path
-    
-    raw_db = REALPAGE_DB_PATH
     
     try:
-        from app.property_config.properties import get_pms_config
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not configured for RealPage")
-    
-    if not site_id:
-        raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    
-    try:
-        conn = sqlite3.connect(str(raw_db))
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         c = conn.cursor()
         
-        # Convert MM/DD/YYYY dates to ISO for julianday()
+        # Dates in unified_leases are MM/DD/YYYY format (from RealPage)
         date_iso = "substr({col},7,4)||'-'||substr({col},1,2)||'-'||substr({col},4,2)"
         mi_iso = date_iso.format(col="move_in_date")
-        ia_iso = date_iso.format(col="inactive_date")
+        mo_iso = date_iso.format(col="move_out_date")
         
         c.execute(f"""
             WITH unit_leases AS (
-                SELECT unit_id, move_in_date, inactive_date, status_text,
+                SELECT unit_number, move_in_date, move_out_date, status,
                        {mi_iso} as mi_iso,
-                       {ia_iso} as ia_iso,
-                       ROW_NUMBER() OVER (PARTITION BY unit_id ORDER BY 
+                       {mo_iso} as mo_iso,
+                       ROW_NUMBER() OVER (PARTITION BY unit_number ORDER BY 
                            substr(move_in_date,7,4)||substr(move_in_date,1,2)||substr(move_in_date,4,2) DESC) as rn
-                FROM realpage_leases
-                WHERE site_id = ?
-                  AND unit_id IS NOT NULL AND unit_id != ''
+                FROM unified_leases
+                WHERE unified_property_id = ?
+                  AND unit_number IS NOT NULL AND unit_number != ''
                   AND move_in_date IS NOT NULL AND move_in_date != ''
-                  AND status_text IN ('Current', 'Former', 'Current - Past')
+                  AND status IN ('Current', 'Former', 'Current - Past')
             ),
             turns AS (
-                SELECT cur.unit_id,
-                       prev.ia_iso as move_out,
+                SELECT cur.unit_number,
+                       prev.mo_iso as move_out,
                        cur.mi_iso as move_in,
-                       CAST(julianday(cur.mi_iso) - julianday(prev.ia_iso) AS INTEGER) as gap_days
+                       CAST(julianday(cur.mi_iso) - julianday(prev.mo_iso) AS INTEGER) as gap_days
                 FROM unit_leases cur
-                JOIN unit_leases prev ON cur.unit_id = prev.unit_id
+                JOIN unit_leases prev ON cur.unit_number = prev.unit_number
                 WHERE cur.rn = 1 AND prev.rn = 2
-                  AND prev.ia_iso IS NOT NULL AND prev.ia_iso NOT LIKE '--%'
-                  AND prev.status_text = 'Former'
-                  AND CAST(julianday(cur.mi_iso) - julianday(prev.ia_iso) AS INTEGER) BETWEEN 0 AND 180
+                  AND prev.mo_iso IS NOT NULL AND prev.mo_iso NOT LIKE '--%'
+                  AND prev.status = 'Former'
+                  AND CAST(julianday(cur.mi_iso) - julianday(prev.mo_iso) AS INTEGER) BETWEEN 0 AND 180
             )
             SELECT COUNT(*) as turn_count, ROUND(AVG(gap_days), 1) as avg_days,
                    MIN(gap_days) as min_days, MAX(gap_days) as max_days,
                    ROUND(AVG(CASE WHEN gap_days <= 30 THEN gap_days END), 1) as avg_under_30
             FROM turns
-        """, (site_id,))
+        """, (property_id,))
         
         row = c.fetchone()
         conn.close()
@@ -605,13 +557,9 @@ async def get_projected_occupancy(property_id: str):
     Sources:
     - Current: unified_occupancy_metrics
     - Move-ins: box_score preleased_vacant (already signed leases on vacant units)
-    - Move-outs: lease expirations not yet renewed (from realpage_leases)
+    - Move-outs: lease expirations not yet renewed (from unified_leases)
     """
     import sqlite3
-    from pathlib import Path
-    
-    uni_db = UNIFIED_DB_PATH
-    raw_db = REALPAGE_DB_PATH
     
     normalized_id = property_id
     if property_id.startswith("kairoi-"):
@@ -619,7 +567,7 @@ async def get_projected_occupancy(property_id: str):
     
     try:
         # Get current occupancy from unified
-        uni_conn = sqlite3.connect(str(uni_db))
+        uni_conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         uc = uni_conn.cursor()
         uc.execute("""
             SELECT total_units, occupied_units, preleased_vacant, notice_units, physical_occupancy
@@ -639,14 +587,7 @@ async def get_projected_occupancy(property_id: str):
         on_notice = occ[3] or 0
         current_occ_pct = occ[4] or 0
         
-        # Get lease expirations by period from realpage_leases
-        try:
-            from app.property_config.properties import get_pms_config
-            pms_config = get_pms_config(property_id)
-            site_id = pms_config.realpage_siteid
-        except Exception:
-            site_id = None
-        
+        # Get lease expirations by period from unified_leases
         expiring_30 = 0
         expiring_60 = 0
         expiring_90 = 0
@@ -654,34 +595,33 @@ async def get_projected_occupancy(property_id: str):
         renewed_60 = 0
         renewed_90 = 0
         
-        if site_id:
-            try:
-                raw_conn = sqlite3.connect(str(raw_db))
-                rc = raw_conn.cursor()
-                date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
-                
-                for days, label in [(30, '30'), (60, '60'), (90, '90')]:
-                    rc.execute(f"""
-                        SELECT COUNT(*) as expiring,
-                               SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
-                        FROM realpage_leases
-                        WHERE site_id = ?
-                          AND status_text IN ('Current', 'Current - Past')
-                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
-                          AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
-                    """, (site_id,))
-                    row = rc.fetchone()
-                    if row:
-                        if label == '30':
-                            expiring_30, renewed_30 = row[0] or 0, row[1] or 0
-                        elif label == '60':
-                            expiring_60, renewed_60 = row[0] or 0, row[1] or 0
-                        else:
-                            expiring_90, renewed_90 = row[0] or 0, row[1] or 0
-                
-                raw_conn.close()
-            except Exception:
-                pass
+        try:
+            lc = sqlite3.connect(str(UNIFIED_DB_PATH))
+            lcc = lc.cursor()
+            date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+            
+            for days, label in [(30, '30'), (60, '60'), (90, '90')]:
+                lcc.execute(f"""
+                    SELECT COUNT(*) as expiring,
+                           SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
+                    FROM unified_leases
+                    WHERE unified_property_id = ?
+                      AND status IN ('Current', 'Current - Past')
+                      AND lease_end IS NOT NULL AND lease_end != ''
+                      AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
+                """, (property_id,))
+                row = lcc.fetchone()
+                if row:
+                    if label == '30':
+                        expiring_30, renewed_30 = row[0] or 0, row[1] or 0
+                    elif label == '60':
+                        expiring_60, renewed_60 = row[0] or 0, row[1] or 0
+                    else:
+                        expiring_90, renewed_90 = row[0] or 0, row[1] or 0
+            
+            lc.close()
+        except Exception:
+            pass
         
         # Calculate projections
         # Net move-outs = expiring leases that haven't renewed (approximation)
@@ -734,148 +674,124 @@ async def get_availability(property_id: str):
     - Total availability %
     - 7-week availability trend with direction indicator
     
-    Sources: unified_occupancy_metrics, realpage_rent_roll, realpage_projected_occupancy
+    Sources: unified_occupancy_metrics, unified_units, unified_projected_occupancy
     """
     import sqlite3
-    from pathlib import Path
     from datetime import datetime, timedelta
-    from app.property_config.properties import get_pms_config
-    
-    uni_db = UNIFIED_DB_PATH
-    raw_db = REALPAGE_DB_PATH
     
     normalized_id = property_id
     if property_id.startswith("kairoi-"):
         normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
     
     try:
-        # --- Current occupancy snapshot ---
-        uni_conn = sqlite3.connect(str(uni_db))
+        # --- Compute ALL availability data from unified_units (single source of truth) ---
+        # This ensures ATR KPIs and buckets are always consistent.
+        uni_conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         uc = uni_conn.cursor()
+        
+        # Get total & occupied from occupancy_metrics (box score authority)
         uc.execute("""
-            SELECT total_units, occupied_units, vacant_units, preleased_vacant, notice_units
+            SELECT total_units, occupied_units
             FROM unified_occupancy_metrics
             WHERE unified_property_id = ? OR unified_property_id = ?
             ORDER BY snapshot_date DESC LIMIT 1
         """, (property_id, normalized_id))
         occ = uc.fetchone()
-        uni_conn.close()
-        
         if not occ:
+            uni_conn.close()
             raise HTTPException(status_code=404, detail="No occupancy data found")
         
         total_units = occ[0] or 0
         occupied = occ[1] or 0
-        vacant = occ[2] or 0
-        preleased = occ[3] or 0
-        on_notice = occ[4] or 0
         
-        # ATR = total vacant + on notice - pre-leased (matches Yardi definition)
-        atr = vacant + on_notice - preleased
-        atr = max(0, atr)
+        # Get vacant, on_notice, preleased AND buckets from unified_units in one query
+        uc.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant,
+                SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END) as preleased,
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                    THEN 1 ELSE 0 END) as bucket_vacant,
+                SUM(CASE WHEN occupancy_status = 'notice' 
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND on_notice_date IS NOT NULL AND on_notice_date != ''
+                          AND date(on_notice_date) <= date('now', '+30 days')
+                    THEN 1 ELSE 0 END) as notice_0_30,
+                SUM(CASE WHEN occupancy_status = 'notice'
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND on_notice_date IS NOT NULL AND on_notice_date != ''
+                          AND date(on_notice_date) BETWEEN date('now', '+31 days') AND date('now', '+60 days')
+                    THEN 1 ELSE 0 END) as notice_30_60,
+                SUM(CASE WHEN occupancy_status = 'notice'
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND (on_notice_date IS NULL OR on_notice_date = ''
+                               OR date(on_notice_date) > date('now', '+60 days'))
+                    THEN 1 ELSE 0 END) as notice_60_plus
+            FROM unified_units
+            WHERE unified_property_id = ? OR unified_property_id = ?
+        """, (property_id, normalized_id))
+        urow = uc.fetchone()
+        uni_conn.close()
+        
+        vacant = (urow[1] or 0) if urow else 0
+        on_notice = (urow[2] or 0) if urow else 0
+        preleased = (urow[3] or 0) if urow else 0
+        
+        # ATR from same source as buckets — always consistent
+        atr = max(0, vacant + on_notice - preleased)
         atr_pct = round(atr / total_units * 100, 1) if total_units > 0 else 0
-        availability_pct = round(atr / total_units * 100, 1) if total_units > 0 else 0
+        availability_pct = atr_pct
         
-        # --- Availability buckets from rent_roll (available_date or days_vacant) ---
-        avail_0_30 = 0
-        avail_30_60 = 0
-        avail_60_plus = 0
+        # Buckets (already excludes pre-leased)
+        avail_0_30 = ((urow[4] or 0) + (urow[5] or 0)) if urow else 0
+        avail_30_60 = (urow[6] or 0) if urow else 0
+        avail_60_plus = (urow[7] or 0) if urow else 0
         
-        try:
-            pms_config = get_pms_config(property_id)
-            site_id = pms_config.realpage_siteid
-        except Exception:
-            site_id = None
-        
-        if site_id:
-            try:
-                raw_conn = sqlite3.connect(str(raw_db))
-                rc = raw_conn.cursor()
-                today = datetime.now()
-                
-                # Count available units by days-until-available
-                # Vacant units available now = bucket 0-30
-                # Units becoming available (on notice with move-out in 0-30 or 30-60) 
-                rc.execute("""
-                    SELECT 
-                        SUM(CASE WHEN status IN ('Vacant', 'Admin/Down') THEN 1 ELSE 0 END) as vacant_now,
-                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL') 
-                                AND lease_end IS NOT NULL AND lease_end != ''
-                                AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
-                                    <= date('now', '+30 days')
-                            THEN 1 ELSE 0 END) as notice_0_30,
-                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL')
-                                AND lease_end IS NOT NULL AND lease_end != ''
-                                AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
-                                    BETWEEN date('now', '+31 days') AND date('now', '+60 days')
-                            THEN 1 ELSE 0 END) as notice_30_60,
-                        SUM(CASE WHEN status IN ('Occupied-NTV', 'Occupied-NTVL')
-                                AND (lease_end IS NULL OR lease_end = ''
-                                     OR date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
-                                        > date('now', '+60 days'))
-                            THEN 1 ELSE 0 END) as notice_60_plus
-                    FROM realpage_rent_roll
-                    WHERE property_id = ?
-                      AND report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
-                """, (site_id, site_id))
-                row = rc.fetchone()
-                if row:
-                    avail_0_30 = (row[0] or 0) + (row[1] or 0)  # Vacant now + notice expiring in 0-30
-                    avail_30_60 = row[2] or 0  # Notice expiring in 30-60
-                    avail_60_plus = row[3] or 0  # Notice expiring beyond 60 days
-                
-                raw_conn.close()
-            except Exception:
-                # Fallback: use ATR as 0-30 bucket
-                avail_0_30 = atr
-        else:
-            avail_0_30 = atr
-        
-        # --- 7-week availability trend from projected_occupancy ---
+        # --- 7-week availability trend from unified_projected_occupancy ---
         trend_weeks = []
         trend_direction = "flat"
         
-        if site_id:
-            try:
-                raw_conn = sqlite3.connect(str(raw_db))
-                rc = raw_conn.cursor()
-                rc.execute("""
-                    SELECT week_ending, MAX(total_units), MAX(occupied_end), MAX(pct_occupied_end),
-                           MAX(scheduled_move_ins), MAX(scheduled_move_outs)
-                    FROM realpage_projected_occupancy
-                    WHERE property_id = ?
-                    GROUP BY week_ending
-                    ORDER BY week_ending ASC
-                    LIMIT 7
-                """, (site_id,))
-                
-                for row in rc.fetchall():
-                    week_end, t_units, occ_end, occ_pct, mi, mo = row
-                    t_units = t_units or total_units
-                    week_atr = max(0, (t_units or 0) - (occ_end or 0))
-                    week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
-                    trend_weeks.append({
-                        "week_ending": week_end,
-                        "atr": week_atr,
-                        "atr_pct": week_atr_pct,
-                        "occupancy_pct": occ_pct or 0,
-                        "move_ins": mi or 0,
-                        "move_outs": mo or 0,
-                    })
-                raw_conn.close()
-                
-                # Determine direction: compare first vs last week ATR
-                if len(trend_weeks) >= 2:
-                    first_atr = trend_weeks[0]["atr_pct"]
-                    last_atr = trend_weeks[-1]["atr_pct"]
-                    if last_atr > first_atr + 1:
-                        trend_direction = "increasing"  # ATR going up = bad
-                    elif last_atr < first_atr - 1:
-                        trend_direction = "decreasing"  # ATR going down = good
-                    else:
-                        trend_direction = "flat"
-            except Exception:
-                pass
+        try:
+            pc = sqlite3.connect(str(UNIFIED_DB_PATH))
+            pcc = pc.cursor()
+            pcc.execute("""
+                SELECT week_ending, MAX(total_units), MAX(occupied_end), MAX(pct_occupied_end),
+                       MAX(scheduled_move_ins), MAX(scheduled_move_outs)
+                FROM unified_projected_occupancy
+                WHERE unified_property_id = ? OR unified_property_id = ?
+                GROUP BY week_ending
+                ORDER BY week_ending ASC
+                LIMIT 7
+            """, (property_id, normalized_id))
+            
+            for row in pcc.fetchall():
+                week_end, t_units, occ_end, occ_pct, mi, mo = row
+                t_units = t_units or total_units
+                week_atr = max(0, (t_units or 0) - (occ_end or 0))
+                week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
+                trend_weeks.append({
+                    "week_ending": week_end,
+                    "atr": week_atr,
+                    "atr_pct": week_atr_pct,
+                    "occupancy_pct": occ_pct or 0,
+                    "move_ins": mi or 0,
+                    "move_outs": mo or 0,
+                })
+            pc.close()
+            
+            if len(trend_weeks) >= 2:
+                first_atr = trend_weeks[0]["atr_pct"]
+                last_atr = trend_weeks[-1]["atr_pct"]
+                if last_atr > first_atr + 1:
+                    trend_direction = "increasing"
+                elif last_atr < first_atr - 1:
+                    trend_direction = "decreasing"
+                else:
+                    trend_direction = "flat"
+        except Exception:
+            pass
         
         return {
             "property_id": property_id,
@@ -923,13 +839,18 @@ async def get_expiration_details(
     property_id: str,
     days: int = Query(90, description="Lookahead window in days (30, 60, or 90)"),
     filter: Optional[str] = Query(None, description="Decision filter: renewed, vacating, pending, mtm, moved_out, expiring (all non-renewed)"),
+    month: Optional[str] = Query(None, description="Calendar month filter (e.g. '2026-02'). Overrides days param."),
 ):
     """
     GET: Individual lease records expiring within the given window.
     
-    Primary source: realpage_lease_expiration_renewal (Report 4156) when available,
-    fallback to realpage_leases. Same source as the summary /expirations endpoint
+    Primary source: unified_lease_expirations (Report 4156) when available,
+    fallback to unified_leases. Same source as the summary /expirations endpoint
     so that drill-through counts always match the summary numbers.
+    
+    Query params:
+    - month: Calendar month filter (e.g. '2026-02') — preferred for monthly view
+    - days: Lookahead window in days (30, 60, 90) — for rolling view
     
     Filter (report 4156):
       'renewed'   = decision = Renewed
@@ -943,23 +864,39 @@ async def get_expiration_details(
       'expiring' = status_text = Current
     """
     import sqlite3
-    from app.db.schema import REALPAGE_DB_PATH
-    from app.property_config.properties import get_pms_config
+    from datetime import date as _date
+    from calendar import monthrange as _monthrange
 
-    pms_config = get_pms_config(property_id)
-    if not pms_config.realpage_siteid:
-        return {"leases": []}
+    # Compute date range: month param overrides days
+    if month:
+        try:
+            parts = month.split('-')
+            y, m = int(parts[0]), int(parts[1])
+            _, last_day = _monthrange(y, m)
+            m_start = _date(y, m, 1)
+            m_end = _date(y, m, last_day)
+            # For current month, start from today
+            today = _date.today()
+            if m_start <= today <= m_end:
+                m_start = today
+            date_start = m_start.isoformat()
+            date_end = m_end.isoformat()
+        except (ValueError, IndexError):
+            date_start = None
+            date_end = None
+    else:
+        date_start = None
+        date_end = None
 
-    site_id = pms_config.realpage_siteid
     try:
-        conn = sqlite3.connect(REALPAGE_DB_PATH)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Check if report 4156 data is available (same source as summary endpoint)
+        # Check if unified_lease_expirations data is available (synced from report 4156)
         use_4156 = False
         try:
-            cursor.execute("SELECT COUNT(*) FROM realpage_lease_expiration_renewal WHERE property_id = ?", (site_id,))
+            cursor.execute("SELECT COUNT(*) FROM unified_lease_expirations WHERE unified_property_id = ?", (property_id,))
             if (cursor.fetchone()[0] or 0) > 0:
                 use_4156 = True
         except Exception:
@@ -968,7 +905,7 @@ async def get_expiration_details(
         leases = []
 
         if use_4156:
-            # Report 4156: decision-based filtering (matches summary endpoint exactly)
+            # Report 4156 data: decision-based filtering
             date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
             decision_cond = ""
             if filter == "renewed":
@@ -984,22 +921,28 @@ async def get_expiration_details(
             elif filter == "expiring":
                 decision_cond = "AND decision != 'Renewed'"
 
+            if date_start and date_end:
+                date_range_cond = f"AND {date_expr} BETWEEN ? AND ?"
+                params = (property_id, date_start, date_end)
+            else:
+                date_range_cond = f"AND {date_expr} BETWEEN date('now') AND date('now', '+' || ? || ' days')"
+                params = (property_id, days)
+
             cursor.execute(f"""
-                SELECT e.unit_number, e.floorplan, e.actual_rent, e.market_rent,
+                SELECT e.unit_number, e.floorplan, e.actual_rent,
                        e.lease_end_date, e.decision, e.new_lease_start, e.new_lease_term,
-                       e.new_rent, e.move_in_date,
-                       rr.sqft
-                FROM realpage_lease_expiration_renewal e
-                LEFT JOIN realpage_rent_roll rr
-                    ON rr.property_id = e.property_id
-                    AND rr.unit_number = e.unit_number
-                    AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = e.property_id)
-                WHERE e.property_id = ?
+                       e.new_rent, e.sqft,
+                       u.market_rent
+                FROM unified_lease_expirations e
+                LEFT JOIN unified_units u
+                    ON u.unified_property_id = e.unified_property_id
+                    AND u.unit_number = e.unit_number
+                WHERE e.unified_property_id = ?
                   AND e.lease_end_date IS NOT NULL AND e.lease_end_date != ''
-                  AND {date_expr} BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                  {date_range_cond}
                   {decision_cond}
                 ORDER BY {date_expr}
-            """, (site_id, days))
+            """, params)
 
             for row in cursor.fetchall():
                 decision = row["decision"] or ""
@@ -1022,7 +965,7 @@ async def get_expiration_details(
                     "status": display_status,
                     "floorplan": row["floorplan"] or "",
                     "sqft": row["sqft"] or 0,
-                    "move_in": (row["move_in_date"] or ""),
+                    "move_in": "",
                     "lease_start": "",
                     "decision": decision,
                 }
@@ -1031,57 +974,51 @@ async def get_expiration_details(
                     lease_rec["new_lease_term"] = row["new_lease_term"] or ""
                 leases.append(lease_rec)
         else:
-            # Fallback: realpage_leases
-            status_cond = "AND status_text IN ('Current', 'Current - Future')"
+            # Fallback: unified_leases
+            status_cond = "AND status IN ('Current', 'Current - Future')"
             if filter == "renewed":
-                status_cond = "AND status_text = 'Current - Future'"
+                status_cond = "AND status = 'Current - Future'"
             elif filter == "expiring":
-                status_cond = "AND status_text = 'Current'"
+                status_cond = "AND status = 'Current'"
 
+            date_expr = "date(substr(l.lease_end,7,4)||'-'||substr(l.lease_end,1,2)||'-'||substr(l.lease_end,4,2))"
+            if date_start and date_end:
+                date_range_cond_fb = f"AND {date_expr} BETWEEN ? AND ?"
+                params_fb = (property_id, date_start, date_end)
+            else:
+                date_range_cond_fb = f"AND {date_expr} BETWEEN date('now') AND date('now', '+' || ? || ' days')"
+                params_fb = (property_id, days)
             cursor.execute(f"""
-                SELECT l.unit_id, l.lease_start_date, l.lease_end_date, l.rent_amount,
-                       l.status_text, l.type_text, l.move_in_date,
-                       COALESCE(u.unit_number, l.unit_id) as unit_display,
-                       r.floorplan, r.sqft, r.market_rent as rr_market_rent,
-                       r.move_in_date as rr_move_in, r.status as rr_status
-                FROM realpage_leases l
-                LEFT JOIN realpage_units u
-                    ON u.unit_id = l.unit_id AND u.site_id = l.site_id
-                LEFT JOIN realpage_rent_roll r
-                    ON r.property_id = l.site_id
-                    AND r.lease_end = l.lease_end_date
-                    AND r.lease_start = l.lease_start_date
-                    AND r.unit_number NOT IN ('Unit', 'details')
-                WHERE l.site_id = ?
-                    AND l.lease_end_date != ''
-                    AND date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
-                        BETWEEN date('now') AND date('now', '+' || ? || ' days')
+                SELECT l.unit_number, l.lease_start, l.lease_end, l.rent_amount,
+                       l.status, l.lease_type, l.move_in_date, l.floorplan, l.sqft,
+                       u.market_rent
+                FROM unified_leases l
+                LEFT JOIN unified_units u
+                    ON u.unified_property_id = l.unified_property_id
+                    AND u.unit_number = l.unit_number
+                WHERE l.unified_property_id = ?
+                    AND l.lease_end IS NOT NULL AND l.lease_end != ''
+                    {date_range_cond_fb}
                     {status_cond}
-                ORDER BY date(substr(l.lease_end_date,7,4) || '-' || substr(l.lease_end_date,1,2) || '-' || substr(l.lease_end_date,4,2))
-            """, (site_id, days))
+                ORDER BY {date_expr}
+            """, params_fb)
 
             for row in cursor.fetchall():
-                is_renewed = row["status_text"] == "Current - Future"
-                if is_renewed:
-                    display_status = "Renewal Signed"
-                else:
-                    rr_status = row["rr_status"] or ""
-                    display_status = "Notice Given" if "NTV" in rr_status else "No Notice"
+                is_renewed = row["status"] == "Current - Future"
+                display_status = "Renewal Signed" if is_renewed else "No Notice"
 
-                unit = row["unit_display"] or row["unit_id"] or "—"
                 lease_rec = {
-                    "unit": unit,
-                    "lease_end": row["lease_end_date"] or "",
-                    "market_rent": row["rr_market_rent"] or row["rent_amount"] or 0,
+                    "unit": row["unit_number"] or "—",
+                    "lease_end": row["lease_end"] or "",
+                    "market_rent": row["market_rent"] or row["rent_amount"] or 0,
                     "status": display_status,
                     "floorplan": row["floorplan"] or "",
                     "sqft": row["sqft"] or 0,
-                    "move_in": ((row["rr_move_in"] or row["move_in_date"] or "").split("\n")[0]),
-                    "lease_start": row["lease_start_date"] or "",
+                    "move_in": row["move_in_date"] or "",
+                    "lease_start": row["lease_start"] or "",
                 }
                 if is_renewed:
-                    renewal_type = row["type_text"] or ""
-                    lease_rec["renewal_type"] = "Renewal" if "Renewal" in renewal_type else "Lease Extension"
+                    lease_rec["renewal_type"] = "Renewal" if "Renewal" in (row["lease_type"] or "") else "Lease Extension"
                 leases.append(lease_rec)
 
         conn.close()
@@ -1496,11 +1433,17 @@ async def get_delinquency(property_id: str):
         current_residents = [r for r in resident_details if r["total_delinquent"] > 0 and not r["is_former"]]
         former_residents = [r for r in resident_details if r["total_delinquent"] > 0 and r["is_former"]]
         
+        # Use the aging bar sum as total_delinquent so the KPI and bars always match.
+        # The report's total_delinquent is a gross figure that doesn't account for
+        # credit offsets within aging buckets (clipped to 0 with max()).
+        aging_total = round(sum(aging.values()), 2)
+
         return {
             "property_name": property_id,
             "report_date": report_date,
             "total_prepaid": round(abs(total_prepaid), 2),
-            "total_delinquent": round(total_delinquent, 2),
+            "total_delinquent": aging_total,
+            "gross_delinquent": round(total_delinquent, 2),
             "current_resident_total": round(sum(r["total_delinquent"] for r in current_residents), 2),
             "former_resident_total": round(sum(r["total_delinquent"] for r in former_residents), 2),
             "current_resident_count": len(current_residents),
@@ -1512,7 +1455,7 @@ async def get_delinquency(property_id: str):
                 "days_31_60": round(aging["31_60"], 2),
                 "days_61_90": round(aging["61_90"], 2),
                 "days_90_plus": round(aging["90_plus"], 2),
-                "total": round(sum(aging.values()), 2)
+                "total": aging_total
             },
             "evictions": {
                 "total_balance": round(sum(e["balance"] for e in eviction_units), 2),
@@ -1621,38 +1564,36 @@ async def get_availability_by_floorplan(property_id: str):
     """
     GET: Available units broken out by floorplan, showing vacant vs on-notice counts.
     
-    Uses box_score data which has per-floorplan breakdowns.
+    Uses unified_units data grouped by floorplan.
     Returns: list of floorplan records with total, vacant, notice, leased counts.
     """
     import sqlite3
-    from pathlib import Path
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            return {"floorplans": []}
-        
-        raw_db = REALPAGE_DB_PATH
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         cursor = conn.cursor()
         
-        # Get latest box_score data per floorplan (exclude summary rows)
+        # Aggregate unified_units by floorplan
         cursor.execute("""
-            SELECT floorplan, floorplan_group, total_units, vacant_units,
-                   vacant_not_leased, vacant_leased, occupied_units,
-                   occupied_on_notice, model_units, down_units,
-                   avg_market_rent, occupancy_pct, leased_pct
-            FROM realpage_box_score
-            WHERE property_id = ?
-              AND floorplan IS NOT NULL
-              AND floorplan != ''
-              AND report_date = (
-                  SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
-              )
-            ORDER BY floorplan_group, floorplan
-        """, (site_id, site_id))
+            SELECT floorplan,
+                   '' as floorplan_group,
+                   COUNT(*) as total_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND is_preleased = 0 THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
+                   SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
+                   SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
+                   SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model_units,
+                   SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units,
+                   ROUND(AVG(market_rent), 0) as avg_market_rent,
+                   ROUND(SUM(CASE WHEN occupancy_status = 'occupied' THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as occupancy_pct,
+                   ROUND((SUM(CASE WHEN occupancy_status = 'occupied' THEN 1.0 ELSE 0 END) + SUM(CASE WHEN is_preleased = 1 THEN 1.0 ELSE 0 END)) / COUNT(*) * 100, 1) as leased_pct
+            FROM unified_units
+            WHERE unified_property_id = ?
+              AND floorplan IS NOT NULL AND floorplan != ''
+            GROUP BY floorplan
+            ORDER BY floorplan
+        """, (property_id,))
         
         floorplans = []
         totals = {"total": 0, "vacant": 0, "notice": 0, "vacant_leased": 0, 
@@ -1697,39 +1638,35 @@ async def get_consolidated_by_bedroom(property_id: str):
     GET: Dashboard Consolidation — aggregates occupancy, pricing, and availability
     by bedroom type (Studio, 1BR, 2BR, 3BR+).
     
-    Combines box_score (occupancy/availability) with unified_pricing_metrics (rent)
+    Combines unified_units (occupancy/availability) with rent data
     into a single consolidated view per bedroom count.
     """
     import sqlite3
-    from pathlib import Path
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            return {"bedrooms": [], "totals": {}}
-        
-        raw_db = REALPAGE_DB_PATH
-        unified_db = UNIFIED_DB_PATH
-        
-        # Aggregate box_score by bedroom count
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         cursor = conn.cursor()
         
+        # Aggregate unified_units by floorplan (derive bedroom count later)
         cursor.execute("""
-            SELECT floorplan_group, floorplan,
-                   total_units, occupied_units, vacant_units,
-                   vacant_leased, vacant_not_leased, occupied_on_notice,
-                   model_units, down_units, avg_market_rent,
-                   occupancy_pct, leased_pct, avg_actual_rent
-            FROM realpage_box_score
-            WHERE property_id = ?
+            SELECT '' as floorplan_group, floorplan,
+                   COUNT(*) as total_units,
+                   SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND is_preleased = 0 THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
+                   SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model_units,
+                   SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units,
+                   ROUND(AVG(market_rent), 0) as avg_market_rent,
+                   0 as occupancy_pct,
+                   0 as leased_pct,
+                   ROUND(AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END), 0) as avg_actual_rent
+            FROM unified_units
+            WHERE unified_property_id = ?
               AND floorplan IS NOT NULL AND floorplan != ''
-              AND report_date = (
-                  SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
-              )
-        """, (site_id, site_id))
+            GROUP BY floorplan
+        """, (property_id,))
         
         # Derive bedroom count from floorplan_group (e.g. "1x1" -> 1) or floorplan prefix (S=Studio, A=1BR, B=2BR, C=3BR)
         def _derive_bedrooms(fg: str, fp: str) -> int:
@@ -1787,58 +1724,52 @@ async def get_consolidated_by_bedroom(property_id: str):
                 bd["_actual_rent_sum"] += (row[13] or 0) * (row[3] or 0)
                 bd["_rent_count"] += row[2] or 0
         
-        conn.close()
-        
-        # Get expiration data by floorplan from rent_roll (leases table has NULL unit_number)
+        # Get expiration data by floorplan from unified_units + unified_leases
         renewal_map = {}
         total_renewed = 0
         total_expiring_leases = 0
         try:
-            conn2 = sqlite3.connect(raw_db)
-            c2 = conn2.cursor()
+            date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
             
-            # Expirations by floorplan from rent_roll (has unit_number + floorplan + lease_end)
-            c2.execute("""
+            # Expirations by floorplan from unified_units (has floorplan + lease_end)
+            cursor.execute(f"""
                 SELECT floorplan, COUNT(*) as expiring
-                FROM realpage_rent_roll
-                WHERE property_id = ?
-                  AND report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
-                  AND status = 'Occupied'
+                FROM unified_units
+                WHERE unified_property_id = ?
+                  AND occupancy_status = 'occupied'
                   AND lease_end IS NOT NULL AND lease_end != ''
-                  AND floorplan IS NOT NULL AND floorplan != '' AND floorplan != 'Floorplan'
-                  AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))
-                      BETWEEN date('now') AND date('now', '+90 days')
+                  AND floorplan IS NOT NULL AND floorplan != ''
+                  AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
                 GROUP BY floorplan
-            """, (site_id, site_id))
-            for row in c2.fetchall():
+            """, (property_id,))
+            for row in cursor.fetchall():
                 renewal_map[row[0]] = {"expiring": row[1], "renewed": 0}
             
-            # Total renewals from leases table (works for totals, just can't map to floorplan)
-            c2.execute("""
+            # Total renewals from unified_leases
+            le_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+            cursor.execute(f"""
                 SELECT COUNT(*) as total_exp,
-                       SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as renewed
-                FROM realpage_leases
-                WHERE site_id = ?
-                  AND status_text IN ('Current', 'Current - Future')
-                  AND lease_end_date != ''
-                  AND date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))
-                      BETWEEN date('now') AND date('now', '+90 days')
-            """, (site_id,))
-            row = c2.fetchone()
+                       SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
+                FROM unified_leases
+                WHERE unified_property_id = ?
+                  AND status IN ('Current', 'Current - Future')
+                  AND lease_end IS NOT NULL AND lease_end != ''
+                  AND {le_expr} BETWEEN date('now') AND date('now', '+90 days')
+            """, (property_id,))
+            row = cursor.fetchone()
             if row:
                 total_expiring_leases = row[0] or 0
                 total_renewed = row[1] or 0
             
-            # Proportionally distribute renewals across floorplans by their expiration count
             if total_expiring_leases > 0 and total_renewed > 0:
                 total_rr_exp = sum(v["expiring"] for v in renewal_map.values())
                 for fp_data in renewal_map.values():
                     if total_rr_exp > 0:
                         fp_data["renewed"] = round(fp_data["expiring"] * total_renewed / total_rr_exp)
-            
-            conn2.close()
         except Exception:
             pass
+        
+        conn.close()
         
         # Build final result
         result = []
@@ -1846,6 +1777,7 @@ async def get_consolidated_by_bedroom(property_id: str):
             "total_units": 0, "occupied": 0, "vacant": 0,
             "vacant_leased": 0, "on_notice": 0,
             "expiring_90d": 0, "renewed_90d": 0,
+            "_market_rent_sum": 0, "_rent_count": 0, "_actual_rent_sum": 0,
         }
         
         for bed_label in sorted(bedroom_data.keys(), key=lambda x: bedroom_data[x]["bedrooms"]):
@@ -1888,10 +1820,20 @@ async def get_consolidated_by_bedroom(property_id: str):
             grand_totals["on_notice"] += bd["on_notice"]
             grand_totals["expiring_90d"] += expiring
             grand_totals["renewed_90d"] += renewed
+            grand_totals["_market_rent_sum"] += bd["_market_rent_sum"]
+            grand_totals["_rent_count"] += bd["_rent_count"]
+            grand_totals["_actual_rent_sum"] += bd["_actual_rent_sum"]
         
         gt = grand_totals
         gt["occupancy_pct"] = round(gt["occupied"] / gt["total_units"] * 100, 1) if gt["total_units"] > 0 else 0
         gt["renewal_pct_90d"] = round(gt["renewed_90d"] / gt["expiring_90d"] * 100, 1) if gt["expiring_90d"] > 0 else None
+        gt["avg_market_rent"] = round(gt["_market_rent_sum"] / gt["_rent_count"], 0) if gt["_rent_count"] > 0 else 0
+        gt["avg_in_place_rent"] = round(gt["_actual_rent_sum"] / gt["occupied"], 0) if gt["occupied"] > 0 else 0
+        gt["rent_delta"] = round(gt["avg_market_rent"] - gt["avg_in_place_rent"], 0) if gt["avg_market_rent"] and gt["avg_in_place_rent"] else 0
+        # Clean internal keys
+        del gt["_market_rent_sum"]
+        del gt["_rent_count"]
+        del gt["_actual_rent_sum"]
         
         return {"bedrooms": result, "totals": gt}
         
@@ -1906,116 +1848,149 @@ async def get_availability_units(property_id: str, floorplan: str = None, status
     
     Query params:
     - floorplan: Filter to specific floorplan
-    - status: Filter to status (Vacant, Occupied-NTV, Vacant-Leased, Occupied, etc.)
+    - status: Filter to status (vacant, notice, occupied, preleased)
     """
     import sqlite3
-    from pathlib import Path
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            return {"units": []}
-        
-        raw_db = REALPAGE_DB_PATH
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         cursor = conn.cursor()
         
-        # Build floorplan avg_actual_rent lookup from box_score as fallback
-        fp_rent = {}
-        cursor.execute("""
-            SELECT floorplan, avg_actual_rent
-            FROM realpage_box_score
-            WHERE property_id = ?
-              AND floorplan IS NOT NULL AND floorplan != ''
-              AND report_date = (SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?)
-        """, (site_id, site_id))
-        for row in cursor.fetchall():
-            if row[1] and row[1] > 0:
-                fp_rent[row[0]] = row[1]
-        
-        query = """
-            SELECT DISTINCT rr.unit_number, rr.floorplan, rr.status, rr.sqft,
-                   rr.market_rent, rr.actual_rent, rr.lease_start, rr.lease_end,
-                   rr.move_in_date, rr.move_out_date,
-                   l.rent_amount,
-                   ru.available_date
-            FROM realpage_rent_roll rr
-            LEFT JOIN realpage_leases l
-                ON l.site_id = rr.property_id
-                AND l.lease_start_date = rr.lease_start
-                AND l.lease_end_date = rr.lease_end
-                AND l.status_text IN ('Current', 'Current - Future')
-            LEFT JOIN realpage_units ru
-                ON ru.site_id = rr.property_id
-                AND ru.unit_number = rr.unit_number
-            WHERE rr.property_id = ?
-              AND rr.report_date = (SELECT MAX(report_date) FROM realpage_rent_roll WHERE property_id = ?)
-        """
-        params = [site_id, site_id]
+        # Build WHERE clause for status filtering
+        where_extra = ""
+        params = [property_id]
         
         if floorplan:
-            query += " AND rr.floorplan = ?"
+            where_extra += " AND u.floorplan = ?"
             params.append(floorplan)
         if status:
-            if status.lower() == 'vacant':
-                query += " AND rr.status IN ('Vacant', 'Vacant-Leased', 'Admin/Down')"
+            if status.lower() == 'atr':
+                where_extra += """ AND (
+                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
+                    OR (u.occupancy_status = 'notice' AND (u.is_preleased IS NULL OR u.is_preleased != 1))
+                )"""
+            elif status.lower() == 'vacant':
+                where_extra += " AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')"
             elif status.lower() == 'notice':
-                query += " AND rr.status IN ('Occupied-NTV', 'Occupied-NTVL')"
+                where_extra += " AND u.occupancy_status = 'notice'"
             elif status.lower() == 'occupied':
-                query += " AND rr.status = 'Occupied'"
+                where_extra += " AND u.occupancy_status = 'occupied'"
             elif status.lower() == 'preleased':
-                query += " AND rr.status = 'Vacant-Leased'"
+                where_extra += " AND u.is_preleased = 1"
             else:
-                query += " AND rr.status = ?"
+                where_extra += " AND u.status = ?"
                 params.append(status)
         
-        query += " ORDER BY rr.unit_number"
+        # Enriched query:
+        # - actual_rent: prefer in_place_rent → lease_expirations → current lease → market_rent (vacant only)
+        # - days_vacant: computed from last move_out_date in unified_leases for vacant units
+        query = f"""
+            SELECT u.unit_number, u.floorplan, u.status, u.sqft,
+                   u.market_rent, 
+                   COALESCE(
+                       NULLIF(u.in_place_rent, 0),
+                       NULLIF(u.in_place_rent, 0.0),
+                       (SELECT MAX(le.actual_rent) FROM unified_lease_expirations le 
+                        WHERE le.unified_property_id = u.unified_property_id 
+                          AND le.unit_number = u.unit_number AND le.actual_rent > 0
+                          AND le.decision != 'Vacating'
+                          AND u.occupancy_status NOT IN ('vacant', 'vacant_ready', 'vacant_not_ready')),
+                       (SELECT l.rent_amount FROM unified_leases l
+                        WHERE l.unified_property_id = u.unified_property_id
+                          AND l.unit_number = u.unit_number AND l.status = 'Current'
+                          AND l.rent_amount > 0 LIMIT 1),
+                       CASE WHEN u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                            THEN NULLIF(u.market_rent, 0) END
+                   ) as actual_rent,
+                   u.lease_start, u.lease_end,
+                   u.move_in_date, u.on_notice_date, u.occupancy_status, u.is_preleased,
+                   u.days_vacant,
+                   u.in_place_rent
+            FROM unified_units u
+            WHERE u.unified_property_id = ?
+            {where_extra}
+            ORDER BY u.unit_number
+        """
         cursor.execute(query, params)
         
-        seen = set()
+        # All enrichment (days_vacant, lease_start for Vacant-Leased) is now done
+        # at sync time in sync_realpage_to_unified.py. API reads unified.db ONLY.
+        unit_rows = cursor.fetchall()
+        
+        from datetime import datetime, date
+        today = date.today()
+        
         units = []
-        for row in cursor.fetchall():
-            unit_num = row[0]
-            if unit_num in seen:
-                continue
-            seen.add(unit_num)
+        for row in unit_rows:
+            raw_status = row[2] or ''
+            occ_status = row[10] or ''
+            preleased = row[11] or 0
             
-            # Determine actual rent: rent_roll > lease rent_amount > box_score avg
-            actual = row[5] if row[5] and row[5] > 0 else None
-            if not actual and row[10] and row[10] > 0:
-                actual = row[10]
-            if not actual:
-                actual = fp_rent.get(row[1])
+            # Map to display status matching frontend expectations
+            if raw_status == 'down' or occ_status == 'down':
+                display_status = 'Admin/Down'
+            elif preleased and occ_status in ('vacant', 'vacant_ready', 'vacant_not_ready'):
+                display_status = 'Vacant-Leased'
+            elif occ_status == 'notice' and preleased:
+                display_status = 'Occupied-NTVL'
+            elif occ_status == 'notice':
+                display_status = 'Occupied-NTV'
+            elif occ_status in ('vacant', 'vacant_ready', 'vacant_not_ready'):
+                display_status = 'Vacant'
+            elif occ_status == 'occupied':
+                display_status = 'Occupied'
+            else:
+                display_status = raw_status.title() if raw_status else 'Unknown'
             
-            # Compute days_vacant from realpage_units.available_date
-            days_vacant = None
-            avail_date_raw = row[11]  # available_date from realpage_units
-            unit_status = row[2] or ''
-            if unit_status in ('Vacant', 'Vacant-Leased', 'Admin/Down') and avail_date_raw:
+            # days_vacant is pre-computed at sync time in unified_units
+            days_vacant = row[12]
+            unit_number = row[0]
+            raw_in_place_rent = row[13]  # original in_place_rent (before COALESCE)
+            
+            # Detect if actual_rent fell back to market_rent (estimated)
+            actual_rent = row[5]
+            market_rent = row[4]
+            rent_is_estimated = False
+            if occ_status in ('vacant', 'vacant_ready', 'vacant_not_ready'):
+                # If raw in_place_rent was 0/null and actual_rent equals market_rent, it's a fallback
+                if (not raw_in_place_rent or raw_in_place_rent == 0) and actual_rent and market_rent and actual_rent == market_rent:
+                    rent_is_estimated = True
+            
+            # For vacant non-preleased units, suppress future lease_end dates.
+            # These come from applicant leases or broken leases baked into unified_units
+            # and misleadingly suggest the unit should still be occupied.
+            lease_end = row[7]
+            if lease_end and occ_status in ('vacant', 'vacant_ready', 'vacant_not_ready') and not preleased:
                 try:
-                    from datetime import datetime as dt
-                    # Handle "YYYY-MM-DD HH:MM:SS" format from realpage_units
-                    avail_dt = dt.strptime(avail_date_raw.strip()[:10], '%Y-%m-%d')
-                    days_vacant = (dt.now() - avail_dt).days
-                    if days_vacant < 0:
-                        days_vacant = 0
+                    for fmt in ('%m/%d/%Y', '%Y-%m-%d'):
+                        try:
+                            le_date = datetime.strptime(lease_end, fmt).date()
+                            if le_date > today:
+                                lease_end = None  # suppress future lease_end on vacant units
+                            break
+                        except ValueError:
+                            continue
                 except Exception:
                     pass
-
+            
+            # lease_start is pre-populated at sync time (including for Vacant-Leased)
+            lease_start = row[6]
+            
             units.append({
-                "unit": unit_num,
+                "unit": unit_number,
                 "floorplan": row[1],
-                "status": row[2],
+                "status": display_status,
                 "sqft": row[3],
-                "market_rent": row[4],
-                "actual_rent": actual,
-                "lease_start": row[6],
-                "lease_end": row[7],
+                "market_rent": market_rent,
+                "actual_rent": actual_rent,
+                "rent_is_estimated": rent_is_estimated,
+                "lease_start": lease_start,
+                "lease_end": lease_end,
                 "move_in": row[8],
                 "move_out": row[9],
                 "days_vacant": days_vacant,
+                "is_preleased": bool(preleased),
+                "occupancy_status": occ_status,
             })
         
         conn.close()
@@ -2031,36 +2006,29 @@ async def get_shows(property_id: str, days: int = 7):
     GET: Number of property shows/tours in the last N days.
     
     Counts Visit, Visit (return), and Videotelephony - Tour events
-    from the realpage_activity table.
+    from unified_activity.
     
     Query params:
     - days: Trailing window in days (default 7)
     """
     import sqlite3
     from datetime import datetime, timedelta
-    from pathlib import Path
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            return {"total_shows": 0, "by_date": [], "days": days}
-        
-        raw_db = REALPAGE_DB_PATH
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         cursor = conn.cursor()
         
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         
-        # Get all show events for this property (with unit-level detail)
+        # activity_date is already ISO in unified_activity
         cursor.execute("""
-            SELECT activity_date, activity_type, unit_number, floorplan
-            FROM realpage_activity
-            WHERE property_id = ?
+            SELECT activity_date, activity_type, '' as unit_number, '' as floorplan
+            FROM unified_activity
+            WHERE unified_property_id = ?
               AND activity_type IN ('Visit', 'Visit (return)', 'Videotelephony - Tour', 'Unit shown')
+              AND activity_date >= ?
             ORDER BY activity_date DESC
-        """, (site_id,))
+        """, (property_id, cutoff))
         
         total = 0
         by_date = {}
@@ -2069,22 +2037,18 @@ async def get_shows(property_id: str, days: int = 7):
         
         for row in cursor.fetchall():
             act_date_str, act_type, unit_num, fp = row
-            try:
-                act_date = datetime.strptime(act_date_str, "%m/%d/%Y")
-            except (ValueError, TypeError):
+            date_key = (act_date_str or '')[:10]
+            if not date_key:
                 continue
-            
-            if act_date >= cutoff:
-                total += 1
-                date_key = act_date.strftime("%Y-%m-%d")
-                by_date[date_key] = by_date.get(date_key, 0) + 1
-                by_type[act_type] = by_type.get(act_type, 0) + 1
-                show_details.append({
-                    "date": date_key,
-                    "type": act_type,
-                    "unit": unit_num,
-                    "floorplan": fp,
-                })
+            total += 1
+            by_date[date_key] = by_date.get(date_key, 0) + 1
+            by_type[act_type] = by_type.get(act_type, 0) + 1
+            show_details.append({
+                "date": date_key,
+                "type": act_type,
+                "unit": unit_num,
+                "floorplan": fp,
+            })
         
         conn.close()
         
@@ -2107,53 +2071,41 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
     """
     GET: Weekly occupancy forecast showing projected move-ins and move-outs.
     
-    Prefers RealPage Projected Occupancy report (3842) when available in
-    realpage_projected_occupancy table. Falls back to rent_roll-based estimation.
+    Prefers unified_projected_occupancy (synced from report 3842) when available.
+    Falls back to unified_units-based estimation.
     
-    Also returns notice_units and move_in_units from rent_roll for drill-down.
+    Also returns notice_units and move_in_units from unified data for drill-down.
     """
     import sqlite3
     from datetime import datetime, timedelta
-    from pathlib import Path
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            return {"forecast": [], "current_occupied": 0, "total_units": 0}
-        
-        raw_db = REALPAGE_DB_PATH
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         cursor = conn.cursor()
         
-        # Get current occupied and total from box_score summary (latest report_date only)
+        # Get current occupied and total from unified_occupancy_metrics
         cursor.execute("""
-            SELECT SUM(total_units), SUM(occupied_units), SUM(occupied_on_notice),
-                   SUM(vacant_leased)
-            FROM realpage_box_score
-            WHERE property_id = ? AND floorplan IS NOT NULL
-              AND report_date = (
-                  SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
-              )
-        """, (site_id, site_id))
+            SELECT total_units, occupied_units, notice_units, preleased_vacant
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ?
+            ORDER BY snapshot_date DESC LIMIT 1
+        """, (property_id,))
         row = cursor.fetchone()
-        total_units = row[0] or 0
-        current_occupied = row[1] or 0
-        current_notice = row[2] or 0
-        vacant_leased_count = row[3] or 0
+        total_units = row[0] or 0 if row else 0
+        current_occupied = row[1] or 0 if row else 0
+        current_notice = row[2] or 0 if row else 0
+        vacant_leased_count = row[3] or 0 if row else 0
         
         today = datetime.now()
         
-        # ---- Drill-down units from rent_roll (always gathered) ----
-        # Notice move-out units (use market_rent as fallback when actual_rent is 0)
+        # ---- Drill-down units from unified_units ----
         cursor.execute("""
             SELECT DISTINCT unit_number, lease_end, floorplan,
-                   CASE WHEN actual_rent > 0 THEN actual_rent ELSE market_rent END AS rent
-            FROM realpage_rent_roll
-            WHERE property_id = ? AND status = 'Occupied-NTV'
+                   CASE WHEN in_place_rent > 0 THEN in_place_rent ELSE market_rent END AS rent
+            FROM unified_units
+            WHERE unified_property_id = ? AND occupancy_status = 'notice'
               AND lease_end IS NOT NULL AND lease_end != ''
-        """, (site_id,))
+        """, (property_id,))
         notice_units = []
         for unit_num, date_str, fp, rent in cursor.fetchall():
             notice_units.append({
@@ -2162,17 +2114,14 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
             })
         
         # Pre-leased / move-in units
-        # Join with leases to pick up sched_move_in_date when rent_roll lacks dates
         cursor.execute("""
-            SELECT DISTINCT r.unit_number,
-                   COALESCE(r.move_in_date, r.lease_start, l.sched_move_in_date, l.lease_start_date) AS best_date,
-                   r.floorplan, r.market_rent
-            FROM realpage_rent_roll r
-            LEFT JOIN realpage_leases l
-              ON l.site_id = r.property_id AND l.unit_id = r.unit_number
-              AND l.sched_move_in_date IS NOT NULL AND l.sched_move_in_date != ''
-            WHERE r.property_id = ? AND r.status = 'Vacant-Leased'
-        """, (site_id,))
+            SELECT DISTINCT unit_number,
+                   COALESCE(move_in_date, lease_start) AS best_date,
+                   floorplan, market_rent
+            FROM unified_units
+            WHERE unified_property_id = ? AND is_preleased = 1
+              AND occupancy_status != 'occupied'
+        """, (property_id,))
         move_in_units = []
         undated_move_ins = 0
         seen_units = set()
@@ -2187,16 +2136,15 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
             if not date_str:
                 undated_move_ins += 1
         
-        # Lease expirations (for drill-down)
-        # Include both Current and Current-Future (renewed) to match renewal tab counts
+        # Lease expirations from unified_leases
         expiration_units = []
         cursor.execute("""
-            SELECT unit_id, lease_end_date, lease_term_desc, rent_amount, status_text
-            FROM realpage_leases
-            WHERE site_id = ?
-              AND status_text IN ('Current', 'Current - Future')
-              AND lease_end_date IS NOT NULL AND lease_end_date != ''
-        """, (site_id,))
+            SELECT unit_number, lease_end, lease_type, rent_amount, status
+            FROM unified_leases
+            WHERE unified_property_id = ?
+              AND status IN ('Current', 'Current - Future')
+              AND lease_end IS NOT NULL AND lease_end != ''
+        """, (property_id,))
         for unit_id, date_str, fp, rent, status in cursor.fetchall():
             try:
                 dt = datetime.strptime(date_str, "%m/%d/%Y")
@@ -2210,17 +2158,17 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
             except (ValueError, TypeError):
                 pass
         
-        # ---- Try Projected Occupancy report (3842) first ----
+        # ---- Try unified_projected_occupancy first ----
         has_projected = False
         try:
             cursor.execute("""
                 SELECT week_ending, MAX(total_units), MAX(occupied_begin), MAX(pct_occupied_begin),
                        MAX(scheduled_move_ins), MAX(scheduled_move_outs), MAX(occupied_end), MAX(pct_occupied_end)
-                FROM realpage_projected_occupancy
-                WHERE property_id = ?
+                FROM unified_projected_occupancy
+                WHERE unified_property_id = ?
                 GROUP BY week_ending
                 ORDER BY week_ending
-            """, (site_id,))
+            """, (property_id,))
             proj_rows = cursor.fetchall()
             if proj_rows:
                 has_projected = True
@@ -2610,7 +2558,11 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             c = conn.cursor()
             c.execute("""
-                SELECT SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END),
+                SELECT SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END) +
+                       SUM(CASE WHEN balance_0_30 > 0 THEN balance_0_30 ELSE 0 END) +
+                       SUM(CASE WHEN balance_31_60 > 0 THEN balance_31_60 ELSE 0 END) +
+                       SUM(CASE WHEN balance_61_90 > 0 THEN balance_61_90 ELSE 0 END) +
+                       SUM(CASE WHEN balance_over_90 > 0 THEN balance_over_90 ELSE 0 END),
                        COUNT(CASE WHEN total_delinquent > 0 THEN 1 END),
                        SUM(CASE WHEN balance_0_30 > 0 THEN balance_0_30 ELSE 0 END),
                        SUM(CASE WHEN balance_31_60 > 0 THEN balance_31_60 ELSE 0 END),
@@ -2662,21 +2614,20 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
 
         # Shows
         try:
-            from app.db.schema import REALPAGE_DB_PATH
             import sqlite3
-            pms = get_pms_config(property_id)
-            if pms.realpage_siteid:
-                conn = sqlite3.connect(REALPAGE_DB_PATH)
-                c = conn.cursor()
-                c.execute("""
-                    SELECT COUNT(*) FROM realpage_activity
-                    WHERE property_id = ?
-                      AND activity_type IN ('Visit', 'Visit (return)', 'Videotelephony - Tour')
-                      AND activity_date >= date('now', '-7 days')
-                """, (pms.realpage_siteid,))
-                row = c.fetchone()
-                conn.close()
-                property_data["shows"] = {"total_shows": row[0] if row else 0}
+            from datetime import datetime, timedelta
+            cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            sconn = sqlite3.connect(str(UNIFIED_DB_PATH))
+            sc = sconn.cursor()
+            sc.execute("""
+                SELECT COUNT(*) FROM unified_activity
+                WHERE unified_property_id = ?
+                  AND activity_type IN ('Visit', 'Visit (return)', 'Videotelephony - Tour')
+                  AND activity_date >= ?
+            """, (property_id, cutoff))
+            row = sc.fetchone()
+            sconn.close()
+            property_data["shows"] = {"total_shows": row[0] if row else 0}
         except Exception:
             pass
 
@@ -2950,38 +2901,25 @@ async def get_financials(property_id: str):
     """
     GET: Financial summary and transaction detail for a property.
     
-    Data source: realpage_monthly_transaction_summary + realpage_monthly_transaction_detail
-    in realpage_raw.db, keyed by RealPage site_id.
+    Data source: unified_financial_summary + unified_financial_detail in unified.db.
     
     Returns P&L-like summary (gross rent, charges, losses, collections)
     plus transaction-level detail grouped by category.
     """
     import sqlite3
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not found")
-    
-    raw_db = REALPAGE_DB_PATH
-    try:
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         # Get latest summary
         cursor.execute("""
-            SELECT * FROM realpage_monthly_transaction_summary
-            WHERE property_id = ?
+            SELECT * FROM unified_financial_summary
+            WHERE unified_property_id = ?
             ORDER BY fiscal_period DESC
             LIMIT 1
-        """, (site_id,))
+        """, (property_id,))
         summary_row = cursor.fetchone()
         
         if not summary_row:
@@ -3023,28 +2961,31 @@ async def get_financials(property_id: str):
         cursor.execute("""
             SELECT transaction_group, transaction_code, description,
                    ytd_last_month, this_month, ytd_through_month
-            FROM realpage_monthly_transaction_detail
-            WHERE property_id = ? AND fiscal_period = ?
+            FROM unified_financial_detail
+            WHERE unified_property_id = ? AND fiscal_period = ?
             ORDER BY transaction_group, transaction_code
-        """, (site_id, fiscal_period))
+        """, (property_id, fiscal_period))
         detail_rows = cursor.fetchall()
         
-        # Cross-reference box score for unit counts and avg rents (latest date only)
+        # Cross-reference unified_occupancy_metrics for unit counts and avg rents
         cursor.execute("""
-            SELECT SUM(total_units), SUM(occupied_units), SUM(vacant_units),
-                   SUM(total_units * avg_market_rent) / NULLIF(SUM(total_units), 0),
-                   SUM(occupied_units * avg_actual_rent) / NULLIF(SUM(occupied_units), 0)
-            FROM realpage_box_score
-            WHERE property_id = ? AND report_date = (
-                SELECT MAX(report_date) FROM realpage_box_score WHERE property_id = ?
-            )
-        """, (site_id, site_id))
+            SELECT total_units, occupied_units, vacant_units
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ?
+            ORDER BY snapshot_date DESC LIMIT 1
+        """, (property_id,))
         bs = cursor.fetchone()
         total_units = bs[0] or 0 if bs else 0
         occupied_units = bs[1] or 0 if bs else 0
         vacant_units = bs[2] or 0 if bs else 0
-        avg_market_rent = round(bs[3] or 0, 2) if bs else 0
-        avg_effective_rent = round(bs[4] or 0, 2) if bs else 0
+        
+        cursor.execute("""
+            SELECT AVG(market_rent), AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END)
+            FROM unified_units WHERE unified_property_id = ?
+        """, (property_id,))
+        pr = cursor.fetchone()
+        avg_market_rent = round(pr[0] or 0, 2) if pr else 0
+        avg_effective_rent = round(pr[1] or 0, 2) if pr else 0
         
         # Group by accounting categories
         group_names = {
@@ -3117,17 +3058,17 @@ async def get_financials(property_id: str):
         collections = summary["total_monthly_collections"] or 0
         possible = summary["total_possible_collections"] or 0
         
-        # Enrich from Lost Rent Summary (Report 4279) when transaction summary has 0
+        # Enrich from unified_lost_rent (Report 4279) when transaction summary has 0
         if ltl == 0 or vacancy_loss_total == 0:
             try:
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_lost_rent_summary'")
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='unified_lost_rent'")
                 if cursor.fetchone():
                     cursor.execute("""
                         SELECT SUM(market_rent - lease_rent), SUM(lost_rent_not_charged),
                                SUM(CASE WHEN move_out_date IS NOT NULL AND move_out_date != '' THEN market_rent ELSE 0 END)
-                        FROM realpage_lost_rent_summary
-                        WHERE property_id = ?
-                    """, (site_id,))
+                        FROM unified_lost_rent
+                        WHERE unified_property_id = ?
+                    """, (property_id,))
                     lr_row = cursor.fetchone()
                     if lr_row:
                         lr_loss_to_lease = lr_row[0] or 0
@@ -3181,72 +3122,44 @@ async def get_financials(property_id: str):
 
 @router.get("/properties/{property_id}/marketing")
 async def get_marketing(property_id: str, timeframe: str = "ytd"):
-    """Marketing funnel data from RealPage Primary Advertising Source report.
+    """Marketing funnel data from unified_advertising_sources.
     
     timeframe: ytd | mtd | l30 | l7 — matches leasing funnel timeframes.
-    Filters stored data by date_range tag, falling back to best available.
+    Filters stored data by timeframe_tag, falling back to best available.
     """
     import sqlite3
-    from app.property_config.properties import get_pms_config
     from datetime import datetime, timedelta
     
-    try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not found")
+    tf_tag = timeframe
     
-    # Compute expected date range label for the timeframe
-    now = datetime.now()
-    if timeframe == "mtd":
-        tf_start = now.replace(day=1).strftime("%m/%d/%Y")
-    elif timeframe == "l30":
-        tf_start = (now - timedelta(days=30)).strftime("%m/%d/%Y")
-    elif timeframe == "l7":
-        tf_start = (now - timedelta(days=7)).strftime("%m/%d/%Y")
-    else:  # ytd
-        tf_start = f"01/01/{now.year}"
-    tf_tag = f"{timeframe}"
-    
-    raw_db = REALPAGE_DB_PATH
     try:
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Check table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_advertising_source'")
-        if not cursor.fetchone():
-            conn.close()
-            return {"property_id": property_id, "sources": [], "totals": {}, "date_range": "", "timeframe": timeframe}
-        
         # Try exact timeframe match first, then fall back to any data
         cursor.execute("""
-            SELECT source, new_prospects, phone_calls, visits, return_visits,
+            SELECT source_name, new_prospects, visits,
                    leases, net_leases, cancelled_denied, 
                    prospect_to_lease_pct, visit_to_lease_pct, date_range,
                    COALESCE(timeframe_tag, '') as timeframe_tag
-            FROM realpage_advertising_source
-            WHERE property_id = ? AND timeframe_tag = ?
+            FROM unified_advertising_sources
+            WHERE unified_property_id = ? AND timeframe_tag = ?
             ORDER BY new_prospects DESC
-        """, (site_id, tf_tag))
+        """, (property_id, tf_tag))
         rows = cursor.fetchall()
         
         # Fallback: if no timeframe-tagged data, return whatever we have
         if not rows:
             cursor.execute("""
-                SELECT source, new_prospects, phone_calls, visits, return_visits,
+                SELECT source_name, new_prospects, visits,
                        leases, net_leases, cancelled_denied, 
                        prospect_to_lease_pct, visit_to_lease_pct, date_range,
                        COALESCE(timeframe_tag, '') as timeframe_tag
-                FROM realpage_advertising_source
-                WHERE property_id = ?
+                FROM unified_advertising_sources
+                WHERE unified_property_id = ?
                 ORDER BY new_prospects DESC
-            """, (site_id,))
+            """, (property_id,))
             rows = cursor.fetchall()
         
         conn.close()
@@ -3255,16 +3168,16 @@ async def get_marketing(property_id: str, timeframe: str = "ytd"):
             return {"property_id": property_id, "sources": [], "totals": {}, "date_range": "", "timeframe": timeframe}
         
         sources = []
-        t_prospects = t_calls = t_visits = t_leases = t_net = 0
+        t_prospects = t_visits = t_leases = t_net = 0
         date_range = rows[0]["date_range"] if rows else ""
         
         for row in rows:
             src = {
-                "source": row["source"],
+                "source": row["source_name"],
                 "new_prospects": row["new_prospects"] or 0,
-                "phone_calls": row["phone_calls"] or 0,
+                "phone_calls": 0,
                 "visits": row["visits"] or 0,
-                "return_visits": row["return_visits"] or 0,
+                "return_visits": 0,
                 "leases": row["leases"] or 0,
                 "net_leases": row["net_leases"] or 0,
                 "cancelled_denied": row["cancelled_denied"] or 0,
@@ -3273,14 +3186,13 @@ async def get_marketing(property_id: str, timeframe: str = "ytd"):
             }
             sources.append(src)
             t_prospects += src["new_prospects"]
-            t_calls += src["phone_calls"]
             t_visits += src["visits"]
             t_leases += src["leases"]
             t_net += src["net_leases"]
         
         totals = {
             "total_prospects": t_prospects,
-            "total_calls": t_calls,
+            "total_calls": 0,
             "total_visits": t_visits,
             "total_leases": t_leases,
             "total_net_leases": t_net,
@@ -3301,92 +3213,66 @@ async def get_marketing(property_id: str, timeframe: str = "ytd"):
 
 @router.get("/properties/{property_id}/maintenance")
 async def get_maintenance(property_id: str):
-    """Make-ready pipeline + closed turns from RealPage reports."""
+    """Make-ready pipeline + closed turns from unified_maintenance."""
     import sqlite3
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not found")
-    
-    raw_db = REALPAGE_DB_PATH
-    try:
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
         # Open make-ready pipeline
         pipeline = []
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_make_ready'")
-        if cursor.fetchone():
-            cursor.execute("""
-                SELECT unit, sqft, days_vacant, date_vacated, date_due, num_work_orders
-                FROM realpage_make_ready
-                WHERE property_id = ?
-                ORDER BY days_vacant DESC
-            """, (site_id,))
-            make_ready_rows = cursor.fetchall()
-            
-            # Join unit status from unified_units (rent roll)
-            unit_status_map = {}
-            try:
-                import os
-                from app.db.schema import DB_DIR
-                unified_path = os.path.join(DB_DIR, "unified.db")
-                uconn = sqlite3.connect(unified_path)
-                uconn.row_factory = sqlite3.Row
-                ucur = uconn.cursor()
-                ucur.execute("""
-                    SELECT unit_number, status, occupancy_status
-                    FROM unified_units
-                    WHERE unified_property_id = ?
-                """, (property_id,))
-                for urow in ucur.fetchall():
-                    unit_status_map[str(urow["unit_number"]).strip()] = {
-                        "status": urow["status"] or "",
-                        "lease_status": urow["occupancy_status"] or "",
-                    }
-                uconn.close()
-            except Exception:
-                pass  # unified DB not available, skip status enrichment
-            
-            for row in make_ready_rows:
-                unit_key = str(row["unit"]).strip()
-                unit_info = unit_status_map.get(unit_key, {})
-                pipeline.append({
-                    "unit": row["unit"],
-                    "sqft": row["sqft"] or 0,
-                    "days_vacant": row["days_vacant"] or 0,
-                    "date_vacated": row["date_vacated"] or "",
-                    "date_due": row["date_due"] or "",
-                    "num_work_orders": row["num_work_orders"] or 0,
-                    "unit_status": unit_info.get("status", ""),
-                    "lease_status": unit_info.get("lease_status", ""),
-                })
+        cursor.execute("""
+            SELECT unit, sqft, days_vacant, date_vacated, date_due, num_work_orders
+            FROM unified_maintenance
+            WHERE unified_property_id = ? AND record_type = 'open'
+            ORDER BY days_vacant DESC
+        """, (property_id,))
+        make_ready_rows = cursor.fetchall()
+        
+        # Join unit status from unified_units
+        unit_status_map = {}
+        cursor.execute("""
+            SELECT unit_number, status, occupancy_status
+            FROM unified_units
+            WHERE unified_property_id = ?
+        """, (property_id,))
+        for urow in cursor.fetchall():
+            unit_status_map[str(urow["unit_number"]).strip()] = {
+                "status": urow["status"] or "",
+                "lease_status": urow["occupancy_status"] or "",
+            }
+        
+        for row in make_ready_rows:
+            unit_key = str(row["unit"]).strip()
+            unit_info = unit_status_map.get(unit_key, {})
+            pipeline.append({
+                "unit": row["unit"],
+                "sqft": row["sqft"] or 0,
+                "days_vacant": row["days_vacant"] or 0,
+                "date_vacated": row["date_vacated"] or "",
+                "date_due": row["date_due"] or "",
+                "num_work_orders": row["num_work_orders"] or 0,
+                "unit_status": unit_info.get("status", ""),
+                "lease_status": unit_info.get("lease_status", ""),
+            })
         
         # Closed make-ready
         completed = []
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_closed_make_ready'")
-        if cursor.fetchone():
-            cursor.execute("""
-                SELECT unit, num_work_orders, date_closed, amount_charged
-                FROM realpage_closed_make_ready
-                WHERE property_id = ?
-                ORDER BY date_closed DESC
-            """, (site_id,))
-            for row in cursor.fetchall():
-                completed.append({
-                    "unit": row["unit"],
-                    "num_work_orders": row["num_work_orders"] or 0,
-                    "date_closed": row["date_closed"] or "",
-                    "amount_charged": row["amount_charged"] or 0,
-                })
+        cursor.execute("""
+            SELECT unit, num_work_orders, date_closed, amount_charged
+            FROM unified_maintenance
+            WHERE unified_property_id = ? AND record_type = 'closed'
+            ORDER BY date_closed DESC
+        """, (property_id,))
+        for row in cursor.fetchall():
+            completed.append({
+                "unit": row["unit"],
+                "num_work_orders": row["num_work_orders"] or 0,
+                "date_closed": row["date_closed"] or "",
+                "amount_charged": row["amount_charged"] or 0,
+            })
         
         conn.close()
         
@@ -3419,39 +3305,22 @@ async def get_maintenance(property_id: str):
 
 @router.get("/properties/{property_id}/lost-rent")
 async def get_lost_rent(property_id: str):
-    """Unit-level loss-to-lease data from RealPage Lost Rent Summary report."""
+    """Unit-level loss-to-lease data from unified_lost_rent."""
     import sqlite3
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not found")
-    
-    raw_db = REALPAGE_DB_PATH
-    try:
-        conn = sqlite3.connect(raw_db)
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_lost_rent_summary'")
-        if not cursor.fetchone():
-            conn.close()
-            return {"property_id": property_id, "units": [], "summary": {}}
-        
         cursor.execute("""
-            SELECT unit, market_rent, lease_rent, rent_charged, loss_to_rent,
+            SELECT unit_number, market_rent, lease_rent, rent_charged, loss_to_rent,
                    gain_to_rent, vacancy_current, lost_rent_not_charged,
                    move_in_date, move_out_date, fiscal_period
-            FROM realpage_lost_rent_summary
-            WHERE property_id = ?
+            FROM unified_lost_rent
+            WHERE unified_property_id = ?
             ORDER BY lost_rent_not_charged DESC
-        """, (site_id,))
+        """, (property_id,))
         rows = cursor.fetchall()
         conn.close()
         
@@ -3467,7 +3336,7 @@ async def get_lost_rent(property_id: str):
             lr = row["lease_rent"] or 0
             lost = row["lost_rent_not_charged"] or 0
             units.append({
-                "unit": row["unit"],
+                "unit": row["unit_number"],
                 "market_rent": mr,
                 "lease_rent": lr,
                 "rent_charged": row["rent_charged"] or 0,
@@ -3510,45 +3379,24 @@ async def get_lost_rent(property_id: str):
 
 @router.get("/properties/{property_id}/move-out-reasons")
 async def get_move_out_reasons(property_id: str):
-    """Move-out reasons from RealPage Report 3879.
+    """Move-out reasons from unified_move_out_reasons.
     
     Returns category/reason breakdown for both former residents and residents on notice.
     """
     import sqlite3
-    from app.property_config.properties import get_pms_config
     
     try:
-        pms_config = get_pms_config(property_id)
-        site_id = pms_config.realpage_siteid
-        if not site_id:
-            raise HTTPException(status_code=404, detail="No RealPage site_id for property")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=404, detail="Property not found")
-    
-    raw_db = REALPAGE_DB_PATH
-    if not raw_db.exists():
-        raise HTTPException(status_code=404, detail="No RealPage data available")
-    
-    try:
-        conn = sqlite3.connect(str(raw_db))
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        
-        # Check table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_move_out_reasons'")
-        if not cursor.fetchone():
-            conn.close()
-            raise HTTPException(status_code=404, detail="Move-out reasons data not available")
         
         cursor.execute("""
             SELECT resident_type, category, category_count, category_pct,
                    reason, reason_count, reason_pct, date_range
-            FROM realpage_move_out_reasons
-            WHERE property_id = ?
+            FROM unified_move_out_reasons
+            WHERE unified_property_id = ?
             ORDER BY resident_type, category_count DESC, reason_count DESC
-        """, (site_id,))
+        """, (property_id,))
         rows = cursor.fetchall()
         conn.close()
         

@@ -199,6 +199,33 @@ def init_report_tables(conn: sqlite3.Connection):
         move_in_date TEXT,
         move_out_date TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS realpage_lease_details (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        property_id TEXT NOT NULL,
+        property_name TEXT,
+        lease_id TEXT,
+        floorplan TEXT,
+        occupancy_status TEXT,
+        lease_start_date TEXT,
+        lease_end_date TEXT,
+        move_in_date TEXT,
+        move_out_date TEXT,
+        applied_date TEXT,
+        lease_approved_date TEXT,
+        notice_given_date TEXT,
+        lease_term TEXT,
+        lease_rent REAL,
+        lease_total REAL,
+        ledger_balance REAL,
+        move_out_notice_type TEXT,
+        move_out_reason TEXT,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        file_id TEXT,
+        UNIQUE(property_id, lease_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_lease_details_property ON realpage_lease_details(property_id);
+    CREATE INDEX IF NOT EXISTS idx_lease_details_status ON realpage_lease_details(occupancy_status);
     """
     
     cursor.executescript(report_tables)
@@ -932,6 +959,42 @@ def import_move_out_reasons(conn: sqlite3.Connection, records: List[Dict], file_
             imported += 1
         except Exception as e:
             print(f"  Error inserting move_out_reasons: {e}")
+    conn.commit()
+    return imported
+
+
+def import_lease_details(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Lease Details records. Replaces existing data per property."""
+    cursor = conn.cursor()
+    if records:
+        pid = records[0].get('property_id')
+        if pid:
+            cursor.execute("DELETE FROM realpage_lease_details WHERE property_id = ?", (pid,))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT OR REPLACE INTO realpage_lease_details
+                (property_id, property_name, lease_id, floorplan, occupancy_status,
+                 lease_start_date, lease_end_date, move_in_date, move_out_date,
+                 applied_date, lease_approved_date, notice_given_date, lease_term,
+                 lease_rent, lease_total, ledger_balance,
+                 move_out_notice_type, move_out_reason, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'),
+                r.get('lease_id'), r.get('floorplan'), r.get('occupancy_status'),
+                r.get('lease_start_date'), r.get('lease_end_date'),
+                r.get('move_in_date'), r.get('move_out_date'),
+                r.get('applied_date'), r.get('lease_approved_date'),
+                r.get('notice_given_date'), r.get('lease_term'),
+                r.get('lease_rent'), r.get('lease_total'), r.get('ledger_balance'),
+                r.get('move_out_notice_type'), r.get('move_out_reason'),
+                file_id
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting lease_details: {e}")
     conn.commit()
     return imported
 

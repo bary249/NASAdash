@@ -861,35 +861,15 @@ class OccupancyService:
     async def get_amenities(self, property_id: str, item_type: Optional[str] = None) -> List[dict]:
         """
         Get rentable items (amenities) for a property.
-        Reads from realpage_raw.db using pms_property_id from unified_properties.
+        Reads from unified_amenities in unified.db.
         """
-        import os
-        
         try:
-            # Look up the RealPage site_id from unified_properties
-            conn = sqlite3.connect(UNIFIED_DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT pms_property_id FROM unified_properties WHERE unified_property_id = ? AND pms_source = 'realpage'",
-                (property_id,)
-            )
-            row = cursor.fetchone()
-            conn.close()
-            
-            if not row:
-                return []
-            site_id = row[0]
-            
-            db_path = os.path.join(os.path.dirname(__file__), "../db/data/realpage_raw.db")
-            if not os.path.exists(db_path):
-                return []
-            
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(str(UNIFIED_DB_PATH))
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            query = "SELECT * FROM realpage_rentable_items WHERE site_id = ?"
-            params: list = [site_id]
+            query = "SELECT * FROM unified_amenities WHERE unified_property_id = ?"
+            params: list = [property_id]
             if item_type:
                 query += " AND LOWER(item_type) LIKE ?"
                 params.append(f"%{item_type.lower()}%")
@@ -928,23 +908,29 @@ class OccupancyService:
                     "total": 0,
                     "available": 0,
                     "rented": 0,
-                    "monthly_rate": item.get("billing_amount", 0),
+                    "monthly_rate": item.get("monthly_charge") or item.get("billing_amount") or 0,
                     "potential_revenue": 0,
                     "actual_revenue": 0
                 }
             
             by_type[item_type]["total"] += 1
-            # Determine rented status by lease_id (not status text which is misleading)
+            # Determine rented status: lease_id present, or status='Rented', or unit assigned
             lease_id = item.get("lease_id")
-            is_rented = lease_id and str(lease_id) not in ('', '0', 'None')
+            unit_num = item.get("unit_number")
+            status_val = item.get("status", '')
+            is_rented = (
+                (lease_id and str(lease_id) not in ('', '0', 'None'))
+                or status_val == 'Rented'
+                or (unit_num and str(unit_num) not in ('', '0', 'None'))
+            )
             
             if is_rented:
                 by_type[item_type]["rented"] += 1
-                by_type[item_type]["actual_revenue"] += item.get("billing_amount", 0)
+                by_type[item_type]["actual_revenue"] += item.get("monthly_charge") or item.get("billing_amount") or 0
             else:
                 by_type[item_type]["available"] += 1
             
-            by_type[item_type]["potential_revenue"] += item.get("billing_amount", 0)
+            by_type[item_type]["potential_revenue"] += item.get("monthly_charge") or item.get("billing_amount") or 0
         
         # Calculate totals
         total_items = len(items)
@@ -967,33 +953,26 @@ class OccupancyService:
         """
         Get lease expiration and renewal metrics for 30/60/90 day periods.
         
-        Primary source: realpage_lease_expiration_renewal (Report 4156) — has
+        Primary source: unified_lease_expirations (Report 4156) — has
         Decision column: Renewed, Vacating, Unknown, Moved out, MTM.
-        Fallback: realpage_leases (Current / Current-Future status).
+        Fallback: unified_leases (Current / Current-Future status).
         
         READ-ONLY operation.
         """
         import sqlite3
-        from app.db.schema import REALPAGE_DB_PATH
-        from app.property_config.properties import get_pms_config
-        
-        pms_config = get_pms_config(property_id)
-        if not pms_config.realpage_siteid:
-            return {"periods": []}
-        
-        site_id = pms_config.realpage_siteid
+        from app.db.schema import UNIFIED_DB_PATH
         
         try:
-            conn = sqlite3.connect(REALPAGE_DB_PATH)
+            conn = sqlite3.connect(str(UNIFIED_DB_PATH))
             cursor = conn.cursor()
             
             # Try report 4156 data first (has richer decision statuses)
             use_4156 = False
             try:
                 cursor.execute("""
-                    SELECT COUNT(*) FROM realpage_lease_expiration_renewal
-                    WHERE property_id = ?
-                """, (site_id,))
+                    SELECT COUNT(*) FROM unified_lease_expirations
+                    WHERE unified_property_id = ?
+                """, (property_id,))
                 if (cursor.fetchone()[0] or 0) > 0:
                     use_4156 = True
             except Exception:
@@ -1034,11 +1013,11 @@ class OccupancyService:
                             SUM(CASE WHEN decision = 'Unknown' THEN 1 ELSE 0 END) as unknown,
                             SUM(CASE WHEN decision = 'MTM' THEN 1 ELSE 0 END) as mtm,
                             SUM(CASE WHEN decision = 'Moved out' THEN 1 ELSE 0 END) as moved_out
-                        FROM realpage_lease_expiration_renewal
-                        WHERE property_id = ?
+                        FROM unified_lease_expirations
+                        WHERE unified_property_id = ?
                           AND lease_end_date IS NOT NULL AND lease_end_date != ''
                           AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
-                    """, (site_id,))
+                    """, (property_id,))
                     
                     row = cursor.fetchone()
                     total = row[0] or 0
@@ -1073,11 +1052,11 @@ class OccupancyService:
                             SUM(CASE WHEN decision = 'Unknown' THEN 1 ELSE 0 END) as unknown,
                             SUM(CASE WHEN decision = 'MTM' THEN 1 ELSE 0 END) as mtm,
                             SUM(CASE WHEN decision = 'Moved out' THEN 1 ELSE 0 END) as moved_out
-                        FROM realpage_lease_expiration_renewal
-                        WHERE property_id = ?
+                        FROM unified_lease_expirations
+                        WHERE unified_property_id = ?
                           AND lease_end_date IS NOT NULL AND lease_end_date != ''
                           AND {date_expr} BETWEEN ? AND ?
-                    """, (site_id, m_start, m_end))
+                    """, (property_id, m_start, m_end))
                     
                     row = cursor.fetchone()
                     total = row[0] or 0
@@ -1102,19 +1081,19 @@ class OccupancyService:
                         "renewal_pct": renewal_pct
                     })
             else:
-                # Fallback: realpage_leases (no decision breakdown)
+                # Fallback: unified_leases (no decision breakdown)
+                date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
                 for days, label in [(30, "30d"), (60, "60d"), (90, "90d")]:
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT 
                             COUNT(*) as expirations,
-                            SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
-                        FROM realpage_leases 
-                        WHERE site_id = ?
-                            AND status_text IN ('Current', 'Current - Future')
-                            AND lease_end_date != ''
-                            AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
-                                BETWEEN date('now') AND date('now', ? || ' days')
-                    """, (site_id, f"+{days}"))
+                            SUM(CASE WHEN status = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
+                        FROM unified_leases 
+                        WHERE unified_property_id = ?
+                            AND status IN ('Current', 'Current - Future')
+                            AND lease_end IS NOT NULL AND lease_end != ''
+                            AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
+                    """, (property_id,))
                     
                     row = cursor.fetchone()
                     expirations = row[0] or 0
@@ -1137,17 +1116,16 @@ class OccupancyService:
                 
                 # --- Monthly periods (fallback) ---
                 for m_label, m_start, m_end in month_ranges:
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT 
                             COUNT(*) as expirations,
-                            SUM(CASE WHEN status_text = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
-                        FROM realpage_leases 
-                        WHERE site_id = ?
-                            AND status_text IN ('Current', 'Current - Future')
-                            AND lease_end_date != ''
-                            AND date(substr(lease_end_date,7,4) || '-' || substr(lease_end_date,1,2) || '-' || substr(lease_end_date,4,2)) 
-                                BETWEEN ? AND ?
-                    """, (site_id, m_start, m_end))
+                            SUM(CASE WHEN status = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
+                        FROM unified_leases 
+                        WHERE unified_property_id = ?
+                            AND status IN ('Current', 'Current - Future')
+                            AND lease_end IS NOT NULL AND lease_end != ''
+                            AND {date_expr} BETWEEN ? AND ?
+                    """, (property_id, m_start, m_end))
                     
                     row = cursor.fetchone()
                     expirations = row[0] or 0
@@ -1169,7 +1147,7 @@ class OccupancyService:
                     })
             
             conn.close()
-            logger.info(f"[OCCUPANCY] Lease expirations for site {site_id} (source={'4156' if use_4156 else 'leases'}): {periods}")
+            logger.info(f"[OCCUPANCY] Lease expirations for {property_id} (source={'4156' if use_4156 else 'leases'}): {periods}")
             return {"periods": periods}
             
         except Exception as e:

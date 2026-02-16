@@ -53,8 +53,38 @@ jobs:
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
         run: python refresh_all.py
 
+      - name: Validate data before push
+        run: python validate_data.py
+
       - name: Push DBs to Railway
         env:
           RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
           ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
         run: python push_to_deployed.py
+
+      - name: Post-push smoke test
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+        run: |
+          echo "Waiting 10s for Railway to reload DBs..."
+          sleep 10
+          BACKEND="${RAILWAY_API_URL:-https://brilliant-upliftment-production-3a4d.up.railway.app}"
+          echo "Testing $BACKEND..."
+          # Health check
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/health")
+          echo "  /health: $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ Health check failed"; exit 1; }
+          # Parkside marketing
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/marketing?timeframe=mtd")
+          echo "  /parkside/marketing: $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ Marketing endpoint failed"; exit 1; }
+          # Parkside move-out reasons
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/move-out-reasons")
+          echo "  /parkside/move-out-reasons: $STATUS"
+          [ "$STATUS" = "200" ] || { echo "❌ Move-out reasons endpoint failed"; exit 1; }
+          # Parkside occupancy
+          BODY=$(curl -s "$BACKEND/api/v2/properties/parkside/availability")
+          UNITS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_units',0))")
+          echo "  /parkside/availability: total_units=$UNITS"
+          [ "$UNITS" -gt 0 ] 2>/dev/null || { echo "❌ Availability returned 0 units"; exit 1; }
+          echo "✅ All post-push checks passed"

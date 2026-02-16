@@ -117,7 +117,11 @@ export default function MoveOutReasonsSection({ propertyId, propertyIds }: Props
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   useEffect(() => {
-    if (!effectiveIds.length || !effectiveIds[0]) return;
+    if (!effectiveIds.length || !effectiveIds[0]) {
+      setLoading(false);
+      setError('No property selected');
+      return;
+    }
     setLoading(true);
     setError(null);
     setData(null);

@@ -30,8 +30,8 @@ CRITICAL_TABLES = {
     ],
     "unified.db": [
         ("unified_properties", 5),
-        ("unified_occupancy", 5),
-        ("unified_pricing", 10),
+        ("unified_occupancy_metrics", 5),
+        ("unified_pricing_metrics", 10),
         ("unified_units", 100),
         ("unified_residents", 100),
     ],

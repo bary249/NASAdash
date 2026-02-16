@@ -166,6 +166,7 @@ TABLE_MAP = {
     "closed_make_ready": "realpage_closed_make_ready",
     "advertising_source": "realpage_advertising_source",
     "lost_rent_summary": "realpage_lost_rent_summary",
+    "move_out_reasons": "realpage_move_out_reasons",
 }
 
 
@@ -183,7 +184,7 @@ def cleanup_report_files():
 
 
 # ── Instance creation ────────────────────────────────────────
-def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None):
+def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None, run_report_for=None):
     """Build the API payload. date_offset=0 means today, 1=yesterday, etc.
     timeframe_tag: 'ytd','mtd','l30','l7' — adjusts start_date for date-range reports."""
     from datetime import timedelta
@@ -217,10 +218,13 @@ def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None
     parameters = []
     for param in report_def["parameters"]:
         value = param["value"]
-        for key, replacement in dates.items():
-            if value == "{{" + key + "}}":
-                value = replacement
-                break
+        if value == "{{run_report_for}}" and run_report_for:
+            value = run_report_for
+        else:
+            for key, replacement in dates.items():
+                if value == "{{" + key + "}}":
+                    value = replacement
+                    break
         parameters.append({"name": param["name"], "label": value, "value": value})
 
     return {
@@ -241,10 +245,10 @@ def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None
     }
 
 
-def create_instance(report_def, property_detail, date_offset=0, verbose=False, timeframe_tag=None):
+def create_instance(report_def, property_detail, date_offset=0, verbose=False, timeframe_tag=None, run_report_for=None):
     """Create a report instance. Returns response dict."""
     url = f"{BASE_URL}/reports/{report_def['report_id']}/report-instances"
-    payload = build_payload(report_def, property_detail, date_offset=date_offset, timeframe_tag=timeframe_tag)
+    payload = build_payload(report_def, property_detail, date_offset=date_offset, timeframe_tag=timeframe_tag, run_report_for=run_report_for)
 
     try:
         resp = CLIENT.post(url, headers=HEADERS, json=payload)
@@ -273,6 +277,7 @@ def import_downloaded(downloads):
         import_monthly_transaction_summary,
         import_make_ready, import_closed_make_ready,
         import_advertising_source, import_lost_rent_summary,
+        import_move_out_reasons,
         init_report_tables,
     )
 
@@ -295,6 +300,7 @@ def import_downloaded(downloads):
         "closed_make_ready": import_closed_make_ready,
         "advertising_source": import_advertising_source,
         "lost_rent_summary": import_lost_rent_summary,
+        "move_out_reasons": import_move_out_reasons,
     }
 
     total = 0
@@ -363,7 +369,8 @@ def create_instances_with_fallback(needed):
             verbose = (date_offset == 0 and idx == 0)
             response = create_instance(item["report_def"], item["prop_detail"],
                                        date_offset=date_offset, verbose=verbose,
-                                       timeframe_tag=item.get("timeframe_tag"))
+                                       timeframe_tag=item.get("timeframe_tag"),
+                                       run_report_for=item.get("run_report_for"))
             tf_label = f" [{item['timeframe_tag']}]" if item.get('timeframe_tag') else ''
             if response:
                 item["instance_id"] = response.get("instanceId")
@@ -393,11 +400,12 @@ def create_instances_with_fallback(needed):
 def main():
     total_props = len(ALL_PROPERTIES)
     total_reports = len(REPORT_TYPES)
-    # Count jobs including timeframe variants
+    # Count jobs including timeframe variants and run_report_for variants
     total_jobs = 0
     for rtype, rdef in REPORT_TYPES.items():
         tf_count = len(rdef.get('timeframe_variants', [])) or 1
-        total_jobs += total_props * tf_count
+        rrf_count = len(rdef.get('run_report_for_variants', [])) or 1
+        total_jobs += total_props * tf_count * rrf_count
 
     print("=" * 60)
     print("  REALPAGE REPORT DOWNLOADER v2 (daily fresh)")
@@ -415,6 +423,7 @@ def main():
     for pid, prop_info in ALL_PROPERTIES.items():
         for rtype, rdef in REPORT_TYPES.items():
             tf_variants = rdef.get('timeframe_variants')
+            rrf_variants = rdef.get('run_report_for_variants')
             if tf_variants:
                 for tf in tf_variants:
                     needed.append({
@@ -427,6 +436,22 @@ def main():
                         "file_id": None,
                         "content": None,
                         "timeframe_tag": tf,
+                        "run_report_for": None,
+                    })
+            elif rrf_variants:
+                for rrf in rrf_variants:
+                    tag = 'former' if 'Former' in rrf else 'notice'
+                    needed.append({
+                        "prop_id": pid,
+                        "prop_name": prop_info["name"],
+                        "prop_detail": prop_info["detail"],
+                        "report_type": rtype,
+                        "report_def": rdef,
+                        "instance_id": None,
+                        "file_id": None,
+                        "content": None,
+                        "timeframe_tag": tag,
+                        "run_report_for": rrf,
                     })
             else:
                 needed.append({
@@ -439,6 +464,7 @@ def main():
                     "file_id": None,
                     "content": None,
                     "timeframe_tag": None,
+                    "run_report_for": None,
                 })
 
     print(f"\n📊 Requesting {len(needed)} reports for {total_props} properties")

@@ -24,7 +24,10 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install playwright
+          playwright install chromium
 
       - name: Refresh RealPage token
         env:

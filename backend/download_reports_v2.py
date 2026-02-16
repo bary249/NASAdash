@@ -72,11 +72,11 @@ for key, prop in DEFINITIONS["properties"].items():
 def poll_my_instances(instance_ids: set, start_date: str) -> Dict[str, str]:
     """Poll /v1/my/report-instances to get fileIds for created instances.
     
-    Paginates through all pages to find all instances.
+    Uses large pageSize and paginates to find all instances.
     Returns dict: {instanceId -> reportFileId}
     """
     url = f"{BASE_URL}/my/report-instances"
-    PAGE_SIZE = 200
+    PAGE_SIZE = 1000  # Request large page to get all instances at once
 
     found = {}
     for attempt in range(POLL_MAX_ATTEMPTS):
@@ -117,7 +117,7 @@ def poll_my_instances(instance_ids: set, start_date: str) -> Dict[str, str]:
                 seen_this_attempt += len(items)
 
                 # If we've seen all items or this page was short, stop paging
-                if seen_this_attempt >= total_count or len(items) < PAGE_SIZE:
+                if len(items) == 0 or seen_this_attempt >= total_count or len(items) < PAGE_SIZE:
                     break
                 page += 1
 
@@ -126,7 +126,7 @@ def poll_my_instances(instance_ids: set, start_date: str) -> Dict[str, str]:
                 break
 
         remaining = len(instance_ids) - len(found)
-        sys.stdout.write(f"\r  Poll {attempt + 1}/{POLL_MAX_ATTEMPTS}: {len(found)}/{len(instance_ids)} ready, {remaining} pending (scanned {seen_this_attempt} items across {page} pages)...")
+        sys.stdout.write(f"\r  Poll {attempt + 1}/{POLL_MAX_ATTEMPTS}: {len(found)}/{len(instance_ids)} ready, {remaining} pending (scanned {seen_this_attempt}/{total_count} across {page} pg)...")
         sys.stdout.flush()
 
         if len(found) >= len(instance_ids):

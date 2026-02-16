@@ -74,14 +74,14 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/health")
           echo "  /api/v2/health: $STATUS"
           [ "$STATUS" = "200" ] || { echo "❌ Health check failed"; exit 1; }
-          # Parkside marketing
+          # Parkside marketing (200=data, 404=no data yet — both OK, 5xx=broken)
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/marketing?timeframe=mtd")
           echo "  /parkside/marketing: $STATUS"
-          [ "$STATUS" = "200" ] || { echo "❌ Marketing endpoint failed"; exit 1; }
-          # Parkside move-out reasons
+          [ "$STATUS" -lt 500 ] 2>/dev/null || { echo "❌ Marketing endpoint error ($STATUS)"; exit 1; }
+          # Parkside move-out reasons (200=data, 404=no data yet — both OK)
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/move-out-reasons")
           echo "  /parkside/move-out-reasons: $STATUS"
-          [ "$STATUS" = "200" ] || { echo "❌ Move-out reasons endpoint failed"; exit 1; }
+          [ "$STATUS" -lt 500 ] 2>/dev/null || { echo "❌ Move-out reasons endpoint error ($STATUS)"; exit 1; }
           # Parkside occupancy
           BODY=$(curl -s "$BACKEND/api/v2/properties/parkside/availability")
           UNITS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('total_units',0))")

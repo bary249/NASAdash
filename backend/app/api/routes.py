@@ -1234,8 +1234,9 @@ async def get_prospects_raw(
     """GET: Raw prospect data for drill-through."""
     try:
         return await occupancy_service.get_raw_prospects(property_id, stage, timeframe)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Properties without Yardi (e.g. PHH/RealPage-only) have no guest activity API
+        return []
 
 
 # ---- Amenities/Rentable Items endpoints ----

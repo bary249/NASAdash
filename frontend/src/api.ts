@@ -40,18 +40,35 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: getAuthHeaders() });
-  if (response.status === 401) {
-    // Token expired or invalid — clear auth and reload to show login
-    localStorage.removeItem('ownerDashAuth');
-    window.location.reload();
-    throw new Error('Session expired');
+async function fetchJson<T>(url: string, retries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, { headers: getAuthHeaders() });
+      if (response.status === 401) {
+        // Token expired or invalid — clear auth and reload to show login
+        localStorage.removeItem('ownerDashAuth');
+        window.location.reload();
+        throw new Error('Session expired');
+      }
+      if (response.ok) {
+        return response.json();
+      }
+      // Retry on 500/502/503/504 (cold start / transient errors)
+      if (attempt < retries && response.status >= 500) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    } catch (err) {
+      // Retry on network errors (fetch failure / timeout)
+      if (attempt < retries && err instanceof TypeError) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status} ${response.statusText}`);
-  }
-  return response.json();
+  throw new Error('Request failed after retries');
 }
 
 export const api = {

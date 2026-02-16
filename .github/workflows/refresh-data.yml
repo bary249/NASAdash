@@ -71,8 +71,8 @@ jobs:
           BACKEND="${RAILWAY_API_URL:-https://brilliant-upliftment-production-3a4d.up.railway.app}"
           echo "Testing $BACKEND..."
           # Health check
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/health")
-          echo "  /health: $STATUS"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/health")
+          echo "  /api/v2/health: $STATUS"
           [ "$STATUS" = "200" ] || { echo "❌ Health check failed"; exit 1; }
           # Parkside marketing
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND/api/v2/properties/parkside/marketing?timeframe=mtd")

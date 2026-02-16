@@ -72,58 +72,66 @@ for key, prop in DEFINITIONS["properties"].items():
 def poll_my_instances(instance_ids: set, start_date: str) -> Dict[str, str]:
     """Poll /v1/my/report-instances to get fileIds for created instances.
     
+    Paginates through all pages to find all instances.
     Returns dict: {instanceId -> reportFileId}
     """
     url = f"{BASE_URL}/my/report-instances"
-    body = {
-        "pageSize": 200,
-        "pageNumber": 1,
-        "searchText": "",
-        "reportProductList": [],
-        "reportAreaList": [],
-        "startDate": start_date,
-        "endDate": datetime.utcnow().strftime("%Y-%m-%dT23:59:59.999Z"),
-        "favorite": False,
-        "PropertiesList": [],
-        "OrderBy": "CreatedDate",
-        "OrderByDesc": True,
-    }
+    PAGE_SIZE = 200
 
     found = {}
     for attempt in range(POLL_MAX_ATTEMPTS):
-        try:
-            resp = CLIENT.post(url, headers=HEADERS, json=body)
-            if resp.status_code != 200:
-                print(f"  Poll error: {resp.status_code} {resp.text[:200]}")
-                time.sleep(POLL_INTERVAL)
-                continue
+        # Paginate through all pages each poll attempt
+        page = 1
+        seen_this_attempt = 0
+        while True:
+            body = {
+                "pageSize": PAGE_SIZE,
+                "pageNumber": page,
+                "searchText": "",
+                "reportProductList": [],
+                "reportAreaList": [],
+                "startDate": start_date,
+                "endDate": datetime.utcnow().strftime("%Y-%m-%dT23:59:59.999Z"),
+                "favorite": False,
+                "PropertiesList": [],
+                "OrderBy": "CreatedDate",
+                "OrderByDesc": True,
+            }
+            try:
+                resp = CLIENT.post(url, headers=HEADERS, json=body)
+                if resp.status_code != 200:
+                    print(f"  Poll error (page {page}): {resp.status_code} {resp.text[:200]}")
+                    break
 
-            data = resp.json()
-            items = data.get("data", [])
+                data = resp.json()
+                items = data.get("data", [])
+                total_count = data.get("totalCount", 0)
 
-            for item in items:
-                src_id = item.get("sourceReportInstanceId", "")
-                file_id = item.get("reportFileId", "")
-                status = item.get("status", 0)
-                if src_id in instance_ids and file_id and status == 3:
-                    found[src_id] = file_id
+                for item in items:
+                    src_id = item.get("sourceReportInstanceId", "")
+                    file_id = item.get("reportFileId", "")
+                    status = item.get("status", 0)
+                    if src_id in instance_ids and file_id and status == 3:
+                        found[src_id] = file_id
 
-            remaining = len(instance_ids) - len(found)
-            sys.stdout.write(f"\r  Poll {attempt + 1}/{POLL_MAX_ATTEMPTS}: {len(found)}/{len(instance_ids)} ready, {remaining} pending...")
-            sys.stdout.flush()
+                seen_this_attempt += len(items)
 
-            if len(found) >= len(instance_ids):
-                print(f"\r  All {len(found)} reports ready!                    ")
-                return found
+                # If we've seen all items or this page was short, stop paging
+                if seen_this_attempt >= total_count or len(items) < PAGE_SIZE:
+                    break
+                page += 1
 
-            # Check if we need more pages
-            total_count = data.get("totalCount", 0)
-            if total_count > 200:
-                body["pageSize"] = min(total_count, 500)
-                continue
+            except Exception as e:
+                print(f"\n  Poll exception (page {page}): {e}")
+                break
 
-        except Exception as e:
-            print(f"\n  Poll exception: {e}")
+        remaining = len(instance_ids) - len(found)
+        sys.stdout.write(f"\r  Poll {attempt + 1}/{POLL_MAX_ATTEMPTS}: {len(found)}/{len(instance_ids)} ready, {remaining} pending (scanned {seen_this_attempt} items across {page} pages)...")
+        sys.stdout.flush()
+
+        if len(found) >= len(instance_ids):
+            print(f"\r  All {len(found)} reports ready!                                        ")
+            return found
 
         time.sleep(POLL_INTERVAL)
 

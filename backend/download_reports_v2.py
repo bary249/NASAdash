@@ -76,7 +76,7 @@ def poll_my_instances(instance_ids: set, start_date: str) -> Dict[str, str]:
     Returns dict: {instanceId -> reportFileId}
     """
     url = f"{BASE_URL}/my/report-instances"
-    PAGE_SIZE = 1000  # Request large page to get all instances at once
+    PAGE_SIZE = 100000  # Request large page to get all instances at once
 
     found = {}
     for attempt in range(POLL_MAX_ATTEMPTS):

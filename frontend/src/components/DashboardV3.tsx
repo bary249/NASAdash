@@ -12,6 +12,7 @@
  * - AI Response modal for AI queries
  */
 import { useState, useEffect, useCallback } from 'react';
+import { LoadingScreen } from './LoadingScreen';
 import { 
   RefreshCw, Eye, EyeOff, LogOut,
   Building2, DollarSign, TrendingUp, TrendingDown, Home, ChevronDown
@@ -138,11 +139,20 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     }).catch(() => {});
   }, []);
 
+  // Track initial data readiness for loading screen
+  const [portfolioReady, setPortfolioReady] = useState(false);
+
   // Fetch all property IDs for the selected owner group (for AI Insights fallback)
   useEffect(() => {
     api.getPortfolioProperties(selectedOwnerGroup || undefined)
-      .then(list => setGroupPropertyIds(list.map(p => p.id)))
-      .catch(() => setGroupPropertyIds([]));
+      .then(list => {
+        setGroupPropertyIds(list.map(p => p.id));
+        setPortfolioReady(true);
+      })
+      .catch(() => {
+        setGroupPropertyIds([]);
+        setPortfolioReady(true);
+      });
   }, [selectedOwnerGroup]);
 
   // Property IDs for AI Insights: active selection > group fallback
@@ -249,6 +259,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
   return (
     <ScrambleContext.Provider value={scrambleMode}>
+      <LoadingScreen ready={portfolioReady} />
       <div className={`min-h-screen bg-slate-100 transition-all duration-300 ${aiModalOpen ? 'overflow-hidden' : ''}`}>
         {/* Header */}
         <header className="bg-white border-b border-gray-200 text-gray-900">

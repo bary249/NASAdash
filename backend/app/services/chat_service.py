@@ -220,6 +220,8 @@ You can help with occupancy analysis, pricing insights, leasing funnel efficienc
         avg_asking = summary.get("avg_asking_rent", 0)
         
         # Identify outliers
+        _empty = {"name": "N/A", "occupancy": {}, "funnel": {}}
+        best_occ = worst_occ = best_conversion = worst_conversion = _empty
         if properties:
             best_occ = max(properties, key=lambda p: p.get("occupancy", {}).get("physical_occupancy", 0))
             worst_occ = min(properties, key=lambda p: p.get("occupancy", {}).get("physical_occupancy", 100))

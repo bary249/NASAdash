@@ -18,7 +18,7 @@
     }
   },
   "7 east apartments": {
-    "cached_at": 1771087884.322207,
+    "cached_at": 1771176557.2158458,
     "data": {
       "rating": 4.3,
       "review_count": 95,
@@ -27,7 +27,7 @@
     }
   },
   "aspire 7th and grant apartments": {
-    "cached_at": 1771087885.1782541,
+    "cached_at": 1771176558.15308,
     "data": {
       "rating": 4.8,
       "review_count": 156,
@@ -36,7 +36,7 @@
     }
   },
   "block 44 apartments": {
-    "cached_at": 1771087885.994992,
+    "cached_at": 1771176558.98289,
     "data": {
       "rating": 3.9,
       "review_count": 127,
@@ -45,7 +45,7 @@
     }
   },
   "the broadleaf apartments": {
-    "cached_at": 1771087887.1028779,
+    "cached_at": 1771176574.397215,
     "data": {
       "rating": 4.8,
       "review_count": 71,
@@ -54,16 +54,16 @@
     }
   },
   "the confluence apartments": {
-    "cached_at": 1771087888.00629,
+    "cached_at": 1771176592.5273669,
     "data": {
       "rating": 4.4,
-      "review_count": 247,
+      "review_count": 248,
       "place_id": "ChIJXyZ5QcB4bIcRPoba7C17azg",
       "address": "1441 Little Raven St, Denver, CO 80202, USA"
     }
   },
   "curate at orchard town center apartments": {
-    "cached_at": 1771087888.9237509,
+    "cached_at": 1771176593.301232,
     "data": {
       "rating": 4.6,
       "review_count": 216,
@@ -72,7 +72,7 @@
     }
   },
   "discovery at kingwood apartments": {
-    "cached_at": 1771087889.702188,
+    "cached_at": 1771176594.211745,
     "data": {
       "rating": 4.4,
       "review_count": 291,
@@ -81,7 +81,7 @@
     }
   },
   "eden keller ranch apartments": {
-    "cached_at": 1771087890.526792,
+    "cached_at": 1771176595.131124,
     "data": {
       "rating": 4.1,
       "review_count": 155,
@@ -90,7 +90,7 @@
     }
   },
   "edison at rino apartments": {
-    "cached_at": 1771087891.442423,
+    "cached_at": 1771176595.902425,
     "data": {
       "rating": 4.4,
       "review_count": 252,
@@ -99,16 +99,16 @@
     }
   },
   "harvest apartments": {
-    "cached_at": 1771087892.268985,
+    "cached_at": 1771176596.888457,
     "data": {
       "rating": 4,
-      "review_count": 85,
+      "review_count": 86,
       "place_id": "ChIJ8cz_9JD1UocRDMa-O-_kYnY",
       "address": "550 N 300 W, Salt Lake City, UT 84103, USA"
     }
   },
   "heights at interlocken apartments": {
-    "cached_at": 1771087893.183,
+    "cached_at": 1771176598.057892,
     "data": {
       "rating": 3.6,
       "review_count": 239,
@@ -117,16 +117,16 @@
     }
   },
   "izzy apartments": {
-    "cached_at": 1771087894.135885,
+    "cached_at": 1771176599.0865128,
     "data": {
       "rating": 3.3,
-      "review_count": 516,
+      "review_count": 517,
       "place_id": "ChIJq8rSBcEEsocRW4Puyq_0quw",
       "address": "8557 Candlewood Dr, Oklahoma City, OK 73132, USA"
     }
   },
   "kalaco apartments": {
-    "cached_at": 1771087894.934384,
+    "cached_at": 1771176599.823877,
     "data": {
       "rating": 5,
       "review_count": 63,
@@ -135,7 +135,7 @@
     }
   },
   "the links at plum creek apartments": {
-    "cached_at": 1771087895.753567,
+    "cached_at": 1771176600.517113,
     "data": {
       "rating": 4.2,
       "review_count": 186,
@@ -144,7 +144,7 @@
     }
   },
   "luna apartments": {
-    "cached_at": 1771087896.701248,
+    "cached_at": 1771176601.2330198,
     "data": {
       "rating": 3.5,
       "review_count": 32,
@@ -153,7 +153,7 @@
     }
   },
   "nexus east apartments": {
-    "cached_at": 1771087897.547486,
+    "cached_at": 1771176602.184581,
     "data": {
       "rating": 3.9,
       "review_count": 240,
@@ -162,7 +162,7 @@
     }
   },
   "park 17 apartments": {
-    "cached_at": 1771087898.487286,
+    "cached_at": 1771176602.8983989,
     "data": {
       "rating": 4.6,
       "review_count": 182,
@@ -171,16 +171,16 @@
     }
   },
   "parkside at round rock apartments": {
-    "cached_at": 1771087899.281589,
+    "cached_at": 1771176603.576889,
     "data": {
       "rating": 3.9,
-      "review_count": 225,
+      "review_count": 223,
       "place_id": "ChIJkcLlpSzRRIYRQGZOXRDFlOA",
       "address": "5000 N Mays St, Round Rock, TX 78665, USA"
     }
   },
   "pearl lantana apartments": {
-    "cached_at": 1771087900.143154,
+    "cached_at": 1771176604.195411,
     "data": {
       "rating": 4.7,
       "review_count": 283,
@@ -189,7 +189,7 @@
     }
   },
   "ridian apartments": {
-    "cached_at": 1771087901.0260139,
+    "cached_at": 1771176604.903842,
     "data": {
       "rating": 4.8,
       "review_count": 33,
@@ -198,7 +198,7 @@
     }
   },
   "slate apartments": {
-    "cached_at": 1771087909.794106,
+    "cached_at": 1771176605.6270888,
     "data": {
       "rating": 3.9,
       "review_count": 12,
@@ -207,16 +207,16 @@
     }
   },
   "sloane apartments": {
-    "cached_at": 1771087919.248817,
+    "cached_at": 1771176606.28127,
     "data": {
       "rating": 4.7,
-      "review_count": 83,
+      "review_count": 84,
       "place_id": "ChIJU0IaMAAzK4gRMUVw4CAapYA",
       "address": "5 York Garden Wy, North York, ON M6A 0G9, Canada"
     }
   },
   "the station at riverfront park apartments": {
-    "cached_at": 1771087920.0609019,
+    "cached_at": 1771176606.9123871,
     "data": {
       "rating": 4,
       "review_count": 302,
@@ -225,7 +225,7 @@
     }
   },
   "stonewood apartments": {
-    "cached_at": 1771087920.843984,
+    "cached_at": 1771176607.542985,
     "data": {
       "rating": 4.1,
       "review_count": 208,
@@ -234,7 +234,7 @@
     }
   },
   "ten50 apartments": {
-    "cached_at": 1771087921.618413,
+    "cached_at": 1771176608.789456,
     "data": {
       "rating": 4.6,
       "review_count": 62,
@@ -243,16 +243,16 @@
     }
   },
   "the alcott apartments": {
-    "cached_at": 1771087922.452922,
+    "cached_at": 1771176609.493891,
     "data": {
-      "rating": 4.5,
-      "review_count": 79,
-      "place_id": "ChIJizlWb4fJxokRe4Lj789BUJU",
-      "address": "416 Spring Garden St, Philadelphia, PA 19123, USA"
+      "rating": 4.6,
+      "review_count": 172,
+      "place_id": "ChIJa10GhAVx44kRxkc_IY4sMDc",
+      "address": "35 Lomasney Wy, Boston, MA 02114, USA"
     }
   },
   "the avant apartments": {
-    "cached_at": 1771087923.2071638,
+    "cached_at": 1771176610.3783271,
     "data": {
       "rating": 4.3,
       "review_count": 258,
@@ -261,7 +261,7 @@
     }
   },
   "the hunter apartments": {
-    "cached_at": 1771087924.0613031,
+    "cached_at": 1771176611.024674,
     "data": {
       "rating": 4.8,
       "review_count": 16,
@@ -270,7 +270,7 @@
     }
   },
   "the northern apartments": {
-    "cached_at": 1771087924.978391,
+    "cached_at": 1771176611.6758568,
     "data": {
       "rating": 3.6,
       "review_count": 144,
@@ -279,7 +279,7 @@
     }
   },
   "thepearl apartments": {
-    "cached_at": 1771087925.766731,
+    "cached_at": 1771176612.957986,
     "data": {
       "rating": 4.4,
       "review_count": 13,
@@ -288,7 +288,7 @@
     }
   },
   "thequinci apartments": {
-    "cached_at": 1771087926.68205,
+    "cached_at": 1771176613.596569,
     "data": {
       "rating": 4.7,
       "review_count": 51,

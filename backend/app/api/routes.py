@@ -897,6 +897,9 @@ async def get_occupancy_snapshots(property_id: str):
 
         snapshots = []
         for r in rows:
+            total = r[1] or 0
+            if total < 10:
+                continue  # Skip partial imports / bad data
             snap_date = r[0] or ""
             # Normalize mixed date formats (MM/DD/YYYY -> YYYY-MM-DD)
             if "/" in snap_date:
@@ -905,7 +908,7 @@ async def get_occupancy_snapshots(property_id: str):
                     snap_date = f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
             snapshots.append({
                 "date": snap_date,
-                "total_units": r[1] or 0,
+                "total_units": total,
                 "occupied": r[2] or 0,
                 "vacant": r[3] or 0,
                 "occupancy_pct": r[4] or 0,

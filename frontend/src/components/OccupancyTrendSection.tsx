@@ -34,29 +34,60 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
     Promise.all(effectiveIds.map(id => api.getOccupancySnapshots(id).catch(() => ({ snapshots: [] }))))
       .then(results => {
         if (effectiveIds.length === 1) {
-          setSnapshots(results[0]?.snapshots || []);
+          // Single property: filter out bad snapshots (partial imports)
+          const snaps = (results[0]?.snapshots || []).filter((s: Snapshot) => s.total_units >= 10);
+          setSnapshots(snaps);
         } else {
-          // Merge: group by date, sum units
-          const byDate: Record<string, Snapshot> = {};
-          for (const r of results) {
-            for (const s of (r?.snapshots || [])) {
-              if (!byDate[s.date]) {
-                byDate[s.date] = { ...s };
-              } else {
-                byDate[s.date].total_units += s.total_units;
-                byDate[s.date].occupied += s.occupied;
-                byDate[s.date].vacant += s.vacant;
-                byDate[s.date].on_notice += s.on_notice;
-                byDate[s.date].preleased += s.preleased;
+          // Multi-property: carry-forward merge.
+          // For each date, each property contributes its most recent snapshot <= that date.
+          // Only include dates where ALL properties have coverage.
+
+          // 1. Per property: sorted snapshots, filtered
+          const perProperty: Snapshot[][] = results.map(r =>
+            (r?.snapshots || [])
+              .filter((s: Snapshot) => s.total_units >= 10)
+              .sort((a: Snapshot, b: Snapshot) => a.date.localeCompare(b.date))
+          );
+
+          // Skip properties with no snapshots at all
+          const validProps = perProperty.filter(snaps => snaps.length > 0);
+          if (validProps.length === 0) { setSnapshots([]); return; }
+
+          // 2. Collect union of all dates
+          const allDates = new Set<string>();
+          for (const snaps of validProps) {
+            for (const s of snaps) allDates.add(s.date);
+          }
+          const sortedDates = [...allDates].sort();
+
+          // 3. For each date, carry-forward each property's most recent snapshot <= date
+          const merged: Snapshot[] = [];
+          for (const d of sortedDates) {
+            let allCovered = true;
+            const agg: Snapshot = {
+              date: d, total_units: 0, occupied: 0, vacant: 0,
+              occupancy_pct: 0, leased_pct: 0, on_notice: 0, preleased: 0,
+            };
+
+            for (const snaps of validProps) {
+              // Find most recent snapshot <= d (binary-search-like: last where date <= d)
+              let best: Snapshot | null = null;
+              for (const s of snaps) {
+                if (s.date <= d) best = s; else break;
               }
+              if (!best) { allCovered = false; break; }
+              agg.total_units += best.total_units;
+              agg.occupied += best.occupied;
+              agg.vacant += best.vacant;
+              agg.on_notice += best.on_notice;
+              agg.preleased += best.preleased;
+            }
+
+            if (allCovered && agg.total_units > 0) {
+              agg.occupancy_pct = Math.round(agg.occupied / agg.total_units * 1000) / 10;
+              merged.push(agg);
             }
           }
-          // Recalculate percentages
-          const merged = Object.values(byDate).map(s => ({
-            ...s,
-            occupancy_pct: s.total_units > 0 ? Math.round(s.occupied / s.total_units * 1000) / 10 : 0,
-          }));
-          merged.sort((a, b) => a.date.localeCompare(b.date));
           setSnapshots(merged);
         }
       })

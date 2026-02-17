@@ -2701,18 +2701,15 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             c = conn.cursor()
             c.execute("""
-                SELECT SUM(CASE WHEN current_balance > 0 THEN current_balance ELSE 0 END) +
-                       SUM(CASE WHEN balance_0_30 > 0 THEN balance_0_30 ELSE 0 END) +
-                       SUM(CASE WHEN balance_31_60 > 0 THEN balance_31_60 ELSE 0 END) +
-                       SUM(CASE WHEN balance_61_90 > 0 THEN balance_61_90 ELSE 0 END) +
-                       SUM(CASE WHEN balance_over_90 > 0 THEN balance_over_90 ELSE 0 END),
+                SELECT SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END),
                        COUNT(CASE WHEN total_delinquent > 0 THEN 1 END),
                        SUM(CASE WHEN balance_0_30 > 0 THEN balance_0_30 ELSE 0 END),
                        SUM(CASE WHEN balance_31_60 > 0 THEN balance_31_60 ELSE 0 END),
                        SUM(CASE WHEN balance_over_90 > 0 THEN balance_over_90 ELSE 0 END),
                        SUM(CASE WHEN is_eviction = 1 THEN 1 ELSE 0 END)
                 FROM unified_delinquency
-                WHERE unified_property_id = ? OR unified_property_id = ?
+                WHERE (unified_property_id = ? OR unified_property_id = ?)
+                  AND (status IS NULL OR LOWER(status) NOT LIKE '%former%')
             """, (property_id, norm_id))
             row = c.fetchone()
             conn.close()
@@ -2974,13 +2971,17 @@ async def _gather_current_metrics(property_id: str) -> dict:
         import sqlite3
         from pathlib import Path
         db_path = UNIFIED_DB_PATH
+        _norm_d = property_id.replace("kairoi-", "").replace("-", "_") if property_id.startswith("kairoi-") else property_id
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
+        # Current residents only (exclude former = collections)
         c.execute("""
             SELECT SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END),
                    COUNT(CASE WHEN total_delinquent > 0 THEN 1 END)
-            FROM unified_delinquency WHERE unified_property_id = ?
-        """, (property_id,))
+            FROM unified_delinquency
+            WHERE (unified_property_id = ? OR unified_property_id = ?)
+              AND (status IS NULL OR LOWER(status) NOT LIKE '%former%')
+        """, (property_id, _norm_d))
         row = c.fetchone()
         if row:
             metrics["delinquent_total"] = row[0] or 0
@@ -3002,19 +3003,29 @@ async def _gather_current_metrics(property_id: str) -> dict:
         import sqlite3 as _sq
         _conn = _sq.connect(UNIFIED_DB_PATH)
         _c = _conn.cursor()
+        # ATR from unified_units (same source as availability endpoint)
+        _norm = property_id.replace("kairoi-", "").replace("-", "_") if property_id.startswith("kairoi-") else property_id
         _c.execute("""
-            SELECT total_units, vacant_units, preleased_vacant, notice_units
-            FROM unified_occupancy_metrics
-            WHERE unified_property_id = ?
+            SELECT total_units, occupied_units FROM unified_occupancy_metrics
+            WHERE unified_property_id = ? OR unified_property_id = ?
             ORDER BY snapshot_date DESC LIMIT 1
-        """, (property_id,))
-        _row = _c.fetchone()
+        """, (property_id, _norm))
+        _occ = _c.fetchone()
+        total_u = (_occ[0] or 0) if _occ else 0
+        _c.execute("""
+            SELECT
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END)
+            FROM unified_units
+            WHERE unified_property_id = ? OR unified_property_id = ?
+        """, (property_id, _norm))
+        _urow = _c.fetchone()
         _conn.close()
-        if _row:
-            total_u = _row[0] or 0
-            vacant = _row[1] or 0
-            preleased = _row[2] or 0
-            on_notice = _row[3] or 0
+        if _urow:
+            vacant = _urow[0] or 0
+            on_notice = _urow[1] or 0
+            preleased = _urow[2] or 0
             atr = max(0, vacant + on_notice - preleased)
             metrics["atr"] = atr
             metrics["atr_pct"] = round(atr / total_u * 100, 1) if total_u > 0 else 0

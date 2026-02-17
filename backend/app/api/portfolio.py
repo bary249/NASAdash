@@ -452,6 +452,7 @@ async def get_watchlist(
                        SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END) as total_delinq,
                        COUNT(CASE WHEN total_delinquent > 0 THEN 1 END) as delinq_units
                 FROM unified_delinquency
+                WHERE status IS NULL OR LOWER(status) NOT LIKE '%former%'
                 GROUP BY unified_property_id
             """)
             delinq_map = {}

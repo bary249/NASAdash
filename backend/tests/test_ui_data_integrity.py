@@ -1744,6 +1744,77 @@ class TestOccupancyCrossCheck:
 
 
 # ===================================================================
+# DATA CONSISTENCY: Watchpoints, AI, Watchlist vs Dashboard
+# ===================================================================
+
+PORTFOLIO = f"{BASE_URL}/api/portfolio"
+
+class TestDataConsistency:
+    """Watchpoints, AI insights, and watchlist must use the same data as the dashboard."""
+
+    def test_watchpoint_atr_matches_availability(self, first_property):
+        """Watchpoint ATR must equal the availability endpoint ATR."""
+        avail = _get(f"{API}/{first_property}/availability")
+        wp = _get(f"{API}/{first_property}/watchpoints")
+        wp_atr = wp.get("current_metrics", {}).get("atr")
+        if wp_atr is None:
+            pytest.skip("No ATR in watchpoint metrics")
+        assert wp_atr == avail["atr"], \
+            f"Watchpoint ATR {wp_atr} != availability ATR {avail['atr']}"
+
+    def test_watchpoint_delinquency_matches_dashboard(self, first_property):
+        """Watchpoint delinquent_total must equal delinquency endpoint total (current only)."""
+        delq = _get(f"{API}/{first_property}/delinquency")
+        wp = _get(f"{API}/{first_property}/watchpoints")
+        wp_delq = wp.get("current_metrics", {}).get("delinquent_total")
+        if wp_delq is None:
+            pytest.skip("No delinquent_total in watchpoint metrics")
+        assert abs(wp_delq - delq["total_delinquent"]) < 1, \
+            f"Watchpoint delinquent ${wp_delq} != dashboard ${delq['total_delinquent']}"
+
+    def test_watchpoint_occupancy_matches_dashboard(self, first_property):
+        """Watchpoint occupancy_pct must equal occupancy endpoint."""
+        occ = _get(f"{API}/{first_property}/occupancy")
+        wp = _get(f"{API}/{first_property}/watchpoints")
+        wp_occ = wp.get("current_metrics", {}).get("occupancy_pct")
+        if wp_occ is None:
+            pytest.skip("No occupancy in watchpoint metrics")
+        assert abs(wp_occ - occ["physical_occupancy"]) < 0.5, \
+            f"Watchpoint occ {wp_occ}% != dashboard {occ['physical_occupancy']}%"
+
+    def test_watchlist_delinquency_excludes_former(self, property_ids):
+        """Watchlist delinquent totals must match dashboard (current residents only)."""
+        wl = requests.get(f"{PORTFOLIO}/watchlist", timeout=30).json()
+        errors = []
+        for prop in wl.get("watchlist", [])[:5]:
+            pid = prop["id"]
+            wl_delq = prop.get("delinquent_total", 0)
+            if wl_delq == 0:
+                continue
+            r = requests.get(f"{API}/{pid}/delinquency", timeout=30)
+            if r.status_code != 200:
+                continue
+            dash_delq = r.json().get("total_delinquent", 0)
+            if abs(wl_delq - dash_delq) > 1:
+                errors.append(f"{pid}: watchlist ${wl_delq:,.0f} != dashboard ${dash_delq:,.0f}")
+        assert not errors, "Watchlist delinquency mismatch:\n" + "\n".join(errors)
+
+    def test_consistency_atr_all_properties(self, property_ids):
+        """ATR must match between watchpoints and availability for all properties."""
+        errors = []
+        for pid in property_ids:
+            avail_r = requests.get(f"{API}/{pid}/availability", timeout=30)
+            wp_r = requests.get(f"{API}/{pid}/watchpoints", timeout=30)
+            if avail_r.status_code != 200 or wp_r.status_code != 200:
+                continue
+            avail_atr = avail_r.json().get("atr")
+            wp_atr = wp_r.json().get("current_metrics", {}).get("atr")
+            if avail_atr is not None and wp_atr is not None and avail_atr != wp_atr:
+                errors.append(f"{pid}: availability ATR={avail_atr} != watchpoint ATR={wp_atr}")
+        assert not errors, "ATR mismatch:\n" + "\n".join(errors)
+
+
+# ===================================================================
 # MAIN — run standalone
 # ===================================================================
 

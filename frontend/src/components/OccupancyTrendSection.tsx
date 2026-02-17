@@ -96,7 +96,7 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
     );
   }
 
-  if (snapshots.length === 0) return null;
+  if (snapshots.length < 3) return null;
 
   // Show newest first
   const sorted = [...snapshots].reverse();

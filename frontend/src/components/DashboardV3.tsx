@@ -1143,8 +1143,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 tours={funnel?.tours || 0}
                 applications={funnel?.applications || 0}
                 leasesSigned={funnel?.leaseSigns || 0}
-                sightUnseen={funnel?.sightUnseen || 0}
-                tourToApp={funnel?.tourToApp || 0}
+                sightUnseen={(funnel as any)?.sight_unseen || 0}
+                tourToApp={(funnel as any)?.tour_to_app || 0}
                 timeLabel={periodLabel}
                 priorLeads={priorFunnel?.leads}
                 priorTours={priorFunnel?.tours}
@@ -1338,11 +1338,11 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           </div>
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="bg-amber-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-amber-700">{funnel?.tourToApp || 0}<span className="text-sm font-normal text-amber-500 ml-1">({funnel?.tours ? Math.round((funnel.tourToApp || 0) / funnel.tours * 100) : 0}%)</span></div>
+              <div className="text-2xl font-bold text-amber-700">{(funnel as any)?.tour_to_app || 0}<span className="text-sm font-normal text-amber-500 ml-1">({funnel?.tours ? Math.round(((funnel as any)?.tour_to_app || 0) / funnel.tours * 100) : 0}%)</span></div>
               <div className="text-sm text-amber-600 inline-flex items-center gap-0.5">Tour → Application <InfoTooltip text="Prospects who had a tour AND subsequently submitted an application. Percentage is of total tours." /></div>
             </div>
             <div className="bg-violet-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-violet-700">{funnel?.sightUnseen || 0}<span className="text-sm font-normal text-violet-500 ml-1">({funnel?.applications ? Math.round((funnel.sightUnseen || 0) / funnel.applications * 100) : 0}%)</span></div>
+              <div className="text-2xl font-bold text-violet-700">{(funnel as any)?.sight_unseen || 0}<span className="text-sm font-normal text-violet-500 ml-1">({funnel?.applications ? Math.round(((funnel as any)?.sight_unseen || 0) / funnel.applications * 100) : 0}%)</span></div>
               <div className="text-sm text-violet-600 inline-flex items-center gap-0.5">Apps w/o Tour <InfoTooltip text="Prospects who applied without ever touring the property in person. Percentage is of total applications." /></div>
             </div>
             <div className="bg-sky-50 rounded-lg p-4">

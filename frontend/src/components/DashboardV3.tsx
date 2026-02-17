@@ -1045,7 +1045,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       {/* Main Grid: Property Card + KPIs */}
       <div className="grid grid-cols-12 gap-6">
         {/* Property Card - Left */}
-        <div className="col-span-12 lg:col-span-3">
+        <div className="col-span-12 lg:col-span-2">
           <PropertyCard
             name={propertyName}
             units={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
@@ -1059,7 +1059,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         </div>
 
         {/* KPIs Grid - Right */}
-        <div className="col-span-12 lg:col-span-9">
+        <div className="col-span-12 lg:col-span-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {/* Row 1 */}
             <KPICard
@@ -1117,20 +1117,22 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               />
             </div>
 
-            <FunnelKPICard
-              leads={funnel?.leads || 0}
-              tours={funnel?.tours || 0}
-              applications={funnel?.applications || 0}
-              leasesSigned={funnel?.leaseSigns || 0}
-              sightUnseen={funnel?.sightUnseen || 0}
-              tourToApp={funnel?.tourToApp || 0}
-              timeLabel={periodLabel}
-              priorLeads={priorFunnel?.leads}
-              priorTours={priorFunnel?.tours}
-              priorApplications={priorFunnel?.applications}
-              priorLeasesSigned={priorFunnel?.leaseSigns}
-              priorPeriodLabel={priorFunnelLabel}
-            />
+            <div className="md:col-span-2">
+              <FunnelKPICard
+                leads={funnel?.leads || 0}
+                tours={funnel?.tours || 0}
+                applications={funnel?.applications || 0}
+                leasesSigned={funnel?.leaseSigns || 0}
+                sightUnseen={funnel?.sightUnseen || 0}
+                tourToApp={funnel?.tourToApp || 0}
+                timeLabel={periodLabel}
+                priorLeads={priorFunnel?.leads}
+                priorTours={priorFunnel?.tours}
+                priorApplications={priorFunnel?.applications}
+                priorLeasesSigned={priorFunnel?.leaseSigns}
+                priorPeriodLabel={priorFunnelLabel}
+              />
+            </div>
             
             <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">
               <KPICard

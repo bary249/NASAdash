@@ -196,9 +196,12 @@ function isWithinDays(date: Date | null, fromDate: Date, days: number): boolean 
 // ============= Calculation Functions =============
 
 function calculateOccupancy(units: UnitRaw[], futureResidents: ResidentRaw[]): OccupancyMetrics {
-  const totalUnits = units.length;
+  // Exclude down/model units from inventory (consistent with box score)
+  const downUnits = units.filter(u => u.occupancy_status === 'down' || u.occupancy_status === 'model').length;
+  const totalUnits = units.length - downUnits;
   
-  const occupiedUnits = units.filter(u => u.occupancy_status === 'occupied').length;
+  // 'notice' is mapped to 'occupied' upstream; count both for safety
+  const occupiedUnits = units.filter(u => u.occupancy_status === 'occupied' || u.occupancy_status === 'notice').length;
   const vacantUnits = units.filter(u => u.occupancy_status === 'vacant').length;
   
   // Preleased vacant = vacant units with a future resident
@@ -529,7 +532,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
         square_feet: u.square_feet,
         market_rent: u.market_rent,
         status: u.status,
-        occupancy_status: u.status, // unified status is already 'occupied' or 'vacant'
+        occupancy_status: (u.status === 'notice' ? 'occupied' : u.status === 'down' ? 'down' : u.status), // notice units are physically occupied; down units are out of inventory
         ready_status: (u as any).ready_status,
         available: (u as any).available,
         days_vacant: (u as any).days_vacant,

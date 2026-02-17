@@ -14,6 +14,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 
@@ -37,6 +38,12 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+
+# Skip external calls when cache is still fresh (default: 12h)
+REVIEWS_CACHE_TTL = int(os.environ.get("ZEMBRA_REVIEWS_CACHE_TTL_SECONDS", "43200"))
+
 # PHH properties — network=apartments, slug from URL
 PROPERTIES = {
     "parkside": {
@@ -54,10 +61,10 @@ PROPERTIES = {
 
 def create_review_job(network: str, slug: str) -> dict:
     """Create a review job. Returns job info + target metadata."""
-    resp = requests.post(f"{API_BASE}/reviews", headers=HEADERS, json={
+    resp = SESSION.post(f"{API_BASE}/reviews", json={
         "network": network,
         "slug": slug,
-    })
+    }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     if data.get("status") != "SUCCESS":
@@ -65,18 +72,40 @@ def create_review_job(network: str, slug: str) -> dict:
     return data
 
 
-def get_reviews(job_id: str) -> list:
-    """Fetch all reviews for a job. Polls if needed."""
-    for attempt in range(5):
-        resp = requests.get(f"{API_BASE}/reviews", headers=HEADERS, params={"jobId": job_id})
-        resp.raise_for_status()
+def get_reviews(job_id: str, max_attempts: int = 6) -> list:
+    """Fetch all reviews for a job. Polls until ready with backoff."""
+    for attempt in range(max_attempts):
+        resp = SESSION.get(f"{API_BASE}/reviews", params={"jobId": job_id}, timeout=30)
+        if resp.status_code not in (200, 206):
+            resp.raise_for_status()
         data = resp.json()
         reviews = data.get("data", {}).get("reviews", [])
         if reviews:
             return reviews
-        print(f"  Waiting for reviews (attempt {attempt+1})...")
-        time.sleep(3)
+
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                sleep_s = float(retry_after)
+            except ValueError:
+                sleep_s = 0.0
+        else:
+            sleep_s = min(2 * (2 ** attempt), 20)
+
+        print(f"  Waiting for reviews (attempt {attempt + 1}/{max_attempts}, sleep {sleep_s:.1f}s)...")
+        time.sleep(sleep_s)
     return []
+
+
+def _is_fresh_cache_entry(entry: Optional[dict], ttl_seconds: int = REVIEWS_CACHE_TTL) -> bool:
+    if not entry:
+        return False
+    ts = entry.get("ts", 0)
+    data = entry.get("data", {})
+    if not ts or not isinstance(data, dict):
+        return False
+    has_payload = data.get("review_count", 0) > 0 or len(data.get("reviews", [])) > 0
+    return has_payload and (time.time() - ts) < ttl_seconds
 
 
 def process_reviews(reviews: list) -> dict:
@@ -127,6 +156,7 @@ def main():
     print(f"Properties: {', '.join(PROPERTIES.keys())}\n")
 
     cache = {}
+    force_refresh = "--force" in sys.argv
     if CACHE_PATH.exists():
         try:
             cache = json.loads(CACHE_PATH.read_text())
@@ -134,6 +164,15 @@ def main():
             pass
 
     for pid, config in PROPERTIES.items():
+        existing = cache.get(pid)
+        if not force_refresh and _is_fresh_cache_entry(existing):
+            age_mins = int((time.time() - existing.get("ts", 0)) / 60)
+            print(f"{'='*50}")
+            print(f"  {config['name']} ({pid})")
+            print(f"{'='*50}")
+            print(f"  cache: fresh ({age_mins}m old) -> skipping Zembra calls")
+            continue
+
         print(f"{'='*50}")
         print(f"  {config['name']} ({pid})")
         print(f"{'='*50}")

@@ -16,6 +16,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import requests
 from dotenv import load_dotenv
@@ -39,6 +40,12 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
+SESSION = requests.Session()
+SESSION.headers.update(HEADERS)
+
+# Skip external calls when cache is still fresh (default: 12h)
+REVIEWS_CACHE_TTL = int(os.environ.get("ZEMBRA_REVIEWS_CACHE_TTL_SECONDS", "43200"))
+
 # ─── Property registry ───────────────────────────────────────────────────────
 # Google: network="google", slug = Google Maps CID (from place URL)
 # Apartments: network="apartments", slug = URL path
@@ -58,7 +65,7 @@ PROPERTIES = {
 
 def check_balance():
     """Check Zembra account balance."""
-    resp = requests.get(f"{API_BASE}/account", headers=HEADERS)
+    resp = SESSION.get(f"{API_BASE}/account", timeout=20)
     if resp.status_code == 200:
         data = resp.json()
         balance = data.get("data", {}).get("balance", "?")
@@ -71,10 +78,10 @@ def check_balance():
 
 def create_review_job(network: str, slug: str) -> dict:
     """Create a review job. Returns job info + target metadata."""
-    resp = requests.post(f"{API_BASE}/reviews", headers=HEADERS, json={
+    resp = SESSION.post(f"{API_BASE}/reviews", json={
         "network": network,
         "slug": slug,
-    })
+    }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     if data.get("status") != "SUCCESS":
@@ -82,18 +89,42 @@ def create_review_job(network: str, slug: str) -> dict:
     return data
 
 
-def get_reviews(job_id: str, max_attempts: int = 8) -> list:
-    """Fetch all reviews for a job. Polls until ready."""
+def get_reviews(job_id: str, max_attempts: int = 6) -> list:
+    """Fetch all reviews for a job. Polls until ready with backoff."""
     for attempt in range(max_attempts):
-        resp = requests.get(f"{API_BASE}/reviews", headers=HEADERS, params={"jobId": job_id})
-        resp.raise_for_status()
+        resp = SESSION.get(f"{API_BASE}/reviews", params={"jobId": job_id}, timeout=30)
+        if resp.status_code not in (200, 206):
+            resp.raise_for_status()
         data = resp.json()
         reviews = data.get("data", {}).get("reviews", [])
         if reviews:
             return reviews
-        print(f"  Waiting for reviews (attempt {attempt + 1}/{max_attempts})...")
-        time.sleep(3)
+
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                sleep_s = float(retry_after)
+            except ValueError:
+                sleep_s = 0.0
+        else:
+            # Exponential backoff to reduce polling pressure
+            sleep_s = min(2 * (2 ** attempt), 20)
+
+        print(f"  Waiting for reviews (attempt {attempt + 1}/{max_attempts}, sleep {sleep_s:.1f}s)...")
+        time.sleep(sleep_s)
     return []
+
+
+def _is_fresh_cache_entry(entry: Optional[dict], ttl_seconds: int = REVIEWS_CACHE_TTL) -> bool:
+    if not entry:
+        return False
+    ts = entry.get("ts", 0)
+    data = entry.get("data", {})
+    if not ts or not isinstance(data, dict):
+        return False
+    # Fresh only if payload is present and has at least summary fields
+    has_payload = data.get("review_count", 0) > 0 or len(data.get("reviews", [])) > 0
+    return has_payload and (time.time() - ts) < ttl_seconds
 
 
 def process_reviews(reviews: list, source: str) -> dict:
@@ -139,7 +170,7 @@ def process_reviews(reviews: list, source: str) -> dict:
     }
 
 
-def fetch_for_network(network: str, slug_key: str, cache_path: Path):
+def fetch_for_network(network: str, slug_key: str, cache_path: Path, force_refresh: bool = False):
     """Fetch reviews for all properties on a given network."""
     print(f"\n{'='*60}")
     print(f"  FETCHING: {network.upper()} REVIEWS")
@@ -156,6 +187,13 @@ def fetch_for_network(network: str, slug_key: str, cache_path: Path):
         slug = config.get(slug_key)
         if not slug:
             print(f"  {pid}: No {slug_key} configured, skipping")
+            continue
+
+        existing = cache.get(pid)
+        if not force_refresh and _is_fresh_cache_entry(existing):
+            age_mins = int((time.time() - existing.get("ts", 0)) / 60)
+            print(f"\n  {config['name']} ({pid})")
+            print(f"  cache: fresh ({age_mins}m old) -> skipping Zembra calls")
             continue
 
         print(f"\n  {config['name']} ({pid})")
@@ -211,6 +249,7 @@ def main():
     print(f"Properties: {', '.join(PROPERTIES.keys())}")
 
     only = None
+    force_refresh = "--force" in sys.argv
     if "--only" in sys.argv:
         idx = sys.argv.index("--only")
         if idx + 1 < len(sys.argv):
@@ -223,10 +262,10 @@ def main():
     check_balance()
 
     if only is None or only == "google":
-        fetch_for_network("google", "google_slug", GOOGLE_CACHE)
+        fetch_for_network("google", "google_slug", GOOGLE_CACHE, force_refresh=force_refresh)
 
     if only is None or only == "apartments":
-        fetch_for_network("apartments", "apartments_slug", APARTMENTS_CACHE)
+        fetch_for_network("apartments", "apartments_slug", APARTMENTS_CACHE, force_refresh=force_refresh)
 
     print(f"\n{'='*60}")
     print("  DONE")

@@ -146,31 +146,10 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveIds.join(',')]);
 
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-slate-200 rounded w-48" />
-          <div className="grid grid-cols-4 gap-4">
-            {[1,2,3,4].map(i => <div key={i} className="h-24 bg-slate-100 rounded-xl" />)}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Sorted data — hooks must be called before any early returns
+  const pipeline = data?.pipeline || [];
+  const completed = data?.completed || [];
 
-  if (error || !data) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
-        <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-        <p className="text-slate-500">No maintenance data available for this property</p>
-      </div>
-    );
-  }
-
-  const { summary, pipeline, completed } = data;
-
-  // Sorted data
   const sortedPipeline = useMemo(() => {
     if (!pipeline.length) return pipeline;
     return [...pipeline].sort((a, b) => {
@@ -194,6 +173,30 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
       return compSortDir === 'asc' ? cmp : -cmp;
     });
   }, [completed, compSortKey, compSortDir]);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8">
+        <div className="animate-pulse space-y-4">
+          <div className="h-6 bg-slate-200 rounded w-48" />
+          <div className="grid grid-cols-4 gap-4">
+            {[1,2,3,4].map(i => <div key={i} className="h-24 bg-slate-100 rounded-xl" />)}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+        <Wrench className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500">No maintenance data available for this property</p>
+      </div>
+    );
+  }
+
+  const { summary } = data;
 
   return (
     <div className="space-y-4">

@@ -793,6 +793,34 @@ async def get_availability(property_id: str):
         except Exception:
             pass
         
+        # --- Prior month ATR for comparison ---
+        prior_atr = None
+        prior_atr_pct = None
+        prior_snapshot_date = None
+        try:
+            pm_conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+            pm_c = pm_conn.cursor()
+            pm_c.execute("""
+                SELECT snapshot_date, total_units, vacant_units,
+                       COALESCE(notice_units, 0), COALESCE(preleased_vacant, 0)
+                FROM unified_occupancy_metrics
+                WHERE (unified_property_id = ? OR unified_property_id = ?)
+                  AND snapshot_date <= date('now', '-25 days')
+                ORDER BY snapshot_date DESC LIMIT 1
+            """, (property_id, normalized_id))
+            pm_row = pm_c.fetchone()
+            pm_conn.close()
+            if pm_row:
+                prior_snapshot_date = pm_row[0]
+                pm_total = pm_row[1] or 0
+                pm_vacant = pm_row[2] or 0
+                pm_notice = pm_row[3] or 0
+                pm_preleased = pm_row[4] or 0
+                prior_atr = max(0, pm_vacant + pm_notice - pm_preleased)
+                prior_atr_pct = round(prior_atr / pm_total * 100, 1) if pm_total > 0 else 0
+        except Exception:
+            pass
+
         return {
             "property_id": property_id,
             "total_units": total_units,
@@ -813,11 +841,65 @@ async def get_availability(property_id: str):
                 "direction": trend_direction,
                 "weeks": trend_weeks,
             },
+            "prior_month": {
+                "atr": prior_atr,
+                "atr_pct": prior_atr_pct,
+                "snapshot_date": prior_snapshot_date,
+            } if prior_atr is not None else None,
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get availability: {str(e)}")
+
+
+@router.get("/properties/{property_id}/occupancy-snapshots")
+async def get_occupancy_snapshots(property_id: str):
+    """
+    GET: Historical occupancy snapshots for week-over-week trend display.
+    Returns all available box score snapshots ordered by date.
+    """
+    import sqlite3
+    normalized_id = property_id
+    if property_id.startswith("kairoi-"):
+        normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
+
+    try:
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        c = conn.cursor()
+        c.execute("""
+            SELECT snapshot_date, total_units, occupied_units, vacant_units,
+                   physical_occupancy, leased_percentage,
+                   COALESCE(notice_units, 0), COALESCE(preleased_vacant, 0)
+            FROM unified_occupancy_metrics
+            WHERE unified_property_id = ? OR unified_property_id = ?
+            ORDER BY snapshot_date ASC
+        """, (property_id, normalized_id))
+        rows = c.fetchall()
+        conn.close()
+
+        snapshots = []
+        for r in rows:
+            snap_date = r[0] or ""
+            # Normalize mixed date formats (MM/DD/YYYY -> YYYY-MM-DD)
+            if "/" in snap_date:
+                parts = snap_date.split("/")
+                if len(parts) == 3:
+                    snap_date = f"{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+            snapshots.append({
+                "date": snap_date,
+                "total_units": r[1] or 0,
+                "occupied": r[2] or 0,
+                "vacant": r[3] or 0,
+                "occupancy_pct": r[4] or 0,
+                "leased_pct": r[5] or 0,
+                "on_notice": r[6],
+                "preleased": r[7],
+            })
+
+        return {"property_id": property_id, "snapshots": snapshots}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/expirations")

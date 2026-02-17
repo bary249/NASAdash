@@ -31,6 +31,7 @@ import { ReputationOverview } from './ReputationOverview';
 import { RentableItemsSection } from './RentableItemsSection';
 import { DelinquencySection } from './DelinquencySection';
 import { AvailabilitySection } from './AvailabilitySection';
+import { OccupancyTrendSection } from './OccupancyTrendSection';
 import { BedroomConsolidatedView } from './BedroomConsolidatedView';
 import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
@@ -1150,6 +1151,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
           {/* ATR & Availability Section */}
           <AvailabilitySection propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
+
+          {/* Occupancy Trend (historical box score snapshots) */}
+          <OccupancyTrendSection propertyId={propertyId} propertyIds={propertyIds} />
 
           {/* Unit Mix & Pricing */}
           <UnitMixPricing floorplans={floorplans} />

@@ -337,7 +337,13 @@ export const api = {
     on_notice: number; preleased: number; atr: number; atr_pct: number; availability_pct: number;
     buckets: { available_0_30: number; available_30_60: number; total: number };
     trend: { direction: string; weeks: { week_ending: string; atr: number; atr_pct: number; occupancy_pct: number; move_ins: number; move_outs: number }[] };
+    prior_month?: { atr: number; atr_pct: number; snapshot_date: string } | null;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/availability`),
+
+  getOccupancySnapshots: (propertyId: string): Promise<{
+    property_id: string;
+    snapshots: { date: string; total_units: number; occupied: number; vacant: number; occupancy_pct: number; leased_pct: number; on_notice: number; preleased: number }[];
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/occupancy-snapshots`),
 
   getOccupancyForecast: (propertyId: string, weeks = 12): Promise<{
     forecast: { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; lease_expirations: number; net_change: number }[];

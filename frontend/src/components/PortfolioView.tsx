@@ -9,6 +9,7 @@
 import { useState, useEffect } from 'react';
 import { Building2, ChevronDown, ChevronUp, ChevronsUpDown, ExternalLink, Check, Calculator, Table2, Info, Filter } from 'lucide-react';
 import { api } from '../api';
+import { InfoTooltip } from './InfoTooltip';
 import type { PropertyInfo, OccupancyMetrics, ExposureMetrics, LeasingFunnelMetrics, AggregationMode } from '../types';
 import { HealthStatus } from './MetricCard';
 import { useScramble, useScrambleMode, scrambleName } from './DashboardV3';
@@ -77,7 +78,7 @@ interface PortfolioViewProps {
   onDataReady?: () => void;
 }
 
-export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange, onDataReady }: PortfolioViewProps) {
+export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPropertyIds: externalSelectedIds, onSelectedPropertyIdsChange, selectedOwnerGroup: externalOwnerGroup, onOwnerGroupChange, onDataReady }: PortfolioViewProps) {
   const [expanded, setExpanded] = useState(true);
   const [properties, setProperties] = useState<PropertySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -512,7 +513,10 @@ export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externa
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           {isChecked && <Check className="w-4 h-4 text-venn-amber" />}
-                          <div className="font-semibold text-venn-navy">{scrambleName(p.property.name, scramblePII, scrambleMode)}</div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onSelectProperty(p.property.id, p.property.name); }}
+                            className="font-semibold text-venn-navy hover:text-venn-amber hover:underline transition-colors text-left"
+                          >{scrambleName(p.property.name, scramblePII, scrambleMode)}</button>
                         </div>
                         {p.property.city && !scramblePII && (
                           <div className="text-xs text-slate-500">{p.property.city}, {p.property.state}</div>
@@ -560,7 +564,9 @@ export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externa
                         {p.loading ? '...' : p.occupancy?.vacant_units ?? '—'}
                       </td>
                       <td className="px-5 py-4 text-center">
-                        <ExternalLink className="w-4 h-4 text-slate-400 hover:text-venn-amber transition-colors" />
+                        <button onClick={(e) => { e.stopPropagation(); onSelectProperty(p.property.id, p.property.name); }} title="View property detail">
+                          <ExternalLink className="w-4 h-4 text-slate-400 hover:text-venn-amber transition-colors" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -576,6 +582,9 @@ export function PortfolioView({ selectedPropertyId, selectedPropertyIds: externa
                       <span className="text-xs font-normal text-slate-500 bg-white px-2 py-0.5 rounded-lg border border-venn-sand/50">
                         {aggregationMode === 'row_metrics' ? 'Row Metrics' : 'Weighted Avg'}
                       </span>
+                      <InfoTooltip text={aggregationMode === 'row_metrics'
+                        ? 'Row Metrics: All units are pooled together. Occupancy = total occupied ÷ total units across selected properties.'
+                        : 'Weighted Average: Each property\'s occupancy % is averaged, weighted by its unit count — larger properties contribute proportionally more.'} />
                     </div>
                   </td>
                   <td className="px-5 py-4 text-center text-venn-navy font-bold">{totals.totalUnits}</td>

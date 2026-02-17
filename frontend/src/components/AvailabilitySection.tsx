@@ -34,6 +34,11 @@ interface AvailabilityData {
       move_outs: number;
     }[];
   };
+  prior_month?: {
+    atr: number;
+    atr_pct: number;
+    snapshot_date: string;
+  } | null;
 }
 
 interface Props {
@@ -144,6 +149,15 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
           <div className="text-xs font-medium text-blue-600 uppercase mb-1">ATR</div>
           <div className="text-2xl font-bold text-blue-700">{data.atr}</div>
           <div className="text-xs text-blue-500">{data.atr_pct}% of {data.total_units} units</div>
+          {data.prior_month && (() => {
+            const delta = data.atr - data.prior_month.atr;
+            if (delta === 0) return <div className="text-[10px] text-slate-400 mt-1">No change vs prior month</div>;
+            return (
+              <div className={`text-[10px] mt-1 font-medium ${delta > 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                {delta > 0 ? '▲' : '▼'} {Math.abs(delta)} units vs prior mo ({data.prior_month.atr})
+              </div>
+            );
+          })()}
         </button>
 
         <button onClick={() => onDrillThrough?.('availability_status', 'vacant')} className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-left hover:border-slate-300 transition-colors cursor-pointer">

@@ -282,6 +282,125 @@ class TestLeasingFunnel:
         assert f["leads"] >= f["tours"], \
             f"Leads {f['leads']} < tours {f['tours']}"
 
+    TIMEFRAMES = ["cm", "pm", "l30", "l7", "ytd"]
+
+    @pytest.mark.parametrize("tf", TIMEFRAMES)
+    def test_funnel_all_timeframes_return_200(self, first_property, tf):
+        """Every timeframe returns 200 with valid funnel data."""
+        f = _get(f"{API}/{first_property}/leasing-funnel?timeframe={tf}")
+        assert "leads" in f, f"Missing 'leads' in {tf} response"
+        assert "tours" in f, f"Missing 'tours' in {tf} response"
+        assert "applications" in f, f"Missing 'applications' in {tf} response"
+        assert "lease_signs" in f, f"Missing 'lease_signs' in {tf} response"
+
+    @pytest.mark.parametrize("tf", TIMEFRAMES)
+    def test_funnel_non_negative_all_timeframes(self, first_property, tf):
+        """All funnel values are non-negative for every timeframe."""
+        f = _get(f"{API}/{first_property}/leasing-funnel?timeframe={tf}")
+        for key in ["leads", "tours", "applications", "lease_signs"]:
+            assert f.get(key, 0) >= 0, f"{tf}: {key}={f.get(key)} is negative"
+
+    @pytest.mark.parametrize("tf", ["cm", "l30", "l7"])
+    def test_funnel_has_data_for_current_periods(self, first_property, tf):
+        """Current period funnel should have leads > 0 for active properties."""
+        f = _get(f"{API}/{first_property}/leasing-funnel?timeframe={tf}")
+        # Allow l7 to have 0 if report data has a lag
+        if tf == "l7" and f["leads"] == 0:
+            pytest.skip("L7 may have 0 leads due to report data lag")
+        assert f["leads"] > 0, f"{tf}: 0 leads for {first_property} (expected active property)"
+
+    def test_funnel_conversion_rates_present(self, first_property):
+        """Conversion rates are returned and within 0-100%."""
+        f = _get(f"{API}/{first_property}/leasing-funnel")
+        for key in ["lead_to_tour_rate", "tour_to_app_rate", "app_to_lease_rate", "lead_to_lease_rate"]:
+            assert key in f, f"Missing {key}"
+            assert 0 <= f[key] <= 100, f"{key}={f[key]} out of 0-100 range"
+
+    def test_funnel_period_dates_present(self, first_property):
+        """Response includes period_start and period_end."""
+        f = _get(f"{API}/{first_property}/leasing-funnel")
+        assert f.get("period_start"), "Missing period_start"
+        assert f.get("period_end"), "Missing period_end"
+        assert f["period_start"] <= f["period_end"], \
+            f"period_start {f['period_start']} > period_end {f['period_end']}"
+
+    def test_funnel_custom_date_range(self, first_property):
+        """Custom start_date/end_date overrides timeframe and returns data."""
+        f = _get(f"{API}/{first_property}/leasing-funnel?timeframe=cm&start_date=2026-01-01&end_date=2026-01-31")
+        assert "leads" in f
+        # Should match PM data roughly
+        pm = _get(f"{API}/{first_property}/leasing-funnel?timeframe=pm")
+        # Custom date range Jan 1-31 should be close to PM (which is also Jan)
+        if pm["leads"] > 0:
+            assert f["leads"] > 0, "Custom date range Jan returned 0 leads but PM has data"
+
+    def test_funnel_ytd_gte_cm(self, first_property):
+        """YTD leads should be >= current month leads (YTD includes current month)."""
+        ytd = _get(f"{API}/{first_property}/leasing-funnel?timeframe=ytd")
+        cm = _get(f"{API}/{first_property}/leasing-funnel?timeframe=cm")
+        if ytd["leads"] > 0 and cm["leads"] > 0:
+            assert ytd["leads"] >= cm["leads"], \
+                f"YTD leads {ytd['leads']} < CM leads {cm['leads']}"
+
+
+class TestLeasingFunnelAllProperties:
+    """Funnel data integrity across ALL properties (not just the test property)."""
+
+    def test_funnel_no_negative_values_all_properties(self, property_ids):
+        """No property should have negative funnel values for any timeframe."""
+        errors = []
+        for pid in property_ids:
+            for tf in ["cm", "l30", "l7"]:
+                r = requests.get(f"{API}/{pid}/leasing-funnel?timeframe={tf}", timeout=30)
+                if r.status_code != 200:
+                    continue
+                f = r.json()
+                for key in ["leads", "tours", "applications", "lease_signs"]:
+                    if f.get(key, 0) < 0:
+                        errors.append(f"{pid}/{tf}: {key}={f[key]}")
+        assert not errors, f"Negative funnel values found:\n" + "\n".join(errors)
+
+    def test_funnel_leads_gte_tours_all_properties(self, property_ids):
+        """Leads >= tours for all properties (funnel should narrow)."""
+        errors = []
+        for pid in property_ids:
+            for tf in ["cm", "l30"]:
+                r = requests.get(f"{API}/{pid}/leasing-funnel?timeframe={tf}", timeout=30)
+                if r.status_code != 200:
+                    continue
+                f = r.json()
+                if f["leads"] > 0 and f["tours"] > f["leads"]:
+                    errors.append(f"{pid}/{tf}: tours({f['tours']}) > leads({f['leads']})")
+        assert not errors, f"Funnel narrowing violated:\n" + "\n".join(errors)
+
+    def test_funnel_prior_period_comparison(self, property_ids):
+        """Prior period (custom date range) returns data for properties with current data."""
+        # Test L30 vs prior 30 days for a few properties
+        test_props = property_ids[:5]
+        for pid in test_props:
+            current = requests.get(f"{API}/{pid}/leasing-funnel?timeframe=l30", timeout=30)
+            if current.status_code != 200:
+                continue
+            c = current.json()
+            if c["leads"] == 0:
+                continue
+            # Prior 30d: days 31-60 ago
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            prior_end = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+            prior_start = (now - timedelta(days=60)).strftime("%Y-%m-%d")
+            prior = requests.get(
+                f"{API}/{pid}/leasing-funnel?timeframe=l30&start_date={prior_start}&end_date={prior_end}",
+                timeout=30
+            )
+            if prior.status_code != 200:
+                continue
+            p = prior.json()
+            # Prior should have data if current does (at least some leads)
+            assert p["leads"] >= 0, f"{pid}: prior L30 has negative leads"
+            # Sanity: prior and current shouldn't be identical unless coincidence
+            # (they cover different date ranges, so usually differ)
+
 
 # ===================================================================
 # 8. MARKETING

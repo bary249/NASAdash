@@ -354,10 +354,31 @@ class OccupancyService:
             conn = sqlite3.connect(UNIFIED_DB_PATH)
             cursor = conn.cursor()
 
-            # Normalize property ID
-            normalized_id = property_id
+            # Build set of possible IDs for this property (API key, unified_id, kairoi- variants)
+            id_variants = {property_id}
             if property_id.startswith("kairoi-"):
-                normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
+                id_variants.add(property_id.replace("kairoi-", "").replace("-", "_"))
+            # Look up unified_id from PROPERTY_MAPPING (numeric RealPage ID → unified_id)
+            try:
+                from app.db.sync_realpage_to_unified import PROPERTY_MAPPING
+                # Forward: if property_id is a numeric RealPage ID
+                if property_id in PROPERTY_MAPPING:
+                    id_variants.add(PROPERTY_MAPPING[property_id]["unified_id"])
+                # Reverse: find unified_id that matches this property key
+                def _strip(s: str) -> str:
+                    return s.replace("the_", "").replace("the", "").replace("kairoi-", "").replace("-", "_")
+                pid_clean = _strip(property_id)
+                for _num_id, mapping in PROPERTY_MAPPING.items():
+                    uid = mapping["unified_id"]
+                    uid_clean = _strip(uid)
+                    # Match: exact, suffix, or stripped versions match
+                    if (uid == property_id or property_id.endswith(uid) or
+                        uid_clean == pid_clean or uid_clean.startswith(pid_clean) or pid_clean.startswith(uid_clean)):
+                        id_variants.add(uid)
+            except Exception:
+                pass
+            id_list = list(id_variants)
+            id_placeholders = ",".join("?" for _ in id_list)
 
             start_str = period_start.strftime("%Y-%m-%d")
             end_str = period_end.strftime("%Y-%m-%d")
@@ -374,26 +395,26 @@ class OccupancyService:
             lease_types = ("Leased",)
 
             def count_unique(types: tuple) -> int:
-                placeholders = ",".join("?" for _ in types)
+                type_ph = ",".join("?" for _ in types)
                 cursor.execute(f"""
                     SELECT COUNT(DISTINCT resident_name) FROM unified_activity
-                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                    WHERE unified_property_id IN ({id_placeholders})
                       AND activity_date >= ? AND activity_date <= ?
-                      AND activity_type IN ({placeholders})
-                """, (property_id, normalized_id, start_str, end_str, *types))
+                      AND activity_type IN ({type_ph})
+                """, (*id_list, start_str, end_str, *types))
                 return cursor.fetchone()[0] or 0
 
             # Leads = truly new prospects whose first-ever activity is within this period
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT COUNT(*) FROM (
                     SELECT resident_name, MIN(activity_date) as first_date
                     FROM unified_activity
-                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                    WHERE unified_property_id IN ({id_placeholders})
                       AND resident_name IS NOT NULL AND resident_name != ''
                     GROUP BY resident_name
                     HAVING first_date >= ? AND first_date <= ?
                 )
-            """, (property_id, normalized_id, start_str, end_str))
+            """, (*id_list, start_str, end_str))
             leads = cursor.fetchone()[0] or 0
 
             tours = count_unique(tour_types)

@@ -939,3 +939,192 @@ async def portfolio_chat(request: dict):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================================================================
+# Portfolio Watchpoints — aggregated metrics across all properties
+# =========================================================================
+
+async def _gather_portfolio_metrics(owner_group: str) -> dict:
+    """Aggregate metrics across all properties in the owner group."""
+    import sqlite3
+    from pathlib import Path
+    db_path = UNIFIED_DB_PATH
+    metrics: dict = {}
+    groups = _visible_groups(owner_group)
+
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+
+        # Get property IDs in group
+        c.execute("SELECT unified_property_id, owner_group FROM unified_properties")
+        group_props = [r[0] for r in c.fetchall() if (r[1] or "other").lower() in groups]
+
+        if not group_props:
+            conn.close()
+            return metrics
+
+        ph = ",".join("?" * len(group_props))
+
+        # Occupancy: sum across properties (latest snapshot per property)
+        c.execute(f"""
+            SELECT SUM(o.total_units), SUM(o.occupied_units), SUM(o.vacant_units),
+                   SUM(o.notice_units), SUM(o.preleased_vacant)
+            FROM unified_occupancy_metrics o
+            INNER JOIN (
+                SELECT unified_property_id, MAX(snapshot_date) as md
+                FROM unified_occupancy_metrics
+                WHERE unified_property_id IN ({ph})
+                GROUP BY unified_property_id
+            ) latest ON o.unified_property_id = latest.unified_property_id AND o.snapshot_date = latest.md
+        """, group_props)
+        occ = c.fetchone()
+        if occ and occ[0]:
+            total_units = occ[0] or 0
+            occupied = occ[1] or 0
+            metrics["occupancy_pct"] = round(occupied / total_units * 100, 1) if total_units > 0 else 0
+            metrics["vacant_units"] = occ[2] or 0
+            metrics["on_notice_units"] = occ[3] or 0
+
+        # ATR from unified_units (same source as availability endpoint)
+        c.execute(f"""
+            SELECT
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END),
+                SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END)
+            FROM unified_units WHERE unified_property_id IN ({ph})
+        """, group_props)
+        urow = c.fetchone()
+        if urow:
+            vacant = urow[0] or 0
+            on_notice = urow[1] or 0
+            preleased = urow[2] or 0
+            atr = max(0, vacant + on_notice - preleased)
+            metrics["atr"] = atr
+            if occ and occ[0]:
+                metrics["atr_pct"] = round(atr / occ[0] * 100, 1)
+
+        # Delinquency: current residents only
+        c.execute(f"""
+            SELECT SUM(CASE WHEN total_delinquent > 0 THEN total_delinquent ELSE 0 END),
+                   COUNT(CASE WHEN total_delinquent > 0 THEN 1 END)
+            FROM unified_delinquency
+            WHERE unified_property_id IN ({ph})
+              AND (status IS NULL OR LOWER(status) NOT LIKE '%former%')
+        """, group_props)
+        drow = c.fetchone()
+        if drow:
+            metrics["delinquent_total"] = drow[0] or 0
+            metrics["delinquent_units"] = drow[1] or 0
+
+        # Avg rent
+        c.execute(f"""
+            SELECT AVG(market_rent) FROM unified_units
+            WHERE unified_property_id IN ({ph}) AND market_rent > 0
+        """, group_props)
+        rrow = c.fetchone()
+        if rrow and rrow[0]:
+            metrics["avg_rent"] = round(rrow[0], 0)
+
+        conn.close()
+    except Exception:
+        pass
+
+    # Google reviews: average rating
+    try:
+        import json as _json
+        cache_path = Path(__file__).parent.parent / "db" / "data" / "google_reviews_cache.json"
+        if cache_path.exists():
+            cache = _json.loads(cache_path.read_text())
+            ratings = [e.get("data", {}).get("rating") for e in cache.values() if e.get("data", {}).get("rating")]
+            if ratings:
+                metrics["google_rating"] = round(sum(ratings) / len(ratings), 2)
+    except Exception:
+        pass
+
+    return metrics
+
+
+@router.get("/watchpoints")
+async def get_portfolio_watchpoints(
+    owner_group: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """GET: Portfolio-level watchpoints with aggregated metrics."""
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
+
+    group_key = f"portfolio_{owner_group or 'all'}"
+
+    from app.services.watchpoint_service import (
+        get_watchpoints as _get_wps,
+        evaluate_watchpoints,
+        AVAILABLE_METRICS,
+    )
+
+    current_metrics = await _gather_portfolio_metrics(owner_group or "all")
+    wps = _get_wps(group_key)
+    evaluated = evaluate_watchpoints(group_key, current_metrics)
+
+    return {
+        "owner_group": owner_group,
+        "watchpoints": evaluated,
+        "available_metrics": AVAILABLE_METRICS,
+        "current_metrics": current_metrics,
+    }
+
+
+@router.post("/watchpoints")
+async def create_portfolio_watchpoint(
+    body: dict,
+    owner_group: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """POST: Create a portfolio-level watchpoint."""
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
+
+    group_key = f"portfolio_{owner_group or 'all'}"
+    from app.services.watchpoint_service import add_watchpoint
+
+    metric = body.get("metric")
+    operator = body.get("operator")
+    threshold = body.get("threshold")
+    label = body.get("label")
+    if not metric or not operator or threshold is None:
+        raise HTTPException(status_code=400, detail="Required: metric, operator, threshold")
+    try:
+        return add_watchpoint(group_key, metric, operator, float(threshold), label)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/watchpoints/{watchpoint_id}")
+async def delete_portfolio_watchpoint(
+    watchpoint_id: str,
+    owner_group: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+):
+    """DELETE: Remove a portfolio-level watchpoint."""
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
+
+    group_key = f"portfolio_{owner_group or 'all'}"
+    from app.services.watchpoint_service import remove_watchpoint
+
+    if not remove_watchpoint(group_key, watchpoint_id):
+        raise HTTPException(status_code=404, detail="Watchpoint not found")
+    return {"deleted": True}

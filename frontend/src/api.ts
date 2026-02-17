@@ -508,24 +508,24 @@ export const api = {
     return fetchJson(`${PORTFOLIO_BASE}/watchlist${q ? '?' + q : ''}`);
   },
 
-  // Watchpoints (Custom AI Metrics)
-  getWatchpoints: (propertyId: string): Promise<{
-    property_id: string;
+  // Watchpoints (Portfolio-level metric thresholds)
+  getWatchpoints: (ownerGroup?: string): Promise<{
+    owner_group: string;
     watchpoints: { id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean; created_at: string; status: string; current_value: number | null }[];
     available_metrics: Record<string, { label: string; unit: string; direction: string }>;
     current_metrics: Record<string, number>;
-  }> => fetchJson(`${API_BASE}/properties/${propertyId}/watchpoints`),
+  }> => fetchJson(`${PORTFOLIO_BASE}/watchpoints${ownerGroup ? '?owner_group=' + ownerGroup : ''}`),
 
-  createWatchpoint: async (propertyId: string, body: { metric: string; operator: string; threshold: number; label?: string }): Promise<{ id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean }> => {
-    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints`, {
+  createWatchpoint: async (body: { metric: string; operator: string; threshold: number; label?: string }, ownerGroup?: string): Promise<{ id: string; metric: string; operator: string; threshold: number; label: string; enabled: boolean }> => {
+    const response = await fetch(`${PORTFOLIO_BASE}/watchpoints${ownerGroup ? '?owner_group=' + ownerGroup : ''}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     return response.json();
   },
 
-  deleteWatchpoint: async (propertyId: string, watchpointId: string): Promise<{ deleted: boolean }> => {
-    const response = await fetch(`${API_BASE}/properties/${propertyId}/watchpoints/${watchpointId}`, { method: 'DELETE', headers: getAuthHeaders() });
+  deleteWatchpoint: async (watchpointId: string, ownerGroup?: string): Promise<{ deleted: boolean }> => {
+    const response = await fetch(`${PORTFOLIO_BASE}/watchpoints/${watchpointId}${ownerGroup ? '?owner_group=' + ownerGroup : ''}`, { method: 'DELETE', headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
     return response.json();
   },

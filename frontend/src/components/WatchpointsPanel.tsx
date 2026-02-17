@@ -1,7 +1,7 @@
 /**
- * WatchpointsPanel - User-defined metric watchpoints with live status.
- * Allows creating, viewing, and deleting custom AI-monitored thresholds.
- * Per WS8 design partner feedback.
+ * WatchpointsPanel - Portfolio-level metric watchpoints with live status.
+ * Allows creating, viewing, and deleting custom metric thresholds.
+ * Evaluates against aggregated portfolio metrics.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { Target, Plus, Trash2, CheckCircle2, AlertTriangle, MinusCircle, X } from 'lucide-react';
@@ -41,10 +41,10 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; 
 };
 
 interface Props {
-  propertyId: string;
+  ownerGroup?: string;
 }
 
-export function WatchpointsPanel({ propertyId }: Props) {
+export function WatchpointsPanel({ ownerGroup }: Props) {
   const [watchpoints, setWatchpoints] = useState<Watchpoint[]>([]);
   const [availableMetrics, setAvailableMetrics] = useState<Record<string, MetricInfo>>({});
   const [currentMetrics, setCurrentMetrics] = useState<Record<string, number>>({});
@@ -58,7 +58,7 @@ export function WatchpointsPanel({ propertyId }: Props) {
 
   const refresh = useCallback(() => {
     setLoading(true);
-    api.getWatchpoints(propertyId)
+    api.getWatchpoints(ownerGroup)
       .then(d => {
         setWatchpoints(d.watchpoints);
         setAvailableMetrics(d.available_metrics);
@@ -66,18 +66,18 @@ export function WatchpointsPanel({ propertyId }: Props) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [propertyId]);
+  }, [ownerGroup]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   const handleAdd = async () => {
     if (!newMetric || !newThreshold) return;
     try {
-      await api.createWatchpoint(propertyId, {
+      await api.createWatchpoint({
         metric: newMetric,
         operator: newOperator,
         threshold: parseFloat(newThreshold),
-      });
+      }, ownerGroup);
       setShowAdd(false);
       setNewMetric('');
       setNewThreshold('');
@@ -89,7 +89,7 @@ export function WatchpointsPanel({ propertyId }: Props) {
 
   const handleDelete = async (wpId: string) => {
     try {
-      await api.deleteWatchpoint(propertyId, wpId);
+      await api.deleteWatchpoint(wpId, ownerGroup);
       refresh();
     } catch (e) {
       console.error('Failed to delete watchpoint:', e);
@@ -114,8 +114,8 @@ export function WatchpointsPanel({ propertyId }: Props) {
         <div className="flex items-center gap-3">
           <Target className="w-5 h-5 text-indigo-500" />
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">Custom Watchpoints</h3>
-            <p className="text-xs text-slate-500">AI-monitored metric thresholds</p>
+            <h3 className="text-sm font-semibold text-slate-800">Portfolio Watchpoints</h3>
+            <p className="text-xs text-slate-500">Metric thresholds across all properties</p>
           </div>
           {triggeredCount > 0 && (
             <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
@@ -201,7 +201,7 @@ export function WatchpointsPanel({ propertyId }: Props) {
       <div className="divide-y divide-slate-100">
         {watchpoints.length === 0 ? (
           <div className="px-5 py-8 text-center text-sm text-slate-500">
-            No watchpoints defined. Click <strong>Add</strong> to create a custom threshold for AI to monitor.
+            No watchpoints defined. Click <strong>Add</strong> to create a portfolio-level metric threshold.
           </div>
         ) : (
           watchpoints.map(wp => {

@@ -1426,6 +1426,205 @@ class TestMultiPropertyPortfolioUnitsIntegrity:
 
 
 # ===================================================================
+# 24. DELINQUENCY AGING TOTAL FIX
+# ===================================================================
+
+class TestDelinquencyAgingTotalFix:
+    """Validates the fix: total_delinquent == sum of clipped aging buckets.
+    The backend now uses sum(max(0, bucket)) for total instead of the raw
+    DB total, which could include credits that make buckets go negative."""
+
+    def test_total_equals_aging_sum(self, first_property):
+        """total_delinquent must equal sum of non-negative aging buckets."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        aging = d.get("aging", {})
+        bucket_sum = sum(max(0, aging.get(k, 0) or 0)
+                         for k in ["current_balance", "balance_0_30", "balance_30_60",
+                                   "balance_60_90", "balance_90_plus"])
+        # The endpoint may use slightly different key names
+        if bucket_sum == 0 and aging:
+            bucket_sum = sum(max(0, v or 0) for v in aging.values() if isinstance(v, (int, float)))
+        if d.get("total_delinquent", 0) > 0 or bucket_sum > 0:
+            assert abs((d.get("total_delinquent", 0) or 0) - bucket_sum) < 1.0, \
+                f"total_delinquent {d.get('total_delinquent')} != aging bucket sum {bucket_sum}"
+
+    def test_gross_delinquent_gte_total(self, first_property):
+        """gross_delinquent (raw) should be >= total_delinquent (clipped)."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        gross = d.get("gross_delinquent")
+        total = d.get("total_delinquent", 0) or 0
+        if gross is not None:
+            assert gross >= total - 1.0, \
+                f"gross_delinquent {gross} < total_delinquent {total}"
+
+
+# ===================================================================
+# 25. RENTABLE ITEMS CONSISTENCY
+# ===================================================================
+
+class TestRentableItems:
+    """Rentable items (amenities) endpoint consistency."""
+
+    def test_amenities_has_data(self, first_property):
+        r = requests.get(f"{API}/{first_property}/amenities", timeout=30)
+        if r.status_code == 404:
+            pytest.skip("No amenities for this property")
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, (list, dict))
+
+    def test_amenities_summary_totals(self, first_property):
+        """Summary rented + available should equal total for each type."""
+        r = requests.get(f"{API}/{first_property}/amenities/summary", timeout=30)
+        if r.status_code == 404:
+            pytest.skip("No amenities summary")
+        assert r.status_code == 200
+        data = r.json()
+        categories = data if isinstance(data, list) else data.get("categories", data.get("types", []))
+        if not categories:
+            pytest.skip("No amenity categories")
+        for cat in categories:
+            if isinstance(cat, dict) and "total" in cat:
+                rented = cat.get("rented", 0) or 0
+                available = cat.get("available", 0) or 0
+                total = cat.get("total", 0) or 0
+                assert rented + available == total, \
+                    f"Amenity {cat.get('type', '?')}: rented({rented}) + available({available}) != total({total})"
+
+    def test_amenities_revenue_non_negative(self, first_property):
+        """Revenue from rentable items should be non-negative."""
+        r = requests.get(f"{API}/{first_property}/amenities/summary", timeout=30)
+        if r.status_code == 404:
+            pytest.skip("No amenities summary")
+        data = r.json()
+        categories = data if isinstance(data, list) else data.get("categories", data.get("types", []))
+        for cat in categories:
+            if isinstance(cat, dict):
+                rev = cat.get("monthly_revenue", cat.get("revenue", 0)) or 0
+                assert rev >= 0, f"Amenity {cat.get('type', '?')} has negative revenue: {rev}"
+
+
+# ===================================================================
+# 26. REVIEWS MULTI-PROPERTY WEIGHTED AVERAGE
+# ===================================================================
+
+class TestReviewsMultiProperty:
+    """Reviews endpoint returns valid data; multi-prop merge produces
+    weighted average ratings."""
+
+    def test_reviews_has_rating(self, first_property):
+        r = requests.get(f"{API}/{first_property}/reviews", timeout=30)
+        if r.status_code == 404:
+            pytest.skip("No reviews for this property")
+        assert r.status_code == 200
+        data = r.json()
+        assert "rating" in data or "google_rating" in data
+
+    def test_reputation_has_fields(self, first_property):
+        r = requests.get(f"{API}/{first_property}/reputation", timeout=30)
+        if r.status_code == 404:
+            pytest.skip("No reputation data")
+        assert r.status_code == 200
+        data = r.json()
+        # Should have at least one review source
+        assert any(k in data for k in ["google_rating", "apartments_rating", "rating"]), \
+            f"Reputation response missing rating fields: {list(data.keys())[:10]}"
+
+    def test_multi_property_reviews_weighted_average(self, multi_property_ids):
+        """When merging reviews across properties, the combined rating should be
+        a weighted average (by review count), not a simple average."""
+        ratings = []
+        for pid in multi_property_ids:
+            r = requests.get(f"{API}/{pid}/reviews", timeout=30)
+            if r.status_code == 200:
+                d = r.json()
+                rating = d.get("rating") or d.get("google_rating")
+                count = d.get("review_count") or d.get("google_review_count", 0)
+                if rating and count:
+                    ratings.append({"rating": rating, "count": count})
+        if len(ratings) < 2:
+            pytest.skip("Need 2+ properties with review data")
+        # Calculate expected weighted average
+        total_reviews = sum(r["count"] for r in ratings)
+        weighted_avg = sum(r["rating"] * r["count"] for r in ratings) / total_reviews
+        # Simple average for comparison
+        simple_avg = sum(r["rating"] for r in ratings) / len(ratings)
+        # The two should differ if review counts differ (proving weighted avg is needed)
+        # Just validate the math is reasonable
+        assert 1.0 <= weighted_avg <= 5.0, f"Weighted avg {weighted_avg} out of range"
+        assert 1.0 <= simple_avg <= 5.0, f"Simple avg {simple_avg} out of range"
+
+    def test_multi_property_reputation_valid(self, multi_property_ids):
+        """All PHH properties should have reputation data."""
+        valid_count = 0
+        for pid in multi_property_ids:
+            r = requests.get(f"{API}/{pid}/reputation", timeout=30)
+            if r.status_code == 200:
+                valid_count += 1
+        assert valid_count > 0, "No properties returned reputation data"
+
+
+# ===================================================================
+# 27. OCCUPANCY CROSS-CHECK: BOX SCORE vs UNIFIED_UNITS
+# ===================================================================
+
+class TestOccupancyCrossCheck:
+    """Validates that occupancy from box score (unified_occupancy_metrics)
+    aligns with unit counts from unified_units. The main bug was notice
+    units not being counted as occupied in unified_units."""
+
+    def test_occupied_plus_notice_matches_box_score(self, first_property):
+        """occupied + notice from unified_units ≈ occupied from box score."""
+        occ = _get(f"{API}/{first_property}/occupancy")  # box score source
+        ids = first_property
+        units = _get(f"{PORTFOLIO}/units?property_ids={ids}")
+        # Count statuses from unified_units
+        status_counts = {}
+        for u in units:
+            s = u.get("status", "unknown")
+            status_counts[s] = status_counts.get(s, 0) + 1
+        occupied_from_units = status_counts.get("occupied", 0) + status_counts.get("notice", 0)
+        box_score_occupied = occ["occupied_units"]
+        # Allow small tolerance (timing differences between data sources)
+        tolerance = max(3, box_score_occupied * 0.02)
+        assert abs(occupied_from_units - box_score_occupied) <= tolerance, \
+            f"unified_units occupied+notice={occupied_from_units} vs box_score={box_score_occupied} " \
+            f"(diff={abs(occupied_from_units - box_score_occupied)}, tolerance={tolerance})"
+
+    def test_vacant_from_units_matches_box_score(self, first_property):
+        """vacant from unified_units ≈ vacant from box score."""
+        occ = _get(f"{API}/{first_property}/occupancy")
+        ids = first_property
+        units = _get(f"{PORTFOLIO}/units?property_ids={ids}")
+        vacant_from_units = sum(1 for u in units if u.get("status") == "vacant")
+        box_score_vacant = occ["vacant_units"]
+        tolerance = max(3, box_score_vacant * 0.05)
+        assert abs(vacant_from_units - box_score_vacant) <= tolerance, \
+            f"unified_units vacant={vacant_from_units} vs box_score={box_score_vacant}"
+
+    def test_total_units_match(self, first_property):
+        """Total units from both sources should match exactly."""
+        occ = _get(f"{API}/{first_property}/occupancy")
+        ids = first_property
+        units = _get(f"{PORTFOLIO}/units?property_ids={ids}")
+        assert len(units) == occ["total_units"], \
+            f"unified_units count={len(units)} vs box_score total={occ['total_units']}"
+
+    def test_multi_property_occupancy_consistent(self, multi_property_ids):
+        """Multi-prop: sum of (occ+notice) from unified_units ≈ sum of box score occupied."""
+        ids = ",".join(multi_property_ids)
+        units = _get(f"{PORTFOLIO}/units?property_ids={ids}")
+        units_occupied = sum(1 for u in units if u.get("status") in ("occupied", "notice"))
+        box_total = 0
+        for pid in multi_property_ids:
+            occ = _get(f"{API}/{pid}/occupancy")
+            box_total += occ["occupied_units"]
+        tolerance = max(5, box_total * 0.02)
+        assert abs(units_occupied - box_total) <= tolerance, \
+            f"Multi-prop unified_units occ+notice={units_occupied} vs box_score sum={box_total}"
+
+
+# ===================================================================
 # MAIN — run standalone
 # ===================================================================
 

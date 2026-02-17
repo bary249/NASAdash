@@ -388,6 +388,49 @@ def test_frontend_api_proxy(res: SmokeResult, frontend: str):
     res.add("Frontend API proxy", ok, f"status={status}, groups={body if ok else '?'}", ms)
 
 
+# ── Data Consistency Checks (recent fixes) ──
+
+def test_occupancy_cross_check(res: SmokeResult, base: str, pid: str):
+    """Box score occupied ≈ unified_units (occupied + notice).
+    Catches the bug where notice units weren't counted as occupied."""
+    s1, occ, ms1 = get(f"{base}/api/v2/properties/{pid}/occupancy")
+    s2, units, ms2 = get(f"{base}/api/portfolio/units?property_ids={pid}", timeout=TIMEOUT_SLOW)
+    if s1 != 200 or s2 != 200 or not isinstance(occ, dict) or not isinstance(units, list):
+        res.add(f"[{pid}] Occ cross-check", False, f"occ={s1}, units={s2}", ms1 + ms2)
+        return
+    box_occ = occ.get("occupied_units", 0)
+    units_occ = sum(1 for u in units if u.get("status") in ("occupied", "notice"))
+    diff = abs(units_occ - box_occ)
+    tolerance = max(3, box_occ * 0.02)
+    ok = diff <= tolerance
+    res.add(
+        f"[{pid}] Occ cross-check", ok,
+        f"box_score={box_occ}, units(occ+notice)={units_occ}, diff={diff}",
+        ms1 + ms2,
+    )
+
+
+def test_delinquency_aging_consistency(res: SmokeResult, base: str, pid: str):
+    """total_delinquent should match sum of aging buckets (clipped to ≥0)."""
+    status, body, ms = get(f"{base}/api/v2/properties/{pid}/delinquency")
+    if status != 200 or not isinstance(body, dict):
+        res.add(f"[{pid}] Delinquency aging", status in (200, 404), f"status={status}", ms)
+        return
+    aging = body.get("aging", {})
+    total = body.get("total_delinquent", 0) or 0
+    if not aging and total == 0:
+        res.add(f"[{pid}] Delinquency aging", True, "no delinquency data", ms)
+        return
+    bucket_sum = sum(max(0, v or 0) for v in aging.values() if isinstance(v, (int, float)))
+    diff = abs(total - bucket_sum)
+    ok = diff < 1.0 or total == 0
+    res.add(
+        f"[{pid}] Delinquency aging", ok,
+        f"total=${total:.0f}, buckets=${bucket_sum:.0f}, diff=${diff:.0f}",
+        ms,
+    )
+
+
 # ── Main ──
 
 def run_smoke_test(backend: str, frontend: str) -> SmokeResult:
@@ -426,7 +469,13 @@ def run_smoke_test(backend: str, frontend: str) -> SmokeResult:
         test_property_ai_insights(res, backend, pid)
         test_property_watchpoints(res, backend, pid)
 
-    # 4. Data freshness
+    # 4. Data consistency (recent fixes)
+    print("\n── Data Consistency ──")
+    for pid in test_props:
+        test_occupancy_cross_check(res, backend, pid)
+        test_delinquency_aging_consistency(res, backend, pid)
+
+    # 5. Data freshness
     print("\n── Data Freshness ──")
     test_db_freshness(res, backend)
     for pid in test_props:

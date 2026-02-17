@@ -38,6 +38,15 @@
       "label": "Occupancy % > 90.0%",
       "enabled": true,
       "created_at": "2026-02-17T12:23:55.050388"
+    },
+    {
+      "id": "wp_6a352c35",
+      "metric": "atr",
+      "operator": "gt",
+      "threshold": 40.0,
+      "label": "ATR (Units) > 40.0units",
+      "enabled": true,
+      "created_at": "2026-02-17T12:31:46.111733"
     }
   ]
 }

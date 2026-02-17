@@ -420,13 +420,36 @@ class OccupancyService:
             tours = count_unique(tour_types)
             applications = count_unique(app_types)
             lease_signs = count_unique(lease_types)
-            conn.close()
 
             if leads == 0 and tours == 0:
+                conn.close()
                 return None
 
+            # tour_to_app count: applicants (in period) who also toured (all-time)
+            tour_type_ph = ",".join("?" for _ in tour_types)
+            app_type_ph = ",".join("?" for _ in app_types)
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT a.resident_name) FROM unified_activity a
+                WHERE a.unified_property_id IN ({id_placeholders})
+                  AND a.activity_type IN ({app_type_ph})
+                  AND a.activity_date >= ? AND a.activity_date <= ?
+                  AND a.resident_name IS NOT NULL AND a.resident_name != ''
+                  AND a.resident_name IN (
+                      SELECT DISTINCT t.resident_name FROM unified_activity t
+                      WHERE t.unified_property_id IN ({id_placeholders})
+                        AND t.activity_type IN ({tour_type_ph})
+                        AND t.resident_name IS NOT NULL AND t.resident_name != ''
+                  )
+            """, (*id_list, *app_types, start_str, end_str, *id_list, *tour_types))
+            tour_to_app_count = cursor.fetchone()[0] or 0
+
+            # sight_unseen count: applicants (in period) who never toured (all-time)
+            sight_unseen_count = applications - tour_to_app_count
+
+            conn.close()
+
             lead_to_tour = round(tours / leads * 100, 1) if leads > 0 else 0
-            tour_to_app = round(applications / tours * 100, 1) if tours > 0 else 0
+            tour_to_app_rate = round(applications / tours * 100, 1) if tours > 0 else 0
             app_to_lease = round(lease_signs / applications * 100, 1) if applications > 0 else 0
             lead_to_lease = round(lease_signs / leads * 100, 1) if leads > 0 else 0
 
@@ -440,8 +463,10 @@ class OccupancyService:
                 applications=applications,
                 lease_signs=lease_signs,
                 denials=0,
+                sight_unseen=max(0, sight_unseen_count),
+                tour_to_app=tour_to_app_count,
                 lead_to_tour_rate=lead_to_tour,
-                tour_to_app_rate=tour_to_app,
+                tour_to_app_rate=tour_to_app_rate,
                 app_to_lease_rate=app_to_lease,
                 lead_to_lease_rate=lead_to_lease,
             )

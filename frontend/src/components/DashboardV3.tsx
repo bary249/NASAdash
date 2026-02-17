@@ -317,12 +317,11 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
           <div className="max-w-7xl mx-auto px-4 py-3">
             {/* Top row: Logo and actions */}
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <p className="text-xl font-light tracking-widest text-gray-400" style={{ fontFamily: 'Georgia, serif' }}>
-                  venn
-                </p>
-                <span className="text-gray-300">|</span>
-                <p className="text-sm font-medium text-gray-600">Owner Dashboard</p>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center">
+                  <Building2 className="w-4.5 h-4.5 text-blue-400" />
+                </div>
+                <span className="text-base font-semibold text-slate-800 tracking-tight">Owner Dashboard</span>
               </div>
               
               <div className="flex items-center gap-2">

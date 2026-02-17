@@ -54,6 +54,12 @@ function getCached<T>(url: string): T | undefined {
   return undefined;
 }
 
+function invalidateCache(urlPrefix: string) {
+  for (const key of responseCache.keys()) {
+    if (key.includes(urlPrefix)) responseCache.delete(key);
+  }
+}
+
 async function fetchJson<T>(url: string, retries = 2): Promise<T> {
   // 1. Return from cache if fresh
   const cached = getCached<T>(url);
@@ -521,12 +527,14 @@ export const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
+    invalidateCache('/watchpoints');
     return response.json();
   },
 
   deleteWatchpoint: async (watchpointId: string, ownerGroup?: string): Promise<{ deleted: boolean }> => {
     const response = await fetch(`${PORTFOLIO_BASE}/watchpoints/${watchpointId}${ownerGroup ? '?owner_group=' + ownerGroup : ''}`, { method: 'DELETE', headers: getAuthHeaders() });
     if (!response.ok) throw new Error(`API error: ${response.status}`);
+    invalidateCache('/watchpoints');
     return response.json();
   },
 

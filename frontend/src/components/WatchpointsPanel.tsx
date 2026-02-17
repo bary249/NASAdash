@@ -50,6 +50,7 @@ export function WatchpointsPanel({ ownerGroup }: Props) {
   const [currentMetrics, setCurrentMetrics] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Add form state
   const [newMetric, setNewMetric] = useState('');
@@ -58,13 +59,14 @@ export function WatchpointsPanel({ ownerGroup }: Props) {
 
   const refresh = useCallback(() => {
     setLoading(true);
+    setError(null);
     api.getWatchpoints(ownerGroup)
       .then(d => {
         setWatchpoints(d.watchpoints);
         setAvailableMetrics(d.available_metrics);
         setCurrentMetrics(d.current_metrics);
       })
-      .catch(() => {})
+      .catch(e => { setError(`Failed to load: ${e.message}`); })
       .finally(() => setLoading(false));
   }, [ownerGroup]);
 
@@ -82,8 +84,8 @@ export function WatchpointsPanel({ ownerGroup }: Props) {
       setNewMetric('');
       setNewThreshold('');
       refresh();
-    } catch (e) {
-      console.error('Failed to create watchpoint:', e);
+    } catch (e: any) {
+      setError(`Failed to create: ${e.message}`);
     }
   };
 
@@ -131,6 +133,14 @@ export function WatchpointsPanel({ ownerGroup }: Props) {
           Add
         </button>
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="px-5 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600"><X className="w-3 h-3" /></button>
+        </div>
+      )}
 
       {/* Add Form */}
       {showAdd && (

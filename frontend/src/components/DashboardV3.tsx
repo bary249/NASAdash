@@ -602,6 +602,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
   useEffect(() => {
     if (!propertyIds.length) return;
+    let cancelled = false;
     const ids = propertyIds;
 
     // Map timeRange to days for period-based endpoints
@@ -615,6 +616,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // ATR: sum across properties (cached per property)
     Promise.all(ids.map(id => cachedCall(`avail_${id}`, () => api.getAvailability(id), null)))
       .then(results => {
+        if (cancelled) return;
         const valid = results.filter((r: any) => r != null);
         if (valid.length === 0) { setAtrData(null); return; }
         const merged = {
@@ -632,6 +634,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Shows: sum across properties, merge details + by_date for drill-through
     Promise.all(ids.map(id => cachedCall(`shows_${id}_${periodDays}`, () => api.getShows(id, periodDays), { total_shows: 0, details: [], by_date: [] } as any)))
       .then(results => {
+        if (cancelled) return;
         const allDetails = results.flatMap((r: any) => r?.details || []);
         // Merge by_date across properties, summing counts per unique date
         const dateMap: Record<string, number> = {};
@@ -651,6 +654,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Tradeouts: concat arrays, recalculate summary
     Promise.all(ids.map(id => cachedCall(`tradeouts_${id}_${periodDays}`, () => api.getTradeouts(id, periodDays), { tradeouts: [], summary: {} } as any)))
       .then(results => {
+        if (cancelled) return;
         const allTradeouts = results.flatMap((r: any) => r?.tradeouts || []);
         const totalPrior = allTradeouts.reduce((s: number, t: any) => s + (t.prior_rent || 0), 0);
         const totalNew = allTradeouts.reduce((s: number, t: any) => s + (t.new_rent || 0), 0);
@@ -670,6 +674,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Availability by floorplan: merge across properties, consolidate same-name floorplans
     Promise.all(ids.map(id => cachedCall(`availfp_${id}`, () => api.getAvailabilityByFloorplan(id), { floorplans: [], totals: {} } as any)))
       .then(results => {
+        if (cancelled) return;
         const allFps = results.flatMap((r: any) => r?.floorplans || []);
         // Merge floorplans with same name
         const fpMap: Record<string, any> = {};
@@ -709,6 +714,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Forecast: merge across properties by week index
     Promise.all(ids.map(id => cachedCall(`forecast_${id}`, () => api.getOccupancyForecast(id, 12), null)))
       .then(results => {
+        if (cancelled) return;
         const valid = results.filter((r: any) => r && r.forecast && r.forecast.length > 0);
         if (valid.length === 0) { setForecast(null); return; }
         if (valid.length === 1) { setForecast(valid[0]); return; }
@@ -754,6 +760,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Box score occupancy: fetch from /occupancy endpoint (same source as portfolio table)
     Promise.all(ids.map(id => cachedCall(`boxocc_${id}`, () => api.getOccupancy(id), null)))
       .then(results => {
+        if (cancelled) return;
         const valid = results.filter((r: any) => r != null);
         if (valid.length === 0) { setBoxScoreOcc(null); return; }
         setBoxScoreOcc({
@@ -772,6 +779,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     // Renewals: merge across properties
     Promise.all(ids.map(id => cachedCall(`renewals_${id}_${periodDays}`, () => api.getRenewals(id, periodDays), { renewals: [], summary: {} } as any)))
       .then(results => {
+        if (cancelled) return;
         const allRenewals = results.flatMap((r: any) => r?.renewals || []);
         const totalRent = allRenewals.reduce((s: number, r: any) => s + (r.renewal_rent || 0), 0);
         const totalPrior = allRenewals.reduce((s: number, r: any) => s + (r.prior_rent || 0), 0);
@@ -787,6 +795,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           },
         });
       }).catch(() => {});
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyIds.join(','), timeRange]);
 

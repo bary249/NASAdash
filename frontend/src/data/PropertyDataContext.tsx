@@ -523,6 +523,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  const fetchVersionRef = useRef(0);
   const [timeframe, setTimeframe] = useState<Timeframe>(propTimeframe || 'cm');
   
   // Sync timeframe from parent prop
@@ -536,6 +537,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   // Fetch all raw data for the property (or multiple properties)
   const fetchRawData = useCallback(async () => {
     if (effectiveIds.length === 0 || !effectiveIds[0]) return;
+    const version = ++fetchVersionRef.current;
     
     // Stale-while-revalidate: only show full loading spinner on first load.
     // On subsequent fetches keep old data visible and show a subtle refreshing state.
@@ -648,13 +650,14 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
           mtm: data.mtm,
           moved_out: data.moved_out,
         }));
+        if (fetchVersionRef.current !== version) return;
         if (mergedPeriods.length > 0) {
           setExpirationsData({ periods: mergedPeriods });
         } else {
           setExpirationsData(null);
         }
       } catch {
-        setExpirationsData(null);
+        if (fetchVersionRef.current === version) setExpirationsData(null);
       }
 
       // Fetch funnel data for all properties and merge (current + prior period)
@@ -724,6 +727,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             }
             return acc;
           }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0, marketingNetLeases: null as number | null });
+          if (fetchVersionRef.current !== version) return;
           if (merged.leads > 0 || merged.tours > 0 || merged.applications > 0) {
             const finalData = {
               ...merged,
@@ -761,14 +765,17 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             setApiPriorFunnelData(null);
           }
         } catch {
-          setApiFunnelData(null);
-          setApiPriorFunnelData(null);
+          if (fetchVersionRef.current === version) {
+            setApiFunnelData(null);
+            setApiPriorFunnelData(null);
+          }
         }
       } else {
         setApiFunnelData(null);
         setApiPriorFunnelData(null);
       }
       
+      if (fetchVersionRef.current !== version) return;
       setRawData({
         units,
         residents: {
@@ -780,11 +787,15 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
         prospects,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load property data');
+      if (fetchVersionRef.current === version) {
+        setError(err instanceof Error ? err.message : 'Failed to load property data');
+      }
     } finally {
-      hasLoadedOnce.current = true;
-      setLoading(false);
-      setRefreshing(false);
+      if (fetchVersionRef.current === version) {
+        hasLoadedOnce.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveKey, timeframe]);

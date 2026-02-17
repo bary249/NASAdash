@@ -7,7 +7,7 @@
  * 
  * This ensures metric counts ALWAYS match drill-through row counts.
  */
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { api } from '../api';
 import type { Timeframe, UnitRaw, ResidentRaw, ProspectRaw } from '../types';
 
@@ -114,6 +114,7 @@ interface PropertyDataContextValue {
   // Raw data
   rawData: PropertyRawData | null;
   loading: boolean;
+  refreshing: boolean;
   error: string | null;
   
   // Timeframe
@@ -478,6 +479,26 @@ function calculateFilteredData(
   };
 }
 
+// ============= Per-property API cache =============
+// Avoids redundant fetches when switching between multi/single property views.
+// Keyed by `${propertyId}_${timeframe}`. TTL = 5 minutes.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+interface CacheEntry<T> { data: T; ts: number; }
+const _funnelCache = new Map<string, CacheEntry<any>>();
+const _priorFunnelCache = new Map<string, CacheEntry<any>>();
+const _expirationCache = new Map<string, CacheEntry<any>>();
+const _unitsCache = new Map<string, CacheEntry<any>>();
+const _residentsCache = new Map<string, CacheEntry<any>>();
+
+function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.data;
+  return null;
+}
+function setCache<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T) {
+  cache.set(key, { data, ts: Date.now() });
+}
+
 // ============= Context =============
 
 const PropertyDataContext = createContext<PropertyDataContextValue | null>(null);
@@ -499,7 +520,9 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const [priorFunnelLabel, setPriorFunnelLabel] = useState<string>('prev period');
   const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnce = useRef(false);
   const [timeframe, setTimeframe] = useState<Timeframe>(propTimeframe || 'cm');
   
   // Sync timeframe from parent prop
@@ -514,17 +537,24 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const fetchRawData = useCallback(async () => {
     if (effectiveIds.length === 0 || !effectiveIds[0]) return;
     
-    setLoading(true);
+    // Stale-while-revalidate: only show full loading spinner on first load.
+    // On subsequent fetches keep old data visible and show a subtle refreshing state.
+    if (!hasLoadedOnce.current) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     setError(null);
-    setApiFunnelData(null);
-    setApiPriorFunnelData(null);
-    setExpirationsData(null);
     
     try {
-      // Portfolio APIs already accept arrays of property IDs
+      // Portfolio APIs already accept arrays of property IDs (with cache)
+      const unitsCK = `units_${effectiveKey}`;
+      const resCK = `res_${effectiveKey}`;
+      const cachedUnits = getCached(_unitsCache, unitsCK);
+      const cachedRes = getCached(_residentsCache, resCK);
       const [unifiedUnits, unifiedResidents] = await Promise.all([
-        api.getPortfolioUnits(effectiveIds),
-        api.getPortfolioResidents(effectiveIds),
+        cachedUnits ? Promise.resolve(cachedUnits) : api.getPortfolioUnits(effectiveIds).then(d => { setCache(_unitsCache, unitsCK, d); return d; }),
+        cachedRes ? Promise.resolve(cachedRes) : api.getPortfolioResidents(effectiveIds).then(d => { setCache(_residentsCache, resCK, d); return d; }),
       ]);
       
       // Map unified units to UnitRaw format
@@ -577,10 +607,15 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
         }
       }));
       
-      // Fetch expirations/renewals for all properties and merge
+      // Fetch expirations/renewals for all properties and merge (with cache)
       try {
         const allExpData = await Promise.all(
-          effectiveIds.map(pid => api.getExpirations(pid).catch(() => null))
+          effectiveIds.map(pid => {
+            const ck = `${pid}_exp`;
+            const cached = getCached(_expirationCache, ck);
+            if (cached) return Promise.resolve(cached);
+            return api.getExpirations(pid).then(d => { setCache(_expirationCache, ck, d); return d; }).catch(() => null);
+          })
         );
         // Merge expiration periods by label
         const periodMap: Record<string, { expirations: number; renewals: number; signed: number; submitted: number; selected: number; vacating: number; unknown: number; mtm: number; moved_out: number }> = {};
@@ -656,12 +691,21 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
           // For pm/ytd, just use 'pm' timeframe directly (no custom dates needed)
 
           const [allFunnels, allPriorFunnels] = await Promise.all([
-            Promise.all(effectiveIds.map(pid => api.getLeasingFunnel(pid, timeframe).catch(() => null))),
-            Promise.all(effectiveIds.map(pid =>
-              priorStart && priorEnd
-                ? api.getLeasingFunnel(pid, timeframe, priorStart, priorEnd).catch(() => null)
-                : api.getLeasingFunnel(pid, 'pm').catch(() => null)
-            )),
+            Promise.all(effectiveIds.map(pid => {
+              const ck = `${pid}_${timeframe}`;
+              const cached = getCached(_funnelCache, ck);
+              if (cached) return Promise.resolve(cached);
+              return api.getLeasingFunnel(pid, timeframe).then(d => { setCache(_funnelCache, ck, d); return d; }).catch(() => null);
+            })),
+            Promise.all(effectiveIds.map(pid => {
+              const priorKey = priorStart && priorEnd ? `${pid}_${timeframe}_${priorStart}_${priorEnd}` : `${pid}_pm`;
+              const cached = getCached(_priorFunnelCache, priorKey);
+              if (cached) return Promise.resolve(cached);
+              const p = priorStart && priorEnd
+                ? api.getLeasingFunnel(pid, timeframe, priorStart, priorEnd)
+                : api.getLeasingFunnel(pid, 'pm');
+              return p.then(d => { setCache(_priorFunnelCache, priorKey, d); return d; }).catch(() => null);
+            })),
           ]);
           const merged = allFunnels.reduce((acc, f) => {
             if (f && (f.leads > 0 || f.tours > 0 || f.applications > 0)) {
@@ -731,7 +775,9 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load property data');
     } finally {
+      hasLoadedOnce.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveKey, timeframe]);
@@ -792,6 +838,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const value: PropertyDataContextValue = {
     rawData,
     loading,
+    refreshing,
     error,
     timeframe,
     setTimeframe,

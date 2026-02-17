@@ -50,6 +50,23 @@ import { api } from '../api';
 import { PropertyDataProvider, usePropertyData } from '../data/PropertyDataContext';
 import type { MarketComp, UnitPricingMetrics, PropertyInfo } from '../types';
 
+// ============= Per-property API cache =============
+// Avoids redundant fetches when switching between multi/single property views.
+const _DASH_CACHE_TTL = 5 * 60 * 1000; // 5 min
+const _dashCache = new Map<string, { data: any; ts: number }>();
+function _getCached(key: string) {
+  const e = _dashCache.get(key);
+  return e && Date.now() - e.ts < _DASH_CACHE_TTL ? e.data : null;
+}
+function _setCache(key: string, data: any) {
+  _dashCache.set(key, { data, ts: Date.now() });
+}
+function cachedCall<T>(key: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  const cached = _getCached(key);
+  if (cached !== null) return Promise.resolve(cached);
+  return fn().then(d => { _setCache(key, d); return d; }).catch(() => fallback);
+}
+
 // Context for PII scrambling
 import { createContext, useContext } from 'react';
 
@@ -199,7 +216,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
     
     // Fetch pricing (multi-prop merge)
     const pricingIds = activePropertyIds.length > 0 ? activePropertyIds : [effectivePropertyId];
-    Promise.all(pricingIds.map(id => api.getPricing(id).catch(() => null)))
+    Promise.all(pricingIds.map(id => cachedCall(`pricing_${id}`, () => api.getPricing(id), null)))
       .then(results => {
         const valid = results.filter(Boolean) as UnitPricingMetrics[];
         if (valid.length === 0) { setPricing(null); return; }
@@ -596,8 +613,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       : timeRange === 'l7' ? 7
       : Math.ceil((now.getTime() - new Date(now.getFullYear(), now.getMonth(), 1).getTime()) / 86400000) || 1; // mtd default
 
-    // ATR: sum across properties
-    Promise.all(ids.map(id => api.getAvailability(id).catch(() => null)))
+    // ATR: sum across properties (cached per property)
+    Promise.all(ids.map(id => cachedCall(`avail_${id}`, () => api.getAvailability(id), null)))
       .then(results => {
         const valid = results.filter((r: any) => r != null);
         if (valid.length === 0) { setAtrData(null); return; }
@@ -614,7 +631,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Shows: sum across properties, merge details + by_date for drill-through
-    Promise.all(ids.map(id => api.getShows(id, periodDays).catch(() => ({ total_shows: 0, details: [], by_date: [] }))))
+    Promise.all(ids.map(id => cachedCall(`shows_${id}_${periodDays}`, () => api.getShows(id, periodDays), { total_shows: 0, details: [], by_date: [] } as any)))
       .then(results => {
         const allDetails = results.flatMap((r: any) => r?.details || []);
         // Merge by_date across properties, summing counts per unique date
@@ -633,7 +650,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Tradeouts: concat arrays, recalculate summary
-    Promise.all(ids.map(id => api.getTradeouts(id, periodDays).catch(() => ({ tradeouts: [], summary: {} }))))
+    Promise.all(ids.map(id => cachedCall(`tradeouts_${id}_${periodDays}`, () => api.getTradeouts(id, periodDays), { tradeouts: [], summary: {} } as any)))
       .then(results => {
         const allTradeouts = results.flatMap((r: any) => r?.tradeouts || []);
         const totalPrior = allTradeouts.reduce((s: number, t: any) => s + (t.prior_rent || 0), 0);
@@ -652,7 +669,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Availability by floorplan: merge across properties, consolidate same-name floorplans
-    Promise.all(ids.map(id => api.getAvailabilityByFloorplan(id).catch(() => ({ floorplans: [], totals: {} }))))
+    Promise.all(ids.map(id => cachedCall(`availfp_${id}`, () => api.getAvailabilityByFloorplan(id), { floorplans: [], totals: {} } as any)))
       .then(results => {
         const allFps = results.flatMap((r: any) => r?.floorplans || []);
         // Merge floorplans with same name
@@ -691,7 +708,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Forecast: merge across properties by week index
-    Promise.all(ids.map(id => api.getOccupancyForecast(id, 12).catch(() => null)))
+    Promise.all(ids.map(id => cachedCall(`forecast_${id}`, () => api.getOccupancyForecast(id, 12), null)))
       .then(results => {
         const valid = results.filter((r: any) => r && r.forecast && r.forecast.length > 0);
         if (valid.length === 0) { setForecast(null); return; }
@@ -736,7 +753,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Box score occupancy: fetch from /occupancy endpoint (same source as portfolio table)
-    Promise.all(ids.map(id => api.getOccupancy(id).catch(() => null)))
+    Promise.all(ids.map(id => cachedCall(`boxocc_${id}`, () => api.getOccupancy(id), null)))
       .then(results => {
         const valid = results.filter((r: any) => r != null);
         if (valid.length === 0) { setBoxScoreOcc(null); return; }
@@ -754,7 +771,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       }).catch(() => {});
 
     // Renewals: merge across properties
-    Promise.all(ids.map(id => api.getRenewals(id, periodDays).catch(() => ({ renewals: [], summary: {} }))))
+    Promise.all(ids.map(id => cachedCall(`renewals_${id}_${periodDays}`, () => api.getRenewals(id, periodDays), { renewals: [], summary: {} } as any)))
       .then(results => {
         const allRenewals = results.flatMap((r: any) => r?.renewals || []);
         const totalRent = allRenewals.reduce((s: number, r: any) => s + (r.renewal_rent || 0), 0);

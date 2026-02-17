@@ -40,6 +40,31 @@ function getAuthHeaders(): Record<string, string> {
   return {};
 }
 
+// ── Concurrency limiter ──
+// Railway runs a single uvicorn worker with sync SQLite queries.
+// Firing 20+ requests at once blocks the event loop and causes 504s.
+// Limit to 6 concurrent fetches; the rest queue automatically.
+const MAX_CONCURRENT = 6;
+let _activeRequests = 0;
+const _requestQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (_activeRequests < MAX_CONCURRENT) {
+    _activeRequests++;
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => _requestQueue.push(resolve));
+}
+
+function releaseSlot() {
+  if (_requestQueue.length > 0) {
+    const next = _requestQueue.shift()!;
+    next(); // hand the slot to next queued request
+  } else {
+    _activeRequests--;
+  }
+}
+
 // ── In-memory response cache ──
 // Prevents redundant fetches when switching properties back and forth
 // and deduplicates in-flight requests from parallel component mounts.
@@ -70,35 +95,40 @@ async function fetchJson<T>(url: string, retries = 2): Promise<T> {
   if (inflight) return inflight as Promise<T>;
 
   const request = (async (): Promise<T> => {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const response = await fetch(url, { headers: getAuthHeaders() });
-        if (response.status === 401) {
-          localStorage.removeItem('ownerDashAuth');
-          window.location.reload();
-          throw new Error('Session expired');
+    await acquireSlot();
+    try {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          const response = await fetch(url, { headers: getAuthHeaders() });
+          if (response.status === 401) {
+            localStorage.removeItem('ownerDashAuth');
+            window.location.reload();
+            throw new Error('Session expired');
+          }
+          if (response.ok) {
+            const data: T = await response.json();
+            responseCache.set(url, { data, ts: Date.now() });
+            return data;
+          }
+          // Retry on 500/502/503/504 (cold start / transient errors)
+          if (attempt < retries && response.status >= 500) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        } catch (err) {
+          // Retry on network errors (fetch failure / timeout)
+          if (attempt < retries && err instanceof TypeError) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+            continue;
+          }
+          throw err;
         }
-        if (response.ok) {
-          const data: T = await response.json();
-          responseCache.set(url, { data, ts: Date.now() });
-          return data;
-        }
-        // Retry on 500/502/503/504 (cold start / transient errors)
-        if (attempt < retries && response.status >= 500) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          continue;
-        }
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-      } catch (err) {
-        // Retry on network errors (fetch failure / timeout)
-        if (attempt < retries && err instanceof TypeError) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          continue;
-        }
-        throw err;
       }
+      throw new Error('Request failed after retries');
+    } finally {
+      releaseSlot();
     }
-    throw new Error('Request failed after retries');
   })();
 
   inflightRequests.set(url, request);

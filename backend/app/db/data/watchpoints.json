@@ -67,15 +67,6 @@
       "created_at": "2026-02-17T12:36:28.739954"
     },
     {
-      "id": "wp_bcea14a4",
-      "metric": "google_rating",
-      "operator": "lt",
-      "threshold": 5.0,
-      "label": "Google Rating < 5.0stars",
-      "enabled": true,
-      "created_at": "2026-02-17T12:36:28.740872"
-    },
-    {
       "id": "wp_bdcca01f",
       "metric": "vacant_units",
       "operator": "gt",
@@ -101,6 +92,15 @@
       "label": "Delinquent Units > 1.0units",
       "enabled": true,
       "created_at": "2026-02-17T12:37:12.785108"
+    },
+    {
+      "id": "wp_201956c5",
+      "metric": "google_rating",
+      "operator": "lt",
+      "threshold": 4.0,
+      "label": "Google Rating < 4.0stars",
+      "enabled": true,
+      "created_at": "2026-02-17T13:59:13.790434"
     }
   ],
   "portfolio_all": [

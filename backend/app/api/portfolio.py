@@ -748,7 +748,7 @@ _pricing_service = PricingService()
 
 
 @router.post("/chat")
-async def portfolio_chat(request: dict):
+async def portfolio_chat(request: dict, authorization: Optional[str] = Header(None)):
     """
     POST: Chat with AI about portfolio-level data.
     
@@ -760,6 +760,7 @@ async def portfolio_chat(request: dict):
     - history: Optional list of previous messages [{role, content}]
     
     The AI has context about all properties' occupancy, pricing, exposure, and funnel metrics.
+    Scoped to the authenticated user's owner group.
     """
     if not chat_service.is_available():
         raise HTTPException(status_code=503, detail="Chat service not available. Configure ANTHROPIC_API_KEY.")
@@ -770,8 +771,33 @@ async def portfolio_chat(request: dict):
     
     history = request.get("history", [])
     
+    # Extract owner group from JWT to scope data
+    owner_group: Optional[str] = None
+    if authorization:
+        from app.services.auth_service import verify_token
+        token = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+        payload = verify_token(token)
+        if payload and payload.get("group"):
+            owner_group = payload["group"]
+    
+    # Build set of allowed property IDs based on owner group
+    import sqlite3
+    allowed_prop_ids: set = set()
+    if owner_group:
+        visible = _visible_groups(owner_group)
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT unified_property_id, owner_group FROM unified_properties")
+            for row in cursor.fetchall():
+                if (row[1] or "other").lower() in visible:
+                    allowed_prop_ids.add(row[0])
+            conn.close()
+        except Exception:
+            pass
+    
     try:
-        # Gather data from ALL properties
+        # Gather data from properties in user's scope
         properties_data = []
         total_units = 0
         total_vacant = 0
@@ -780,6 +806,9 @@ async def portfolio_chat(request: dict):
         weighted_occupancy = 0
         
         for prop_id, prop_mapping in ALL_PROPERTIES.items():
+            # Skip properties outside user's owner group
+            if owner_group and allowed_prop_ids and prop_id not in allowed_prop_ids:
+                continue
             try:
                 # Fetch metrics for each property
                 occupancy = await _occupancy_service.get_occupancy_metrics(prop_id, Timeframe.CM)

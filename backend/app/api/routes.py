@@ -1481,11 +1481,17 @@ async def get_delinquency(property_id: str):
             eviction_balance_from_lease = row[12] or 0
             
             # Aging bars include ALL residents (current + former)
-            aging["current"] += max(0, current_bal)
-            aging["0_30"] += max(0, bal_0_30)
-            aging["31_60"] += max(0, bal_31_60)
-            aging["61_90"] += max(0, bal_61_90)
-            aging["90_plus"] += max(0, bal_90_plus)
+            # If resident has total_delinquent > 0 but all aging buckets are <= 0,
+            # attribute the delinquent amount to "current" bucket
+            pos_aging = max(0, current_bal) + max(0, bal_0_30) + max(0, bal_31_60) + max(0, bal_61_90) + max(0, bal_90_plus)
+            if report_total_delinquent > 0 and pos_aging == 0:
+                aging["current"] += report_total_delinquent
+            else:
+                aging["current"] += max(0, current_bal)
+                aging["0_30"] += max(0, bal_0_30)
+                aging["31_60"] += max(0, bal_31_60)
+                aging["61_90"] += max(0, bal_61_90)
+                aging["90_plus"] += max(0, bal_90_plus)
             
             # Collections tracks former residents separately
             if is_former:
@@ -1511,6 +1517,18 @@ async def get_delinquency(property_id: str):
                 eviction_units.append({"unit": unit_number, "balance": unit_delinquent, "lease_balance": eviction_balance_from_lease})
             
             # Build resident detail record
+            # Fix aging display: if resident owes money but buckets are all negative,
+            # show total_delinquent in "current" so the table isn't all dashes
+            display_current = current_bal
+            display_30 = bal_0_30
+            display_60 = bal_31_60
+            display_90 = bal_90_plus
+            if unit_delinquent > 0 and pos_aging == 0:
+                display_current = unit_delinquent
+                display_30 = 0
+                display_60 = 0
+                display_90 = 0
+            
             unit_prepaid = abs(prepaid) if prepaid < 0 else (abs(net_balance) if net_balance < 0 and unit_delinquent == 0 else 0)
             resident_details.append({
                 "unit": unit_number,
@@ -1518,10 +1536,10 @@ async def get_delinquency(property_id: str):
                 "total_prepaid": round(unit_prepaid, 2),
                 "total_delinquent": round(unit_delinquent, 2),
                 "net_balance": round(net_balance, 2),
-                "current": current_bal,
-                "days_30": bal_0_30,
-                "days_60": bal_31_60,
-                "days_90_plus": bal_90_plus,
+                "current": display_current,
+                "days_30": display_30,
+                "days_60": display_60,
+                "days_90_plus": display_90,
                 "deposits_held": 0,
                 "is_eviction": is_eviction,
                 "is_former": is_former
@@ -1532,16 +1550,14 @@ async def get_delinquency(property_id: str):
         current_residents = [r for r in resident_details if r["total_delinquent"] > 0 and not r["is_former"]]
         former_residents = [r for r in resident_details if r["total_delinquent"] > 0 and r["is_former"]]
         
-        # Use the aging bar sum as total_delinquent so the KPI and bars always match.
-        # The report's total_delinquent is a gross figure that doesn't account for
-        # credit offsets within aging buckets (clipped to 0 with max()).
+        # Use sum of per-resident total_delinquent so KPI matches section header
         aging_total = round(sum(aging.values()), 2)
 
         return {
             "property_name": property_id,
             "report_date": report_date,
             "total_prepaid": round(abs(total_prepaid), 2),
-            "total_delinquent": aging_total,
+            "total_delinquent": round(total_delinquent, 2),
             "gross_delinquent": round(total_delinquent, 2),
             "current_resident_total": round(sum(r["total_delinquent"] for r in current_residents), 2),
             "former_resident_total": round(sum(r["total_delinquent"] for r in former_residents), 2),

@@ -4,8 +4,8 @@
  * Displays data from RealPage Reports 4186 (Make Ready Summary) and 4189 (Closed Make Ready).
  * Shows units in the turnover pipeline and recently completed turns.
  */
-import { useState, useEffect } from 'react';
-import { Wrench, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Wrench, Clock, CheckCircle2, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { SectionHeader } from './SectionHeader';
 import { api } from '../api';
 
@@ -69,11 +69,51 @@ function StatCard({ icon: Icon, label, value, subtext, variant = 'default' }: { 
   );
 }
 
+type PipelineSortKey = keyof PipelineUnit;
+type CompletedSortKey = keyof CompletedUnit;
+type SortDir = 'asc' | 'desc';
+
+function SortableHeader({ label, active, dir, onClick, align = 'left' }: {
+  label: string; active: boolean; dir: SortDir; onClick: () => void; align?: 'left' | 'right';
+}) {
+  return (
+    <th
+      className={`px-3 py-2 text-slate-500 font-medium cursor-pointer select-none hover:text-slate-700 transition-colors ${align === 'right' ? 'text-right' : ''} ${label === 'Unit' || label === 'Turn Status' ? 'px-4' : ''}`}
+      onClick={onClick}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active ? (
+          dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronDown className="w-3 h-3 opacity-0 group-hover:opacity-30" />
+        )}
+      </span>
+    </th>
+  );
+}
+
 export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<MaintenanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'pipeline' | 'completed'>('pipeline');
+
+  // Sorting state
+  const [pipeSortKey, setPipeSortKey] = useState<PipelineSortKey>('days_vacant');
+  const [pipeSortDir, setPipeSortDir] = useState<SortDir>('desc');
+  const [compSortKey, setCompSortKey] = useState<CompletedSortKey>('date_closed');
+  const [compSortDir, setCompSortDir] = useState<SortDir>('desc');
+
+  const togglePipeSort = useCallback((key: PipelineSortKey) => {
+    if (pipeSortKey === key) setPipeSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setPipeSortKey(key); setPipeSortDir(key === 'unit' ? 'asc' : 'desc'); }
+  }, [pipeSortKey]);
+
+  const toggleCompSort = useCallback((key: CompletedSortKey) => {
+    if (compSortKey === key) setCompSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setCompSortKey(key); setCompSortDir(key === 'unit' ? 'asc' : 'desc'); }
+  }, [compSortKey]);
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
@@ -130,6 +170,31 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
 
   const { summary, pipeline, completed } = data;
 
+  // Sorted data
+  const sortedPipeline = useMemo(() => {
+    if (!pipeline.length) return pipeline;
+    return [...pipeline].sort((a, b) => {
+      const av = a[pipeSortKey];
+      const bv = b[pipeSortKey];
+      let cmp = 0;
+      if (typeof av === 'string' && typeof bv === 'string') cmp = av.localeCompare(bv);
+      else cmp = (Number(av) || 0) - (Number(bv) || 0);
+      return pipeSortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [pipeline, pipeSortKey, pipeSortDir]);
+
+  const sortedCompleted = useMemo(() => {
+    if (!completed.length) return completed;
+    return [...completed].sort((a, b) => {
+      const av = a[compSortKey];
+      const bv = b[compSortKey];
+      let cmp = 0;
+      if (typeof av === 'string' && typeof bv === 'string') cmp = av.localeCompare(bv);
+      else cmp = (Number(av) || 0) - (Number(bv) || 0);
+      return compSortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [completed, compSortKey, compSortDir]);
+
   return (
     <div className="space-y-4">
       <SectionHeader
@@ -172,18 +237,18 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 text-left">
-                    <th className="px-4 py-2 text-slate-500 font-medium">Unit</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium">Unit Status</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium text-right">Sq Ft</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium text-right">Days Vacant</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium">Date Vacated</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium">Due Date</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium text-right">Work Orders</th>
-                    <th className="px-4 py-2 text-slate-500 font-medium">Turn Status</th>
+                    <SortableHeader label="Unit" active={pipeSortKey === 'unit'} dir={pipeSortDir} onClick={() => togglePipeSort('unit')} />
+                    <SortableHeader label="Unit Status" active={pipeSortKey === 'unit_status'} dir={pipeSortDir} onClick={() => togglePipeSort('unit_status')} />
+                    <SortableHeader label="Sq Ft" active={pipeSortKey === 'sqft'} dir={pipeSortDir} onClick={() => togglePipeSort('sqft')} align="right" />
+                    <SortableHeader label="Days Vacant" active={pipeSortKey === 'days_vacant'} dir={pipeSortDir} onClick={() => togglePipeSort('days_vacant')} align="right" />
+                    <SortableHeader label="Date Vacated" active={pipeSortKey === 'date_vacated'} dir={pipeSortDir} onClick={() => togglePipeSort('date_vacated')} />
+                    <SortableHeader label="Due Date" active={pipeSortKey === 'date_due'} dir={pipeSortDir} onClick={() => togglePipeSort('date_due')} />
+                    <SortableHeader label="Work Orders" active={pipeSortKey === 'num_work_orders'} dir={pipeSortDir} onClick={() => togglePipeSort('num_work_orders')} align="right" />
+                    <SortableHeader label="Turn Status" active={pipeSortKey === 'lease_status'} dir={pipeSortDir} onClick={() => togglePipeSort('lease_status')} />
                   </tr>
                 </thead>
                 <tbody>
-                  {pipeline.map((unit, i) => {
+                  {sortedPipeline.map((unit, i) => {
                     const isOverdue = unit.days_vacant > 14;
                     const isFuture = unit.days_vacant < 0;
                     const status = unit.unit_status?.toLowerCase() || '';
@@ -242,14 +307,14 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 text-left">
-                    <th className="px-4 py-2 text-slate-500 font-medium">Unit</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium text-right">Work Orders</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium">Date Closed</th>
-                    <th className="px-3 py-2 text-slate-500 font-medium text-right">Amount Charged</th>
+                    <SortableHeader label="Unit" active={compSortKey === 'unit'} dir={compSortDir} onClick={() => toggleCompSort('unit')} />
+                    <SortableHeader label="Work Orders" active={compSortKey === 'num_work_orders'} dir={compSortDir} onClick={() => toggleCompSort('num_work_orders')} align="right" />
+                    <SortableHeader label="Date Closed" active={compSortKey === 'date_closed'} dir={compSortDir} onClick={() => toggleCompSort('date_closed')} />
+                    <SortableHeader label="Amount Charged" active={compSortKey === 'amount_charged'} dir={compSortDir} onClick={() => toggleCompSort('amount_charged')} align="right" />
                   </tr>
                 </thead>
                 <tbody>
-                  {completed.map((unit, i) => (
+                  {sortedCompleted.map((unit, i) => (
                     <tr key={i} className="border-t border-slate-50">
                       <td className="px-4 py-2 font-medium text-slate-800">{unit.unit}</td>
                       <td className="px-3 py-2 text-right text-slate-600">{unit.num_work_orders}</td>

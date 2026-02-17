@@ -142,14 +142,36 @@ interface FunnelKPICardProps {
   tourToApp?: number;
   timeLabel?: string;
   onClick?: () => void;
+  priorLeads?: number;
+  priorTours?: number;
+  priorApplications?: number;
+  priorLeasesSigned?: number;
+  priorPeriodLabel?: string;
 }
 
-export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick }: FunnelKPICardProps) {
+function PeriodDelta({ current, prior, noData }: { current: number; prior?: number; noData?: boolean }) {
+  if (prior == null || prior === 0) return null;
+  // Don't show misleading delta when current period has no data at all
+  if (noData) return <div className="text-[10px] text-slate-400 mt-0.5">prev: {prior}</div>;
+  const diff = current - prior;
+  const pct = Math.round((diff / prior) * 100);
+  if (pct === 0) return (
+    <div className="text-[10px] text-slate-400 mt-0.5">vs {prior}</div>
+  );
+  return (
+    <div className={`text-[10px] font-medium mt-0.5 ${pct > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+      {pct > 0 ? '▲' : '▼'} {Math.abs(pct)}% <span className="font-normal text-slate-400">vs {prior}</span>
+    </div>
+  );
+}
+
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick, priorLeads, priorTours, priorApplications, priorLeasesSigned, priorPeriodLabel }: FunnelKPICardProps) {
+  const noCurrentData = leads === 0 && tours === 0 && applications === 0 && leasesSigned === 0;
   const stages = [
-    { label: 'Leads', value: leads },
-    { label: 'Tours', value: tours },
-    { label: 'Apps', value: applications },
-    { label: 'Signed', value: leasesSigned },
+    { label: 'Leads', value: leads, prior: priorLeads },
+    { label: 'Tours', value: tours, prior: priorTours },
+    { label: 'Apps', value: applications, prior: priorApplications },
+    { label: 'Signed', value: leasesSigned, prior: priorLeasesSigned },
   ];
 
   return (
@@ -164,25 +186,15 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
         <span className="text-xs font-medium text-slate-500 uppercase tracking-wide inline-flex items-center gap-0.5">
           Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
         </span>
-        <span className="text-[10px] text-slate-400">{timeLabel || 'Last 30 days'}</span>
+        <span className="text-[10px] text-slate-400">{timeLabel || 'Last 30 days'}{priorPeriodLabel && ` · vs ${priorPeriodLabel}`}</span>
       </div>
 
       <div className="flex items-center justify-around mt-3">
-        {stages.map((stage, i) => (
-          <div key={stage.label} className="flex items-center min-w-0">
-            <div className="text-center flex-shrink-0">
-              <div className="text-xl font-bold text-slate-900">{stage.value}</div>
-              <div className="text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">{stage.label}</div>
-            </div>
-            {i < stages.length - 1 && (
-              <div className="mx-1.5 flex flex-col items-center flex-shrink-0">
-                <div className="w-1 h-1 bg-slate-300 rounded-full" />
-                <div className="text-[9px] font-medium text-indigo-500 my-0.5">
-                  {stage.value > 0 ? `${Math.round(stages[i + 1].value / stage.value * 100)}%` : '—'}
-                </div>
-                <div className="w-1 h-1 bg-slate-300 rounded-full" />
-              </div>
-            )}
+        {stages.map((stage) => (
+          <div key={stage.label} className="text-center flex-shrink-0">
+            <div className="text-xl font-bold text-slate-900">{stage.value}</div>
+            <div className="text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">{stage.label}</div>
+            <PeriodDelta current={stage.value} prior={stage.prior} noData={noCurrentData} />
           </div>
         ))}
       </div>

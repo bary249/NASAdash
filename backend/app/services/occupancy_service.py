@@ -321,12 +321,17 @@ class OccupancyService:
         """
         period_start, period_end = get_date_range(timeframe)
         
-        # Try imported leasing data (from RealPage Excel reports or Yardi sync)
+        # First try: granular activity data (date-filtered, supports all timeframes)
+        activity_funnel = self._build_funnel_from_activity(property_id, timeframe, period_start, period_end)
+        if activity_funnel and activity_funnel.leads > 0:
+            return activity_funnel
+        
+        # Fallback: imported leasing summary (monthly aggregate, not date-filtered)
         imported_data = self._get_imported_leasing_data(property_id, period_start, period_end)
         if imported_data:
             return self._build_funnel_from_imported(property_id, timeframe, period_start, period_end, imported_data)
         
-        # No imported data available — return empty metrics
+        # No data available — return empty metrics
         return LeasingFunnelMetrics(
             property_id=property_id,
             timeframe=timeframe.value,
@@ -337,6 +342,87 @@ class OccupancyService:
             app_to_lease_rate=0, lead_to_lease_rate=0
         )
     
+    def _build_funnel_from_activity(
+        self,
+        property_id: str,
+        timeframe: Timeframe,
+        period_start: date,
+        period_end: date,
+    ) -> Optional[LeasingFunnelMetrics]:
+        """Build funnel from granular unified_activity records (date-filtered)."""
+        try:
+            conn = sqlite3.connect(UNIFIED_DB_PATH)
+            cursor = conn.cursor()
+
+            # Normalize property ID
+            normalized_id = property_id
+            if property_id.startswith("kairoi-"):
+                normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
+
+            start_str = period_start.strftime("%Y-%m-%d")
+            end_str = period_end.strftime("%Y-%m-%d")
+
+            # Count unique prospects per funnel stage within the date range
+            # Lead events: first-contact activity types
+            lead_types = (
+                "E-mail", "Phone call", "Text message", "Internet",
+                "Online Leasing guest card", "Call Center guest card",
+                "Chat", "Event", "High",
+            )
+            # Tour events
+            tour_types = ("Visit", "Visit (return)", "Videotelephony - Tour", "Self-guided - Tour", "Pre-recorded - Tour")
+            # Application events
+            app_types = (
+                "Online Leasing pre-qualify", "Online Leasing Agreement",
+                "Identity Verification", "Online Leasing reservation",
+                "Online Leasing Payment", "Quote",
+            )
+            # Lease signed
+            lease_types = ("Leased",)
+
+            def count_unique(types: tuple) -> int:
+                placeholders = ",".join("?" for _ in types)
+                cursor.execute(f"""
+                    SELECT COUNT(DISTINCT resident_name) FROM unified_activity
+                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                      AND activity_date >= ? AND activity_date <= ?
+                      AND activity_type IN ({placeholders})
+                """, (property_id, normalized_id, start_str, end_str, *types))
+                return cursor.fetchone()[0] or 0
+
+            leads = count_unique(lead_types)
+            tours = count_unique(tour_types)
+            applications = count_unique(app_types)
+            lease_signs = count_unique(lease_types)
+            conn.close()
+
+            if leads == 0 and tours == 0:
+                return None
+
+            lead_to_tour = round(tours / leads * 100, 1) if leads > 0 else 0
+            tour_to_app = round(applications / tours * 100, 1) if tours > 0 else 0
+            app_to_lease = round(lease_signs / applications * 100, 1) if applications > 0 else 0
+            lead_to_lease = round(lease_signs / leads * 100, 1) if leads > 0 else 0
+
+            return LeasingFunnelMetrics(
+                property_id=property_id,
+                timeframe=timeframe.value,
+                period_start=format_date_iso(period_start),
+                period_end=format_date_iso(period_end),
+                leads=leads,
+                tours=tours,
+                applications=applications,
+                lease_signs=lease_signs,
+                denials=0,
+                lead_to_tour_rate=lead_to_tour,
+                tour_to_app_rate=tour_to_app,
+                app_to_lease_rate=app_to_lease,
+                lead_to_lease_rate=lead_to_lease,
+            )
+        except Exception as e:
+            logger.warning(f"Error building funnel from activity: {e}")
+            return None
+
     def _get_imported_leasing_data(self, property_id: str, period_start: date, period_end: date) -> Optional[Dict[str, Any]]:
         """Get imported leasing activity data from database."""
         

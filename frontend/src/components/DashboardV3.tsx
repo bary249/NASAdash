@@ -555,7 +555,7 @@ const RENEWAL_DRILL_COLUMNS = [
 ];
 
 function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo, timeRange = 'mtd', dynamicImageUrl }: PropertyDashboardProps) {
-  const { occupancy, funnel, expirations, loading, error, periodEnd } = usePropertyData();
+  const { occupancy, funnel, priorFunnel, expirations, loading, error, periodEnd } = usePropertyData();
 
   const periodLabel = timeRange === 'ytd' ? 'YTD' : timeRange === 'mtd' ? 'MTD' : timeRange === 'l30' ? 'Last 30 days' : 'Last 7 days';
 
@@ -1125,6 +1125,11 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               sightUnseen={funnel?.sightUnseen || 0}
               tourToApp={funnel?.tourToApp || 0}
               timeLabel={periodLabel}
+              priorLeads={priorFunnel?.leads}
+              priorTours={priorFunnel?.tours}
+              priorApplications={priorFunnel?.applications}
+              priorLeasesSigned={priorFunnel?.leaseSigns}
+              priorPeriodLabel="prev month"
             />
             
             <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">

@@ -130,6 +130,7 @@ interface PropertyDataContextValue {
   occupancy: OccupancyMetrics | null;
   exposure: ExposureMetrics | null;
   funnel: FunnelMetrics | null;
+  priorFunnel: FunnelMetrics | null;
   expirations: ExpirationMetrics | null;
   
   // Filtered data for drill-through (same data used for metrics)
@@ -493,6 +494,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const effectiveKey = effectiveIds.sort().join(',');
   const [rawData, setRawData] = useState<PropertyRawData | null>(null);
   const [apiFunnelData, setApiFunnelData] = useState<FunnelMetrics | null>(null);
+  const [apiPriorFunnelData, setApiPriorFunnelData] = useState<FunnelMetrics | null>(null);
   const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -513,6 +515,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
     setLoading(true);
     setError(null);
     setApiFunnelData(null);
+    setApiPriorFunnelData(null);
     setExpirationsData(null);
     
     try {
@@ -615,12 +618,15 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
         // No expirations data available
       }
 
-      // Fetch funnel data for all properties and merge
+      // Fetch funnel data for all properties and merge (current + prior period)
       if (prospects.length === 0) {
         try {
-          const allFunnels = await Promise.all(
-            effectiveIds.map(pid => api.getLeasingFunnel(pid, timeframe).catch(() => null))
-          );
+          // Always compare against previous month as baseline
+          const priorTimeframe: Timeframe = 'pm';
+          const [allFunnels, allPriorFunnels] = await Promise.all([
+            Promise.all(effectiveIds.map(pid => api.getLeasingFunnel(pid, timeframe).catch(() => null))),
+            Promise.all(effectiveIds.map(pid => api.getLeasingFunnel(pid, priorTimeframe).catch(() => null))),
+          ]);
           const merged = allFunnels.reduce((acc, f) => {
             if (f && f.leads > 0) {
               acc.leads += f.leads;
@@ -645,11 +651,34 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
               leadToLeaseRate: merged.leads > 0 ? Math.round(merged.leaseSigns / merged.leads * 100) : 0,
             });
           }
+          // Merge prior period funnel
+          const mergedPrior = allPriorFunnels.reduce((acc, f) => {
+            if (f && f.leads > 0) {
+              acc.leads += f.leads;
+              acc.tours += f.tours;
+              acc.applications += f.applications;
+              acc.leaseSigns += f.lease_signs;
+              acc.denials += f.denials;
+              acc.sightUnseen += (f as any).sight_unseen || 0;
+              acc.tourToApp += (f as any).tour_to_app || 0;
+            }
+            return acc;
+          }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0 });
+          if (mergedPrior.leads > 0) {
+            setApiPriorFunnelData({
+              ...mergedPrior,
+              leadToTourRate: mergedPrior.leads > 0 ? Math.round(mergedPrior.tours / mergedPrior.leads * 100) : 0,
+              tourToAppRate: mergedPrior.tours > 0 ? Math.round(mergedPrior.applications / mergedPrior.tours * 100) : 0,
+              appToLeaseRate: mergedPrior.applications > 0 ? Math.round(mergedPrior.leaseSigns / mergedPrior.applications * 100) : 0,
+              leadToLeaseRate: mergedPrior.leads > 0 ? Math.round(mergedPrior.leaseSigns / mergedPrior.leads * 100) : 0,
+            });
+          }
         } catch {
           // No API funnel data available
         }
       } else {
         setApiFunnelData(null);
+        setApiPriorFunnelData(null);
       }
       
       setRawData({
@@ -736,6 +765,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
     occupancy,
     exposure,
     funnel,
+    priorFunnel: apiPriorFunnelData,
     expirations: expirationsData,
     filteredData,
     refresh: fetchRawData,

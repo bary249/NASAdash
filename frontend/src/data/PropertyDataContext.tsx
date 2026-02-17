@@ -664,7 +664,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             )),
           ]);
           const merged = allFunnels.reduce((acc, f) => {
-            if (f && f.leads > 0) {
+            if (f && (f.leads > 0 || f.tours > 0 || f.applications > 0)) {
               acc.leads += f.leads;
               acc.tours += f.tours;
               acc.applications += f.applications;
@@ -678,18 +678,19 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             }
             return acc;
           }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0, marketingNetLeases: null as number | null });
-          if (merged.leads > 0) {
-            setApiFunnelData({
+          if (merged.leads > 0 || merged.tours > 0 || merged.applications > 0) {
+            const finalData = {
               ...merged,
               leadToTourRate: merged.leads > 0 ? Math.round(merged.tours / merged.leads * 100) : 0,
               tourToAppRate: merged.tours > 0 ? Math.round(merged.applications / merged.tours * 100) : 0,
               appToLeaseRate: merged.applications > 0 ? Math.round(merged.leaseSigns / merged.applications * 100) : 0,
               leadToLeaseRate: merged.leads > 0 ? Math.round(merged.leaseSigns / merged.leads * 100) : 0,
-            });
+            };
+            setApiFunnelData(finalData);
           }
           // Merge prior period funnel
           const mergedPrior = allPriorFunnels.reduce((acc, f) => {
-            if (f && f.leads > 0) {
+            if (f && (f.leads > 0 || f.tours > 0 || f.applications > 0)) {
               acc.leads += f.leads;
               acc.tours += f.tours;
               acc.applications += f.applications;
@@ -700,7 +701,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             }
             return acc;
           }, { leads: 0, tours: 0, applications: 0, leaseSigns: 0, denials: 0, sightUnseen: 0, tourToApp: 0 });
-          if (mergedPrior.leads > 0) {
+          if (mergedPrior.leads > 0 || mergedPrior.tours > 0 || mergedPrior.applications > 0) {
             setApiPriorFunnelData({
               ...mergedPrior,
               leadToTourRate: mergedPrior.leads > 0 ? Math.round(mergedPrior.tours / mergedPrior.leads * 100) : 0,

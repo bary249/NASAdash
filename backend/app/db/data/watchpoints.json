@@ -9,6 +9,15 @@
       "label": "Vacant Units > 10.0units",
       "enabled": true,
       "created_at": "2026-02-14T13:21:32.980044"
+    },
+    {
+      "id": "wp_7fb629bf",
+      "metric": "atr_pct",
+      "operator": "gt",
+      "threshold": 10.0,
+      "label": "ATR % > 10.0%",
+      "enabled": true,
+      "created_at": "2026-02-17T12:03:26.435670"
     }
   ]
 }

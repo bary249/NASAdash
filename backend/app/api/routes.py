@@ -1480,31 +1480,33 @@ async def get_delinquency(property_id: str):
             is_eviction = bool(row[11])
             eviction_balance_from_lease = row[12] or 0
             
-            # Aging bars include ALL residents (current + former)
-            # If resident has total_delinquent > 0 but all aging buckets are <= 0,
-            # attribute the delinquent amount to "current" bucket
+            # Compute positive aging for prepaid-offset detection
             pos_aging = max(0, current_bal) + max(0, bal_0_30) + max(0, bal_31_60) + max(0, bal_61_90) + max(0, bal_90_plus)
-            if report_total_delinquent > 0 and pos_aging == 0:
-                aging["current"] += report_total_delinquent
-            else:
-                aging["current"] += max(0, current_bal)
-                aging["0_30"] += max(0, bal_0_30)
-                aging["31_60"] += max(0, bal_31_60)
-                aging["61_90"] += max(0, bal_61_90)
-                aging["90_plus"] += max(0, bal_90_plus)
             
-            # Collections tracks former residents separately
             if is_former:
-                collections["current"] += max(0, current_bal)
-                collections["0_30"] += max(0, bal_0_30)
-                collections["31_60"] += max(0, bal_31_60)
-                collections["61_90"] += max(0, bal_61_90)
-                collections["90_plus"] += max(0, bal_90_plus)
+                # Former residents → collections only (not delinquency)
+                if report_total_delinquent > 0 and pos_aging == 0:
+                    collections["current"] += report_total_delinquent
+                else:
+                    collections["current"] += max(0, current_bal)
+                    collections["0_30"] += max(0, bal_0_30)
+                    collections["31_60"] += max(0, bal_31_60)
+                    collections["61_90"] += max(0, bal_61_90)
+                    collections["90_plus"] += max(0, bal_90_plus)
                 if unit_delinquent > 0:
                     total_collections += unit_delinquent
-            
-            if unit_delinquent > 0:
-                total_delinquent += unit_delinquent
+            else:
+                # Current residents → delinquency aging bars
+                if report_total_delinquent > 0 and pos_aging == 0:
+                    aging["current"] += report_total_delinquent
+                else:
+                    aging["current"] += max(0, current_bal)
+                    aging["0_30"] += max(0, bal_0_30)
+                    aging["31_60"] += max(0, bal_31_60)
+                    aging["61_90"] += max(0, bal_61_90)
+                    aging["90_plus"] += max(0, bal_90_plus)
+                if unit_delinquent > 0:
+                    total_delinquent += unit_delinquent
             
             # Prepaid: use the report's prepaid value directly
             # Exclude "Misc. Income" status — RealPage Financial Summary excludes these

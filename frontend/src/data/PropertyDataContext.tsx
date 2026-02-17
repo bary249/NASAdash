@@ -558,7 +558,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
       ]);
       
       // Map unified units to UnitRaw format
-      const units: UnitRaw[] = unifiedUnits.map(u => ({
+      const units: UnitRaw[] = unifiedUnits.map((u: any) => ({
         unit_id: u.unit_id,
         floorplan: u.floorplan_name || u.floorplan,
         unit_type: u.floorplan_name || u.floorplan,
@@ -576,7 +576,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
       }));
       
       // Map unified residents to ResidentRaw format and categorize by status
-      const allResidents: ResidentRaw[] = unifiedResidents.map(r => ({
+      const allResidents: ResidentRaw[] = unifiedResidents.map((r: any) => ({
         resident_id: r.resident_id,
         first_name: r.first_name,
         last_name: r.last_name,

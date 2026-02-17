@@ -650,9 +650,11 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
         }));
         if (mergedPeriods.length > 0) {
           setExpirationsData({ periods: mergedPeriods });
+        } else {
+          setExpirationsData(null);
         }
       } catch {
-        // No expirations data available
+        setExpirationsData(null);
       }
 
       // Fetch funnel data for all properties and merge (current + prior period)
@@ -731,6 +733,8 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
               leadToLeaseRate: merged.leads > 0 ? Math.round(merged.leaseSigns / merged.leads * 100) : 0,
             };
             setApiFunnelData(finalData);
+          } else {
+            setApiFunnelData(null);
           }
           // Merge prior period funnel
           const mergedPrior = allPriorFunnels.reduce((acc, f) => {
@@ -753,9 +757,12 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
               appToLeaseRate: mergedPrior.applications > 0 ? Math.round(mergedPrior.leaseSigns / mergedPrior.applications * 100) : 0,
               leadToLeaseRate: mergedPrior.leads > 0 ? Math.round(mergedPrior.leaseSigns / mergedPrior.leads * 100) : 0,
             });
+          } else {
+            setApiPriorFunnelData(null);
           }
         } catch {
-          // No API funnel data available
+          setApiFunnelData(null);
+          setApiPriorFunnelData(null);
         }
       } else {
         setApiFunnelData(null);

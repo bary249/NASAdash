@@ -185,7 +185,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Leasing Funnel</span>
-          <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report." />
+          <InfoTooltip text="Leads = new prospects whose first-ever activity falls within this period (e.g. guest card, first email, first call). Tours = unique prospects who visited the property. Apps = unique prospects who applied, pre-qualified, or received a quote. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Comparison shows the equivalent prior period (e.g. Last 7d compares to the 7 days before that). Source: RealPage Activity Report." />
         </div>
         <span className="text-[10px] text-slate-400">{timeLabel || 'MTD'}</span>
       </div>

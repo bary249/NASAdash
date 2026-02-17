@@ -1815,6 +1815,102 @@ class TestDataConsistency:
 
 
 # ===================================================================
+# MULTI-PROPERTY: Forecast & Availability by Floorplan
+# ===================================================================
+
+class TestMultiPropForecastAndAvailability:
+    """Multi-property forecast NET calculation and availability drill-through."""
+
+    def test_forecast_net_equals_move_ins_minus_notice_outs(self, first_property):
+        """Forecast NET must equal scheduled_move_ins - notice_move_outs for every week."""
+        r = requests.get(f"{API}/{first_property}/occupancy-forecast?weeks=12", timeout=30)
+        if r.status_code != 200:
+            pytest.skip("No forecast data")
+        data = r.json()
+        errors = []
+        for w in data.get("forecast", []):
+            mi = w.get("scheduled_move_ins", 0)
+            nmo = w.get("notice_move_outs", 0)
+            nc = w.get("net_change")
+            expected = mi - nmo
+            if nc != expected:
+                errors.append(f"Wk{w['week']}: net_change={nc} != move_ins({mi}) - notice_outs({nmo}) = {expected}")
+        assert not errors, "Forecast NET mismatch:\n" + "\n".join(errors)
+
+    def test_forecast_net_all_properties(self, property_ids):
+        """NET = move_ins - notice_outs for every property's forecast."""
+        errors = []
+        for pid in property_ids:
+            r = requests.get(f"{API}/{pid}/occupancy-forecast?weeks=4", timeout=30)
+            if r.status_code != 200:
+                continue
+            for w in r.json().get("forecast", []):
+                mi = w.get("scheduled_move_ins", 0)
+                nmo = w.get("notice_move_outs", 0)
+                nc = w.get("net_change")
+                if nc != mi - nmo:
+                    errors.append(f"{pid} Wk{w['week']}: net={nc} != {mi}-{nmo}={mi-nmo}")
+        assert not errors, "Forecast NET mismatch across properties:\n" + "\n".join(errors)
+
+    def test_multi_prop_forecast_sums(self, multi_property_ids):
+        """Multi-prop: summed forecast move_ins/notice_outs/net must be consistent."""
+        forecasts = []
+        for pid in multi_property_ids:
+            r = requests.get(f"{API}/{pid}/occupancy-forecast?weeks=4", timeout=30)
+            if r.status_code == 200:
+                forecasts.append(r.json())
+        if len(forecasts) < 2:
+            pytest.skip("Need 2+ properties with forecast data")
+
+        max_weeks = min(len(f.get("forecast", [])) for f in forecasts)
+        errors = []
+        for w in range(max_weeks):
+            total_mi = sum(f["forecast"][w].get("scheduled_move_ins", 0) for f in forecasts)
+            total_nmo = sum(f["forecast"][w].get("notice_move_outs", 0) for f in forecasts)
+            expected_net = total_mi - total_nmo
+            total_net = sum(f["forecast"][w].get("net_change", 0) for f in forecasts)
+            if total_net != expected_net:
+                errors.append(f"Wk{w+1}: summed net={total_net} != summed ins({total_mi})-outs({total_nmo})={expected_net}")
+        assert not errors, "Multi-prop forecast sum mismatch:\n" + "\n".join(errors)
+
+    def test_availability_drill_count_matches_table(self, multi_property_ids):
+        """Availability by floorplan: drill-through unit count must match table row count."""
+        errors = []
+        for pid in multi_property_ids[:2]:
+            fp_r = requests.get(f"{API}/{pid}/availability-by-floorplan", timeout=30)
+            if fp_r.status_code != 200:
+                continue
+            for fp in fp_r.json().get("floorplans", [])[:3]:
+                name = fp["floorplan"]
+                table_vacant = fp.get("vacant_units", 0) + fp.get("on_notice", 0)
+                units_r = requests.get(f"{API}/{pid}/availability-by-floorplan/units?floorplan={name}", timeout=30)
+                if units_r.status_code != 200:
+                    continue
+                drill_count = len(units_r.json().get("units", []))
+                if drill_count != table_vacant and abs(drill_count - table_vacant) > 1:
+                    errors.append(f"{pid}/{name}: table vacant+notice={table_vacant} != drill units={drill_count}")
+        assert not errors, "Availability drill count mismatch:\n" + "\n".join(errors)
+
+    def test_availability_totals_match_floorplan_sum(self, first_property):
+        """Availability totals must equal the sum of all floorplan rows."""
+        r = requests.get(f"{API}/{first_property}/availability-by-floorplan", timeout=30)
+        if r.status_code != 200:
+            pytest.skip("No availability data")
+        data = r.json()
+        fps = data.get("floorplans", [])
+        totals = data.get("totals", {})
+        if not fps or not totals:
+            pytest.skip("No floorplan data")
+
+        sum_total = sum(fp.get("total_units", 0) for fp in fps)
+        sum_vacant = sum(fp.get("vacant_units", 0) for fp in fps)
+        sum_notice = sum(fp.get("on_notice", 0) for fp in fps)
+        assert sum_total == totals.get("total", 0), f"Total units: sum={sum_total} != totals={totals.get('total')}"
+        assert sum_vacant == totals.get("vacant", 0), f"Vacant: sum={sum_vacant} != totals={totals.get('vacant')}"
+        assert sum_notice == totals.get("notice", 0), f"Notice: sum={sum_notice} != totals={totals.get('notice')}"
+
+
+# ===================================================================
 # MAIN — run standalone
 # ===================================================================
 

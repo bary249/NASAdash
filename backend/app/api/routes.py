@@ -2349,8 +2349,8 @@ async def get_occupancy_forecast(property_id: str, weeks: int = 12):
                 # Move-ins & move-outs from report (matches projected occ progression)
                 rr_movein_count = count_units_in_week(move_in_units, ws_dt, we_dt)
                 movein_count = rr_movein_count if rr_movein_count > 0 else report_move_ins
-                # Net from report data so it matches Occ% change
-                net_change = report_move_ins - report_move_outs
+                # Net matches visible table columns (move_ins - notice_outs)
+                net_change = movein_count - notice_count
                 
                 forecast.append({
                     "week": w + 1,

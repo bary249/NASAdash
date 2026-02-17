@@ -651,10 +651,33 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         });
       }).catch(() => {});
 
-    // Availability by floorplan: merge across properties
+    // Availability by floorplan: merge across properties, consolidate same-name floorplans
     Promise.all(ids.map(id => api.getAvailabilityByFloorplan(id).catch(() => ({ floorplans: [], totals: {} }))))
       .then(results => {
         const allFps = results.flatMap((r: any) => r?.floorplans || []);
+        // Merge floorplans with same name
+        const fpMap: Record<string, any> = {};
+        for (const fp of allFps) {
+          const key = fp.floorplan;
+          if (!fpMap[key]) {
+            fpMap[key] = { ...fp };
+          } else {
+            fpMap[key].total_units += fp.total_units || 0;
+            fpMap[key].vacant_units += fp.vacant_units || 0;
+            fpMap[key].on_notice += fp.on_notice || 0;
+            fpMap[key].vacant_leased += fp.vacant_leased || 0;
+            fpMap[key].vacant_not_leased += fp.vacant_not_leased || 0;
+            // Weighted average for market rent
+            const totalU = fpMap[key].total_units;
+            const prevU = totalU - (fp.total_units || 0);
+            fpMap[key].avg_market_rent = totalU > 0
+              ? (fpMap[key].avg_market_rent * prevU + (fp.avg_market_rent || 0) * (fp.total_units || 0)) / totalU : 0;
+            // Recalculate occupancy %
+            const occ = fpMap[key].total_units - fpMap[key].vacant_units;
+            fpMap[key].occupancy_pct = fpMap[key].total_units > 0 ? Math.round(occ / fpMap[key].total_units * 1000) / 10 : 0;
+          }
+        }
+        const mergedFps = Object.values(fpMap);
         const totals = { total: 0, vacant: 0, notice: 0, vacant_leased: 0, vacant_not_leased: 0, occupied: 0, model: 0, down: 0 };
         for (const r of results) {
           const rt = (r as any)?.totals;
@@ -664,7 +687,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             }
           }
         }
-        setAvailByFp({ floorplans: allFps, totals });
+        setAvailByFp({ floorplans: mergedFps, totals });
       }).catch(() => {});
 
     // Forecast: merge across properties by week index
@@ -694,6 +717,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             totalUnits += r.total_units || 0;
           }
           base.projected_occupancy_pct = totalUnits > 0 ? Math.round(base.projected_occupied / totalUnits * 1000) / 10 : 0;
+          // Recalculate derived fields to match visible columns
+          base.net_change = base.scheduled_move_ins - base.notice_move_outs;
+          base.net_expirations = base.lease_expirations - base.renewals;
           merged.push(base);
         }
         setForecast({

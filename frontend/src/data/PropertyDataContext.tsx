@@ -131,6 +131,7 @@ interface PropertyDataContextValue {
   exposure: ExposureMetrics | null;
   funnel: FunnelMetrics | null;
   priorFunnel: FunnelMetrics | null;
+  priorFunnelLabel: string;
   expirations: ExpirationMetrics | null;
   
   // Filtered data for drill-through (same data used for metrics)
@@ -495,6 +496,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
   const [rawData, setRawData] = useState<PropertyRawData | null>(null);
   const [apiFunnelData, setApiFunnelData] = useState<FunnelMetrics | null>(null);
   const [apiPriorFunnelData, setApiPriorFunnelData] = useState<FunnelMetrics | null>(null);
+  const [priorFunnelLabel, setPriorFunnelLabel] = useState<string>('prev period');
   const [expirationsData, setExpirationsData] = useState<ExpirationMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -621,11 +623,45 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
       // Fetch funnel data for all properties and merge (current + prior period)
       if (prospects.length === 0) {
         try {
-          // Always compare against previous month as baseline
-          const priorTimeframe: Timeframe = 'pm';
+          // Compute prior period date range matching current timeframe
+          const now = new Date();
+          let priorStart: string | undefined;
+          let priorEnd: string | undefined;
+          let priorLabel = 'prev period';
+          setPriorFunnelLabel('prev period');
+
+          if (timeframe === 'l7') {
+            // L7: compare against 8-14 days ago
+            const e = new Date(now); e.setDate(e.getDate() - 7);
+            const s = new Date(now); s.setDate(s.getDate() - 14);
+            priorStart = s.toISOString().slice(0, 10);
+            priorEnd = e.toISOString().slice(0, 10);
+            priorLabel = 'prev 7d';
+          } else if (timeframe === 'l30') {
+            // L30: compare against 31-60 days ago
+            const e = new Date(now); e.setDate(e.getDate() - 30);
+            const s = new Date(now); s.setDate(s.getDate() - 60);
+            priorStart = s.toISOString().slice(0, 10);
+            priorEnd = e.toISOString().slice(0, 10);
+            priorLabel = 'prev 30d';
+          } else if (timeframe === 'cm') {
+            // MTD: compare against same days in previous month
+            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const prevEnd = new Date(prevMonth.getFullYear(), prevMonth.getMonth(), Math.min(now.getDate(), new Date(prevMonth.getFullYear(), prevMonth.getMonth() + 1, 0).getDate()));
+            priorStart = prevMonth.toISOString().slice(0, 10);
+            priorEnd = prevEnd.toISOString().slice(0, 10);
+            priorLabel = 'prev month';
+          }
+          setPriorFunnelLabel(priorLabel);
+          // For pm/ytd, just use 'pm' timeframe directly (no custom dates needed)
+
           const [allFunnels, allPriorFunnels] = await Promise.all([
             Promise.all(effectiveIds.map(pid => api.getLeasingFunnel(pid, timeframe).catch(() => null))),
-            Promise.all(effectiveIds.map(pid => api.getLeasingFunnel(pid, priorTimeframe).catch(() => null))),
+            Promise.all(effectiveIds.map(pid =>
+              priorStart && priorEnd
+                ? api.getLeasingFunnel(pid, timeframe, priorStart, priorEnd).catch(() => null)
+                : api.getLeasingFunnel(pid, 'pm').catch(() => null)
+            )),
           ]);
           const merged = allFunnels.reduce((acc, f) => {
             if (f && f.leads > 0) {
@@ -766,6 +802,7 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
     exposure,
     funnel,
     priorFunnel: apiPriorFunnelData,
+    priorFunnelLabel,
     expirations: expirationsData,
     filteredData,
     refresh: fetchRawData,

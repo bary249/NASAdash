@@ -135,14 +135,31 @@ async def get_exposure(
 @router.get("/properties/{property_id}/leasing-funnel", response_model=LeasingFunnelMetrics)
 async def get_leasing_funnel(
     property_id: str,
-    timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd")
+    timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd"),
+    start_date: Optional[str] = Query(None, description="Custom start date (YYYY-MM-DD). Overrides timeframe."),
+    end_date: Optional[str] = Query(None, description="Custom end date (YYYY-MM-DD). Overrides timeframe."),
 ):
     """
     GET: Leasing funnel metrics (Marketing Pipeline).
     
     Returns: Leads, Tours, Applications, Lease Signs, conversion rates.
     Data source: imported leasing data from unified.db, falls back to unified_activity.
+    Supports optional start_date/end_date for custom date ranges (e.g. prior period comparison).
     """
+    # If custom date range provided, use it directly via the activity-based funnel
+    if start_date and end_date:
+        from datetime import date as _date
+        try:
+            ps = _date.fromisoformat(start_date)
+            pe = _date.fromisoformat(end_date)
+            result = occupancy_service._build_funnel_from_activity(
+                property_id, timeframe, ps, pe
+            )
+            if result and result.leads > 0:
+                return result
+        except ValueError:
+            pass  # fall through to normal logic
+
     # First try the service (reads imported_leasing_activity from unified.db)
     result = await occupancy_service.get_leasing_funnel(property_id, timeframe)
     if result.leads > 0:

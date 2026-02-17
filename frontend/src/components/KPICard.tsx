@@ -182,23 +182,26 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
       `}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wide inline-flex items-center gap-0.5">
-          Leasing Funnel <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report (last 30 days)." />
-        </span>
-        <span className="text-[10px] text-slate-400">{timeLabel || 'Last 30 days'}{priorPeriodLabel && ` · vs ${priorPeriodLabel}`}</span>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1">
+          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Leasing Funnel</span>
+          <InfoTooltip text="Leads = unique prospects (emails, calls, walk-ins, guest cards). Tours = unique prospects with a visit. Apps = unique prospects who pre-qualified or submitted an agreement. Signed = unique prospects who reached 'Leased' status. All counts are deduplicated by prospect name. Source: RealPage Activity Report." />
+        </div>
+        <span className="text-[10px] text-slate-400">{timeLabel || 'MTD'}</span>
       </div>
 
-      <div className="flex items-center justify-around mt-3">
+      <div className="grid grid-cols-4 gap-2">
         {stages.map((stage) => (
-          <div key={stage.label} className="text-center flex-shrink-0">
-            <div className="text-xl font-bold text-slate-900">{stage.value}</div>
-            <div className="text-[10px] text-slate-500 mt-0.5 whitespace-nowrap">{stage.label}</div>
+          <div key={stage.label} className="text-center">
+            <div className="text-2xl font-bold text-slate-900">{stage.value}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{stage.label}</div>
             <PeriodDelta current={stage.value} prior={stage.prior} noData={noCurrentData} />
           </div>
         ))}
       </div>
-
+      {priorPeriodLabel && (priorLeads != null || priorTours != null) && (
+        <div className="text-[10px] text-slate-400 text-right mt-2">vs {priorPeriodLabel}</div>
+      )}
     </div>
   );
 }

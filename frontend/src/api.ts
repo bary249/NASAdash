@@ -113,8 +113,11 @@ export const api = {
   getExposure: (propertyId: string, timeframe: Timeframe = 'cm'): Promise<ExposureMetrics> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/exposure?timeframe=${timeframe}`),
 
-  getLeasingFunnel: (propertyId: string, timeframe: Timeframe = 'cm'): Promise<LeasingFunnelMetrics> =>
-    fetchJson(`${API_BASE}/properties/${propertyId}/leasing-funnel?timeframe=${timeframe}`),
+  getLeasingFunnel: (propertyId: string, timeframe: Timeframe = 'cm', startDate?: string, endDate?: string): Promise<LeasingFunnelMetrics> => {
+    let url = `${API_BASE}/properties/${propertyId}/leasing-funnel?timeframe=${timeframe}`;
+    if (startDate && endDate) url += `&start_date=${startDate}&end_date=${endDate}`;
+    return fetchJson(url);
+  },
 
   getExpirations: (propertyId: string): Promise<{ periods: { label: string; expirations: number; renewals: number; signed: number; submitted: number; selected: number; renewal_pct: number; vacating?: number; unknown?: number; mtm?: number; moved_out?: number }[] }> =>
     fetchJson(`${API_BASE}/properties/${propertyId}/expirations`),

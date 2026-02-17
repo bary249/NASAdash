@@ -38,52 +38,44 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
           const snaps = (results[0]?.snapshots || []).filter((s: Snapshot) => s.total_units >= 10);
           setSnapshots(snaps);
         } else {
-          // Multi-property: carry-forward merge.
-          // For each date, each property contributes its most recent snapshot <= that date.
-          // Only include dates where ALL properties have coverage.
+          // Multi-property: only show dates where ALL properties have a real snapshot.
+          // No carry-forward — every number is actual captured data.
 
-          // 1. Per property: sorted snapshots, filtered
-          const perProperty: Snapshot[][] = results.map(r =>
-            (r?.snapshots || [])
-              .filter((s: Snapshot) => s.total_units >= 10)
-              .sort((a: Snapshot, b: Snapshot) => a.date.localeCompare(b.date))
-          );
+          // 1. Per property: index snapshots by date, filtered
+          const perProperty: Map<string, Snapshot>[] = results.map(r => {
+            const map = new Map<string, Snapshot>();
+            for (const s of (r?.snapshots || []) as Snapshot[]) {
+              if (s.total_units >= 10) map.set(s.date, s);
+            }
+            return map;
+          });
 
           // Skip properties with no snapshots at all
-          const validProps = perProperty.filter(snaps => snaps.length > 0);
+          const validProps = perProperty.filter(m => m.size > 0);
           if (validProps.length === 0) { setSnapshots([]); return; }
 
-          // 2. Collect union of all dates
-          const allDates = new Set<string>();
-          for (const snaps of validProps) {
-            for (const s of snaps) allDates.add(s.date);
-          }
-          const sortedDates = [...allDates].sort();
+          // 2. Find dates where EVERY property has a real snapshot
+          const firstPropDates = [...validProps[0].keys()];
+          const commonDates = firstPropDates
+            .filter(d => validProps.every(m => m.has(d)))
+            .sort();
 
-          // 3. For each date, carry-forward each property's most recent snapshot <= date
+          // 3. Sum real snapshots on each common date
           const merged: Snapshot[] = [];
-          for (const d of sortedDates) {
-            let allCovered = true;
+          for (const d of commonDates) {
             const agg: Snapshot = {
               date: d, total_units: 0, occupied: 0, vacant: 0,
               occupancy_pct: 0, leased_pct: 0, on_notice: 0, preleased: 0,
             };
-
-            for (const snaps of validProps) {
-              // Find most recent snapshot <= d (binary-search-like: last where date <= d)
-              let best: Snapshot | null = null;
-              for (const s of snaps) {
-                if (s.date <= d) best = s; else break;
-              }
-              if (!best) { allCovered = false; break; }
-              agg.total_units += best.total_units;
-              agg.occupied += best.occupied;
-              agg.vacant += best.vacant;
-              agg.on_notice += best.on_notice;
-              agg.preleased += best.preleased;
+            for (const m of validProps) {
+              const s = m.get(d)!;
+              agg.total_units += s.total_units;
+              agg.occupied += s.occupied;
+              agg.vacant += s.vacant;
+              agg.on_notice += s.on_notice;
+              agg.preleased += s.preleased;
             }
-
-            if (allCovered && agg.total_units > 0) {
+            if (agg.total_units > 0) {
               agg.occupancy_pct = Math.round(agg.occupied / agg.total_units * 1000) / 10;
               merged.push(agg);
             }

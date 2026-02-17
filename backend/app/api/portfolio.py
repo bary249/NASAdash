@@ -810,7 +810,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
             if owner_group and allowed_prop_ids and prop_id not in allowed_prop_ids:
                 continue
             try:
-                # Fetch metrics for each property
+                # Fetch core metrics for each property
                 occupancy = await _occupancy_service.get_occupancy_metrics(prop_id, Timeframe.CM)
                 funnel = await _occupancy_service.get_leasing_funnel(prop_id, Timeframe.CM)
                 pricing = await _pricing_service.get_unit_pricing(prop_id)
@@ -823,7 +823,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 vacant = occ_dict.get("vacant_units", 0)
                 phys_occ = occ_dict.get("physical_occupancy", 0)
                 
-                properties_data.append({
+                prop_entry = {
                     "property_id": prop_id,
                     "name": prop_mapping.name,
                     "occupancy": occ_dict,
@@ -831,8 +831,140 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                     "pricing": {
                         "avg_in_place_rent": pricing_dict.get("total_in_place_rent", 0),
                         "avg_asking_rent": pricing_dict.get("total_asking_rent", 0),
+                        "rent_growth": pricing_dict.get("rent_growth_pct", 0),
+                        "floorplan_count": len(pricing_dict.get("floorplans", [])),
                     },
-                })
+                }
+                
+                # Exposure metrics
+                try:
+                    exposure = await _occupancy_service.get_exposure_metrics(prop_id, Timeframe.CM)
+                    exp_dict = exposure.model_dump() if hasattr(exposure, 'model_dump') else vars(exposure)
+                    prop_entry["exposure"] = exp_dict
+                except Exception:
+                    pass
+                
+                # Renewals summary
+                try:
+                    renewals = await _pricing_service.get_renewal_leases(prop_id)
+                    if renewals and renewals.get("summary"):
+                        prop_entry["renewals"] = renewals["summary"]
+                        prop_entry["renewals"]["count_detail"] = len(renewals.get("renewals", []))
+                except Exception:
+                    pass
+                
+                # Tradeouts summary
+                try:
+                    tradeouts = await _pricing_service.get_lease_tradeouts(prop_id)
+                    if tradeouts and tradeouts.get("summary"):
+                        prop_entry["tradeouts"] = tradeouts["summary"]
+                except Exception:
+                    pass
+                
+                # Expirations
+                try:
+                    expirations = await _occupancy_service.get_lease_expirations(prop_id)
+                    if expirations and expirations.get("periods"):
+                        prop_entry["expirations"] = expirations["periods"]
+                except Exception:
+                    pass
+                
+                # Delinquency (direct DB query for summary)
+                try:
+                    conn_d = sqlite3.connect(UNIFIED_DB_PATH)
+                    cur_d = conn_d.cursor()
+                    cur_d.execute("""
+                        SELECT COALESCE(SUM(CASE WHEN status NOT LIKE '%former%' THEN total_delinquent ELSE 0 END), 0),
+                               COALESCE(SUM(CASE WHEN status LIKE '%former%' THEN total_delinquent ELSE 0 END), 0),
+                               COUNT(CASE WHEN total_delinquent > 0 AND status NOT LIKE '%former%' THEN 1 END),
+                               COALESCE(SUM(CASE WHEN is_eviction = 1 THEN 1 ELSE 0 END), 0)
+                        FROM unified_delinquency
+                        WHERE (unified_property_id = ? OR unified_property_id = ?)
+                          AND total_delinquent > 0
+                    """, (prop_id, prop_id.replace("kairoi-", "").replace("-", "_")))
+                    d_row = cur_d.fetchone()
+                    conn_d.close()
+                    if d_row and (d_row[0] > 0 or d_row[1] > 0):
+                        prop_entry["delinquency"] = {
+                            "current_resident_total": round(d_row[0], 2),
+                            "former_resident_total": round(d_row[1], 2),
+                            "delinquent_units": d_row[2],
+                            "eviction_count": d_row[3],
+                        }
+                except Exception:
+                    pass
+                
+                # Loss-to-lease (direct DB query)
+                try:
+                    conn_l = sqlite3.connect(UNIFIED_DB_PATH)
+                    cur_l = conn_l.cursor()
+                    cur_l.execute("""
+                        SELECT 
+                            SUM(asking_rent * unit_count) / NULLIF(SUM(CASE WHEN asking_rent > 0 THEN unit_count ELSE 0 END), 0),
+                            SUM(in_place_rent * unit_count) / NULLIF(SUM(CASE WHEN in_place_rent > 0 THEN unit_count ELSE 0 END), 0)
+                        FROM unified_pricing_metrics
+                        WHERE unified_property_id = ? OR unified_property_id = ?
+                    """, (prop_id, prop_id.replace("kairoi-", "").replace("-", "_")))
+                    l_row = cur_l.fetchone()
+                    conn_l.close()
+                    if l_row and l_row[0] and l_row[1]:
+                        occupied = occ_dict.get("occupied_units", 0)
+                        loss_per_unit = round(l_row[0] - l_row[1], 2)
+                        total_loss = round(loss_per_unit * occupied, 2)
+                        prop_entry["loss_to_lease"] = {
+                            "avg_market_rent": round(l_row[0], 2),
+                            "avg_actual_rent": round(l_row[1], 2),
+                            "loss_per_unit": loss_per_unit,
+                            "total_monthly_loss": total_loss,
+                            "total_annual_loss": round(total_loss * 12, 2),
+                        }
+                except Exception:
+                    pass
+                
+                # Google Reviews
+                try:
+                    from app.services.google_reviews_service import get_property_reviews
+                    google_rev = await get_property_reviews(prop_id)
+                    if google_rev and not google_rev.get("error") and google_rev.get("rating"):
+                        prop_entry["google_reviews"] = {
+                            "rating": google_rev.get("rating"),
+                            "review_count": google_rev.get("review_count", 0),
+                            "response_rate": google_rev.get("response_rate", 0),
+                            "needs_response": google_rev.get("needs_response", 0),
+                        }
+                except Exception:
+                    pass
+                
+                # Apartments.com Reviews
+                try:
+                    from app.services.apartments_reviews_service import get_apartments_reviews
+                    apt_rev = get_apartments_reviews(prop_id)
+                    if apt_rev and apt_rev.get("rating"):
+                        prop_entry["apartments_reviews"] = {
+                            "rating": apt_rev.get("rating"),
+                            "review_count": apt_rev.get("review_count", 0),
+                        }
+                except Exception:
+                    pass
+                
+                # Move-out reasons summary
+                try:
+                    conn_m = sqlite3.connect(UNIFIED_DB_PATH)
+                    cur_m = conn_m.cursor()
+                    cur_m.execute("""
+                        SELECT category, SUM(category_count) as total
+                        FROM unified_move_out_reasons
+                        WHERE unified_property_id = ? AND resident_type = 'former'
+                        GROUP BY category ORDER BY total DESC LIMIT 5
+                    """, (prop_id,))
+                    mo_rows = cur_m.fetchall()
+                    conn_m.close()
+                    if mo_rows:
+                        prop_entry["move_out_reasons"] = [{"category": r[0], "count": r[1]} for r in mo_rows]
+                except Exception:
+                    pass
+                
+                properties_data.append(prop_entry)
                 
                 # Accumulate for portfolio totals
                 total_units += units

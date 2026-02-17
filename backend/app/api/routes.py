@@ -2875,6 +2875,130 @@ async def chat_with_ai(
         property_data["units"] = await occupancy_service.get_raw_units(property_id)
         property_data["residents"] = await occupancy_service.get_raw_residents(property_id, "all", Timeframe.CM)
         
+        # Renewals summary
+        try:
+            renewals = await pricing_service.get_renewal_leases(property_id)
+            if renewals and renewals.get("summary"):
+                property_data["renewals"] = renewals["summary"]
+                property_data["renewals"]["count_detail"] = len(renewals.get("renewals", []))
+        except Exception:
+            pass
+        
+        # Tradeouts summary
+        try:
+            tradeouts = await pricing_service.get_lease_tradeouts(property_id)
+            if tradeouts and tradeouts.get("summary"):
+                property_data["tradeouts"] = tradeouts["summary"]
+        except Exception:
+            pass
+        
+        # Expirations
+        try:
+            expirations = await occupancy_service.get_lease_expirations(property_id)
+            if expirations and expirations.get("periods"):
+                property_data["expirations"] = expirations["periods"]
+        except Exception:
+            pass
+        
+        # Delinquency summary
+        try:
+            import sqlite3 as _sqlite3
+            _conn = _sqlite3.connect(str(UNIFIED_DB_PATH))
+            _cur = _conn.cursor()
+            _norm = property_id.replace("kairoi-", "").replace("-", "_")
+            _cur.execute("""
+                SELECT COALESCE(SUM(CASE WHEN status NOT LIKE '%former%' THEN total_delinquent ELSE 0 END), 0),
+                       COALESCE(SUM(CASE WHEN status LIKE '%former%' THEN total_delinquent ELSE 0 END), 0),
+                       COUNT(CASE WHEN total_delinquent > 0 AND status NOT LIKE '%former%' THEN 1 END),
+                       COALESCE(SUM(CASE WHEN is_eviction = 1 THEN 1 ELSE 0 END), 0)
+                FROM unified_delinquency
+                WHERE (unified_property_id = ? OR unified_property_id = ?) AND total_delinquent > 0
+            """, (property_id, _norm))
+            _dr = _cur.fetchone()
+            _conn.close()
+            if _dr and (_dr[0] > 0 or _dr[1] > 0):
+                property_data["delinquency"] = {
+                    "current_resident_total": round(_dr[0], 2),
+                    "former_resident_total": round(_dr[1], 2),
+                    "delinquent_units": _dr[2],
+                    "eviction_count": _dr[3],
+                }
+        except Exception:
+            pass
+        
+        # Loss-to-lease
+        try:
+            import sqlite3 as _sqlite3l
+            _connl = _sqlite3l.connect(str(UNIFIED_DB_PATH))
+            _curl = _connl.cursor()
+            _norml = property_id.replace("kairoi-", "").replace("-", "_")
+            _curl.execute("""
+                SELECT 
+                    SUM(asking_rent * unit_count) / NULLIF(SUM(CASE WHEN asking_rent > 0 THEN unit_count ELSE 0 END), 0),
+                    SUM(in_place_rent * unit_count) / NULLIF(SUM(CASE WHEN in_place_rent > 0 THEN unit_count ELSE 0 END), 0)
+                FROM unified_pricing_metrics
+                WHERE unified_property_id = ? OR unified_property_id = ?
+            """, (property_id, _norml))
+            _lr = _curl.fetchone()
+            _connl.close()
+            if _lr and _lr[0] and _lr[1]:
+                _occ_units = property_data.get("occupancy", {}).get("occupied_units", 0)
+                _lpu = round(_lr[0] - _lr[1], 2)
+                _total = round(_lpu * _occ_units, 2)
+                property_data["loss_to_lease"] = {
+                    "avg_market_rent": round(_lr[0], 2),
+                    "avg_actual_rent": round(_lr[1], 2),
+                    "loss_per_unit": _lpu,
+                    "total_monthly_loss": _total,
+                    "total_annual_loss": round(_total * 12, 2),
+                }
+        except Exception:
+            pass
+        
+        # Google Reviews
+        try:
+            from app.services.google_reviews_service import get_property_reviews
+            google_rev = await get_property_reviews(property_id)
+            if google_rev and not google_rev.get("error") and google_rev.get("rating"):
+                property_data["google_reviews"] = {
+                    "rating": google_rev.get("rating"),
+                    "review_count": google_rev.get("review_count", 0),
+                    "response_rate": google_rev.get("response_rate", 0),
+                    "needs_response": google_rev.get("needs_response", 0),
+                }
+        except Exception:
+            pass
+        
+        # Apartments.com Reviews
+        try:
+            from app.services.apartments_reviews_service import get_apartments_reviews as _get_apt_rev
+            _apt = _get_apt_rev(property_id)
+            if _apt and _apt.get("rating"):
+                property_data["apartments_reviews"] = {
+                    "rating": _apt.get("rating"),
+                    "review_count": _apt.get("review_count", 0),
+                }
+        except Exception:
+            pass
+        
+        # Move-out reasons
+        try:
+            import sqlite3 as _sqlite3m
+            _connm = _sqlite3m.connect(str(UNIFIED_DB_PATH))
+            _curm = _connm.cursor()
+            _curm.execute("""
+                SELECT category, SUM(category_count) as total
+                FROM unified_move_out_reasons
+                WHERE unified_property_id = ? AND resident_type = 'former'
+                GROUP BY category ORDER BY total DESC LIMIT 5
+            """, (property_id,))
+            _mrows = _curm.fetchall()
+            _connm.close()
+            if _mrows:
+                property_data["move_out_reasons"] = [{"category": r[0], "count": r[1]} for r in _mrows]
+        except Exception:
+            pass
+        
         response = await chat_service.chat(message, property_data, history)
         return {"response": response}
     except Exception as e:

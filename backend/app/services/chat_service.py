@@ -103,10 +103,94 @@ class ChatService:
         funnel_lines += self._format_metric("Tours", funnel.get('tours'))
         funnel_lines += self._format_metric("Applications", funnel.get('applications'))
         funnel_lines += self._format_metric("Lease Signs", funnel.get('lease_signs'))
+        funnel_lines += self._format_metric("Sight Unseen (Apps w/o Tour)", funnel.get('sight_unseen'))
+        funnel_lines += self._format_metric("Tour-to-App", funnel.get('tour_to_app'))
         funnel_lines += self._format_metric("Lead-to-Tour Rate", funnel.get('lead_to_tour_rate'), "%")
         funnel_lines += self._format_metric("Lead-to-Lease Rate", funnel.get('lead_to_lease_rate'), "%")
         if funnel_lines:
             sections.append(f"LEASING FUNNEL:\n{funnel_lines}")
+        
+        # Loss-to-Lease
+        ltl = property_data.get("loss_to_lease", {})
+        if ltl:
+            ltl_lines = ""
+            if self._has_value(ltl.get('avg_market_rent')):
+                ltl_lines += f"- Avg Market Rent: ${ltl.get('avg_market_rent')}\n"
+            if self._has_value(ltl.get('avg_actual_rent')):
+                ltl_lines += f"- Avg Actual Rent: ${ltl.get('avg_actual_rent')}\n"
+            if self._has_value(ltl.get('loss_per_unit')):
+                ltl_lines += f"- Loss Per Unit: ${ltl.get('loss_per_unit')}/mo\n"
+            if self._has_value(ltl.get('total_monthly_loss')):
+                ltl_lines += f"- Total Monthly Loss: ${ltl.get('total_monthly_loss'):,.0f}\n"
+            if self._has_value(ltl.get('total_annual_loss')):
+                ltl_lines += f"- Total Annual Loss: ${ltl.get('total_annual_loss'):,.0f}\n"
+            if ltl_lines:
+                sections.append(f"LOSS-TO-LEASE:\n{ltl_lines}")
+        
+        # Delinquency
+        delinq = property_data.get("delinquency", {})
+        if delinq:
+            del_lines = ""
+            del_lines += self._format_metric("Current Resident Delinquency", f"${delinq.get('current_resident_total', 0):,.0f}")
+            del_lines += self._format_metric("Former/Collections", f"${delinq.get('former_resident_total', 0):,.0f}")
+            del_lines += self._format_metric("Delinquent Units", delinq.get('delinquent_units'))
+            del_lines += self._format_metric("Evictions", delinq.get('eviction_count'))
+            if del_lines:
+                sections.append(f"DELINQUENCY:\n{del_lines}")
+        
+        # Renewals
+        ren = property_data.get("renewals", {})
+        if ren:
+            ren_lines = ""
+            ren_lines += self._format_metric("Renewal Count", ren.get('count_detail', ren.get('count')))
+            if self._has_value(ren.get('avg_vs_prior_pct')):
+                ren_lines += f"- Avg vs Prior: {ren.get('avg_vs_prior_pct'):+.1f}% (${ren.get('avg_vs_prior', 0):+,.0f}/mo)\n"
+            if self._has_value(ren.get('avg_renewal_rent')):
+                ren_lines += f"- Avg Renewal Rent: ${ren.get('avg_renewal_rent'):,.0f}\n"
+            if ren_lines:
+                sections.append(f"RENEWALS:\n{ren_lines}")
+        
+        # Tradeouts
+        to = property_data.get("tradeouts", {})
+        if to:
+            to_lines = ""
+            to_lines += self._format_metric("Trade-out Count", to.get('count'))
+            if self._has_value(to.get('avg_pct_change')):
+                to_lines += f"- Avg Change: {to.get('avg_pct_change'):+.1f}% (${to.get('avg_dollar_change', 0):+,.0f}/mo)\n"
+            if to_lines:
+                sections.append(f"TRADE-OUTS (New Leases vs Prior):\n{to_lines}")
+        
+        # Expirations
+        expirations = property_data.get("expirations", [])
+        if expirations:
+            exp_lines = ""
+            for period in expirations[:3]:
+                label = period.get("label", "")
+                exp_count = period.get("expirations", 0)
+                signed = period.get("signed", 0)
+                vacating = period.get("vacating", 0)
+                exp_lines += f"- {label}: {exp_count} expiring, {signed} renewed, {vacating} vacating\n"
+            if exp_lines:
+                sections.append(f"LEASE EXPIRATIONS:\n{exp_lines}")
+        
+        # Reviews
+        google = property_data.get("google_reviews", {})
+        apt_rev = property_data.get("apartments_reviews", {})
+        rev_lines = ""
+        if google:
+            rev_lines += f"- Google: {google.get('rating', 0):.1f}★ ({google.get('review_count', 0)} reviews, {google.get('response_rate', 0):.0f}% response rate, {google.get('needs_response', 0)} need response)\n"
+        if apt_rev:
+            rev_lines += f"- Apartments.com: {apt_rev.get('rating', 0):.1f}★ ({apt_rev.get('review_count', 0)} reviews)\n"
+        if rev_lines:
+            sections.append(f"ONLINE REVIEWS:\n{rev_lines}")
+        
+        # Move-out reasons
+        move_out = property_data.get("move_out_reasons", [])
+        if move_out:
+            mo_lines = ""
+            for r in move_out[:5]:
+                mo_lines += f"- {r['category']}: {r['count']} residents\n"
+            sections.append(f"TOP MOVE-OUT REASONS:\n{mo_lines}")
         
         # Units and residents
         if len(units) > 0:
@@ -184,30 +268,114 @@ You can help with occupancy analysis, pricing insights, leasing funnel efficienc
         properties = portfolio_data.get("properties", [])
         summary = portfolio_data.get("summary", {})
         
-        # Build property comparison table
-        property_lines = []
+        # Build detailed per-property sections
+        property_sections = []
         for prop in properties:
             name = prop.get("name", "Unknown")
             occ = prop.get("occupancy", {})
             pricing = prop.get("pricing", {})
             funnel = prop.get("funnel", {})
+            exposure = prop.get("exposure", {})
+            delinq = prop.get("delinquency", {})
+            renewals = prop.get("renewals", {})
+            tradeouts = prop.get("tradeouts", {})
+            ltl = prop.get("loss_to_lease", {})
+            google = prop.get("google_reviews", {})
+            apt_rev = prop.get("apartments_reviews", {})
+            expirations = prop.get("expirations", [])
+            move_out = prop.get("move_out_reasons", [])
             
+            lines = [f"── {name} ──"]
+            
+            # Occupancy
             units = occ.get("total_units", 0)
             phys_occ = occ.get("physical_occupancy", 0)
             vacant = occ.get("vacant_units", 0)
             aged = occ.get("aged_vacancy_90_plus", 0)
+            leased_pct = occ.get("leased_percentage", 0)
+            lines.append(f"  Occupancy: {phys_occ:.1f}% physical, {leased_pct:.1f}% leased | {units} units, {vacant} vacant ({aged} aged 90+)")
+            
+            # Pricing
             in_place = pricing.get("avg_in_place_rent", 0)
             asking = pricing.get("avg_asking_rent", 0)
-            leads = funnel.get("leads", 0)
-            leases = funnel.get("lease_signs", 0)
-            conversion = funnel.get("lead_to_lease_rate", 0)
+            growth = pricing.get("rent_growth", 0)
+            lines.append(f"  Rent: In-place ${in_place:,.0f}, Asking ${asking:,.0f}, Growth {growth:.1f}%")
             
-            property_lines.append(
-                f"  • {name}: {units} units, {phys_occ:.1f}% occupied, {vacant} vacant ({aged} aged 90+), "
-                f"In-place ${in_place:,.0f}, Asking ${asking:,.0f}, {leads} leads → {leases} leases ({conversion:.1f}% conv)"
-            )
+            # Loss-to-Lease
+            if ltl:
+                lines.append(f"  Loss-to-Lease: ${ltl.get('loss_per_unit', 0):,.0f}/unit, ${ltl.get('total_monthly_loss', 0):,.0f}/mo (${ltl.get('total_annual_loss', 0):,.0f}/yr)")
+            
+            # Funnel
+            leads = funnel.get("leads", 0)
+            tours = funnel.get("tours", 0)
+            apps = funnel.get("applications", 0)
+            leases = funnel.get("lease_signs", 0)
+            l2l_rate = funnel.get("lead_to_lease_rate", 0)
+            sight_unseen = funnel.get("sight_unseen", 0)
+            tour_to_app = funnel.get("tour_to_app", 0)
+            lines.append(f"  Funnel MTD: {leads} leads → {tours} tours → {apps} apps → {leases} leases ({l2l_rate:.1f}% conv)")
+            if sight_unseen or tour_to_app:
+                lines.append(f"  Funnel Detail: {tour_to_app} tour-to-app, {sight_unseen} applied w/o tour")
+            
+            # Exposure
+            if exposure:
+                move_ins = exposure.get("move_ins", 0)
+                move_outs = exposure.get("move_outs", 0)
+                net = exposure.get("net_absorption", 0)
+                notices = exposure.get("notices_30_days", 0)
+                lines.append(f"  Movement: {move_ins} move-ins, {move_outs} move-outs, net {net:+d} | {notices} notices (30d)")
+            
+            # Delinquency
+            if delinq:
+                curr_del = delinq.get("current_resident_total", 0)
+                former_del = delinq.get("former_resident_total", 0)
+                del_units = delinq.get("delinquent_units", 0)
+                evictions = delinq.get("eviction_count", 0)
+                lines.append(f"  Delinquency: ${curr_del:,.0f} current ({del_units} units), ${former_del:,.0f} former/collections, {evictions} evictions")
+            
+            # Renewals
+            if renewals:
+                ren_count = renewals.get("count_detail", renewals.get("count", 0))
+                avg_vs_prior = renewals.get("avg_vs_prior", 0)
+                avg_vs_prior_pct = renewals.get("avg_vs_prior_pct", 0)
+                lines.append(f"  Renewals: {ren_count} renewals, avg {avg_vs_prior_pct:+.1f}% vs prior (${avg_vs_prior:+,.0f}/mo)")
+            
+            # Tradeouts
+            if tradeouts:
+                to_count = tradeouts.get("count", 0)
+                avg_to_change = tradeouts.get("avg_pct_change", 0)
+                avg_to_dollar = tradeouts.get("avg_dollar_change", 0)
+                lines.append(f"  Trade-outs: {to_count} new leases, avg {avg_to_change:+.1f}% vs prior (${avg_to_dollar:+,.0f}/mo)")
+            
+            # Expirations
+            if expirations:
+                exp_lines = []
+                for period in expirations[:3]:
+                    label = period.get("label", "")
+                    exp_count = period.get("expirations", 0)
+                    ren_signed = period.get("signed", 0)
+                    vacating = period.get("vacating", 0)
+                    exp_lines.append(f"{label}: {exp_count} expiring, {ren_signed} renewed, {vacating} vacating")
+                if exp_lines:
+                    lines.append(f"  Lease Expirations: {' | '.join(exp_lines)}")
+            
+            # Reviews
+            review_parts = []
+            if google:
+                review_parts.append(f"Google {google.get('rating', 0):.1f}★ ({google.get('review_count', 0)} reviews, {google.get('response_rate', 0):.0f}% response rate, {google.get('needs_response', 0)} need response)")
+            if apt_rev:
+                review_parts.append(f"Apartments.com {apt_rev.get('rating', 0):.1f}★ ({apt_rev.get('review_count', 0)} reviews)")
+            if review_parts:
+                lines.append(f"  Reviews: {' | '.join(review_parts)}")
+            
+            # Move-out reasons
+            if move_out:
+                reasons = [f"{r['category']} ({r['count']})" for r in move_out[:3]]
+                lines.append(f"  Top Move-Out Reasons: {', '.join(reasons)}")
+            
+            property_sections.append("\n".join(lines))
         
-        properties_detail = "\n".join(property_lines) if property_lines else "No property data available"
+        properties_detail = "\n\n".join(property_sections) if property_sections else "No property data available"
         
         # Calculate portfolio totals
         total_units = summary.get("total_units", 0)
@@ -218,6 +386,8 @@ You can help with occupancy analysis, pricing insights, leasing funnel efficienc
         total_leases = sum(p.get("funnel", {}).get("lease_signs", 0) for p in properties)
         avg_in_place = summary.get("avg_in_place_rent", 0)
         avg_asking = summary.get("avg_asking_rent", 0)
+        total_delinquent = sum(p.get("delinquency", {}).get("current_resident_total", 0) for p in properties)
+        total_ltl_annual = sum(p.get("loss_to_lease", {}).get("total_annual_loss", 0) for p in properties)
         
         # Identify outliers
         _empty = {"name": "N/A", "occupancy": {}, "funnel": {}}
@@ -250,11 +420,18 @@ PORTFOLIO TOTALS:
 • Rent Growth Opportunity: {((avg_asking - avg_in_place) / avg_in_place * 100) if avg_in_place > 0 else 0:.1f}%
 • Total Leads MTD: {total_leads}
 • Total Leases Signed MTD: {total_leases}
+• Total Current Delinquency: ${total_delinquent:,.0f}
+• Total Annual Loss-to-Lease: ${total_ltl_annual:,.0f}
 
-PROPERTY-BY-PROPERTY BREAKDOWN:
+═══════════════════════════════════════════════════════════════════════════════
+PROPERTY-BY-PROPERTY DETAIL
+═══════════════════════════════════════════════════════════════════════════════
+
 {properties_detail}
 
-PERFORMANCE HIGHLIGHTS:
+═══════════════════════════════════════════════════════════════════════════════
+PERFORMANCE HIGHLIGHTS
+═══════════════════════════════════════════════════════════════════════════════
 • Highest Occupancy: {best_occ.get("name", "N/A")} ({best_occ.get("occupancy", {}).get("physical_occupancy", 0):.1f}%)
 • Lowest Occupancy: {worst_occ.get("name", "N/A")} ({worst_occ.get("occupancy", {}).get("physical_occupancy", 0):.1f}%)
 • Best Lead Conversion: {best_conversion.get("name", "N/A")} ({best_conversion.get("funnel", {}).get("lead_to_lease_rate", 0):.1f}%)
@@ -266,10 +443,12 @@ YOUR ROLE & ANALYSIS FRAMEWORK
 
 As an Asset Manager, analyze this portfolio through these lenses:
 
-1. **NOI OPTIMIZATION**: Identify rent growth opportunities, expense reduction potential
-2. **RISK ASSESSMENT**: Flag aged vacancy, low conversion, lease exposure
+1. **NOI OPTIMIZATION**: Identify rent growth opportunities, loss-to-lease capture, renewal rent pushes
+2. **RISK ASSESSMENT**: Flag aged vacancy, delinquency, evictions, low conversion, lease exposure
 3. **OPERATIONAL EFFICIENCY**: Compare property performance, identify best practices to replicate
-4. **STRATEGIC INSIGHTS**: Market positioning, competitive threats, capital allocation
+4. **FINANCIAL HEALTH**: Delinquency trends, collections, loss-to-lease, trade-out performance
+5. **REPUTATION**: Online review ratings, response rates, review sentiment
+6. **RETENTION**: Renewal rates, move-out reasons, lease expiration pipeline
 
 When providing portfolio highlights:
 - Lead with the most IMPACTFUL metrics (what affects NOI most)

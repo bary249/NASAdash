@@ -378,8 +378,8 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
           {/* Watchpoints — shown when watchpoints tab active */}
           {activeTab === 'watchpoints' && (
             <div className="mb-6">
-              {propertyId ? (
-                <WatchpointsPanel propertyId={propertyId} />
+              {effectivePropertyId ? (
+                <WatchpointsPanel propertyId={effectivePropertyId} />
               ) : (
                 <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">
                   Select a property from the portfolio table below to view and manage watchpoints.

@@ -362,13 +362,6 @@ class OccupancyService:
             start_str = period_start.strftime("%Y-%m-%d")
             end_str = period_end.strftime("%Y-%m-%d")
 
-            # Count unique prospects per funnel stage within the date range
-            # Lead events: first-contact activity types
-            lead_types = (
-                "E-mail", "Phone call", "Text message", "Internet",
-                "Online Leasing guest card", "Call Center guest card",
-                "Chat", "Event", "High",
-            )
             # Tour events
             tour_types = ("Visit", "Visit (return)", "Videotelephony - Tour", "Self-guided - Tour", "Pre-recorded - Tour")
             # Application events
@@ -390,7 +383,19 @@ class OccupancyService:
                 """, (property_id, normalized_id, start_str, end_str, *types))
                 return cursor.fetchone()[0] or 0
 
-            leads = count_unique(lead_types)
+            # Leads = truly new prospects whose first-ever activity is within this period
+            cursor.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT resident_name, MIN(activity_date) as first_date
+                    FROM unified_activity
+                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                      AND resident_name IS NOT NULL AND resident_name != ''
+                    GROUP BY resident_name
+                    HAVING first_date >= ? AND first_date <= ?
+                )
+            """, (property_id, normalized_id, start_str, end_str))
+            leads = cursor.fetchone()[0] or 0
+
             tours = count_unique(tour_types)
             applications = count_unique(app_types)
             lease_signs = count_unique(lease_types)

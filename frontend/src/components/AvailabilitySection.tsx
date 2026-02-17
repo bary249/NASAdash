@@ -64,6 +64,7 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [trendSortNewest, setTrendSortNewest] = useState(true);
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   useEffect(() => {
@@ -132,8 +133,9 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
     );
   }
 
-  const trendWeeks = [...data.trend.weeks].reverse();
-  const maxAtr = Math.max(...trendWeeks.map(w => w.atr), data.atr, 1);
+  const weeks = data?.trend?.weeks || [];
+  const trendWeeks = trendSortNewest ? [...weeks].reverse() : [...weeks];
+  const maxAtr = Math.max(...trendWeeks.map(w => w.atr), data?.atr || 0, 1);
 
   return (
     <div className="venn-section">
@@ -233,7 +235,15 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
         <div className="bg-slate-50 rounded-xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-sm font-semibold text-slate-700">7-Week ATR Trend</h4>
-            <TrendLabel direction={data.trend.direction} />
+            <div className="flex items-center gap-3">
+              <TrendLabel direction={data.trend.direction} />
+              <button
+                onClick={() => setTrendSortNewest(prev => !prev)}
+                className="text-[10px] px-2 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-white hover:text-slate-700 transition-colors"
+              >
+                {trendSortNewest ? 'Newest ↓' : 'Oldest ↓'}
+              </button>
+            </div>
           </div>
           {trendWeeks.length > 0 ? (
             <div className="space-y-2">

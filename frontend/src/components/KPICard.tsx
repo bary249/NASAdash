@@ -177,8 +177,10 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
             {i < stages.length - 1 && (
               <div className="mx-1.5 flex flex-col items-center flex-shrink-0">
                 <div className="w-1 h-1 bg-slate-300 rounded-full" />
-                <div className="w-1 h-1 bg-slate-300 rounded-full mt-0.5" />
-                <div className="w-1 h-1 bg-slate-300 rounded-full mt-0.5" />
+                <div className="text-[9px] font-medium text-indigo-500 my-0.5">
+                  {stage.value > 0 ? `${Math.round(stages[i + 1].value / stage.value * 100)}%` : '—'}
+                </div>
+                <div className="w-1 h-1 bg-slate-300 rounded-full" />
               </div>
             )}
           </div>

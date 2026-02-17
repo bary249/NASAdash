@@ -1458,13 +1458,15 @@ def sync_lease_expirations():
     
     count = 0
     try:
+        # Deduplicate: pick latest report_date per unit, breaking ties arbitrarily
         rp_cursor.execute("""
-            SELECT property_id, report_date, unit_number, floorplan,
+            SELECT property_id, MAX(report_date) as report_date, unit_number, floorplan,
                    actual_rent, lease_end_date, decision,
                    new_rent, new_lease_start, new_lease_term,
                    move_in_date, market_rent
             FROM realpage_lease_expiration_renewal
             WHERE property_id IS NOT NULL
+            GROUP BY property_id, unit_number, lease_end_date
         """)
         for row in rp_cursor.fetchall():
             if row[0] not in PROPERTY_MAPPING:

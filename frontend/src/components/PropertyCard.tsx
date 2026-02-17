@@ -42,6 +42,8 @@ export function PropertyCard({
           src={imageUrl} 
           alt={name}
           className="absolute inset-0 w-full h-full object-cover"
+          referrerPolicy="no-referrer"
+          crossOrigin="anonymous"
         />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900">

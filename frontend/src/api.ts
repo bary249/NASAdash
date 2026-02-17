@@ -392,6 +392,10 @@ export const api = {
     error?: string;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/apartments-reviews`),
 
+  getPropertyImage: (propertyId: string): Promise<{
+    property_id: string; image_url: string | null; source: string;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/image`),
+
   getAIInsights: (propertyId: string): Promise<{
     alerts: { severity: string; title: string; fact: string; risk: string; action: string }[];
     qna: { question: string; answer: string }[];

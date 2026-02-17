@@ -181,6 +181,12 @@ def fetch_for_network(network: str, slug_key: str, cache_path: Path):
             metrics["review_count"] = review_count
             metrics["zembra_job_id"] = job_id
 
+            # Capture property image from target metadata (Google has profileImage)
+            profile_image = target.get("profileImage")
+            if profile_image:
+                metrics["profile_image"] = profile_image
+                print(f"  Profile image: {profile_image[:80]}...")
+
             if network == "apartments":
                 slug_parts = slug.split("/")
                 metrics["url"] = f"https://www.apartments.com/{slug_parts[0]}/{slug_parts[-1]}/"

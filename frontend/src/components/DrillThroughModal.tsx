@@ -18,6 +18,9 @@ interface DrillThroughModalProps {
   data: any[];
   columns: Column[];
   loading?: boolean;
+  // Optional summary/total row rendered in tfoot
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  summaryRow?: Record<string, any>;
 }
 
 export function DrillThroughModal({
@@ -27,6 +30,7 @@ export function DrillThroughModal({
   data,
   columns,
   loading = false,
+  summaryRow,
 }: DrillThroughModalProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -126,6 +130,19 @@ export function DrillThroughModal({
                     </tr>
                   ))}
                 </tbody>
+                {summaryRow && (
+                  <tfoot>
+                    <tr className="bg-slate-100 border-t-2 border-slate-300 font-semibold">
+                      {columns.map((col) => (
+                        <td key={col.key} className="px-4 py-3 text-sm whitespace-nowrap text-slate-800">
+                          {col.format && summaryRow[col.key] != null
+                            ? col.format(summaryRow[col.key], summaryRow)
+                            : String(summaryRow[col.key] ?? '')}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             )}
           </div>

@@ -58,17 +58,19 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
       {isExpanded && <div className="overflow-x-auto">
         <table className="w-full text-sm table-fixed">
           <colgroup>
-            <col className="w-[28%]" />
             <col className="w-[24%]" />
-            <col className="w-[24%]" />
-            <col className="w-[24%]" />
+            <col className="w-[22%]" />
+            <col className="w-[22%]" />
+            <col className="w-[16%]" />
+            <col className="w-[16%]" />
           </colgroup>
           <thead>
             <tr className="border-b border-slate-100">
               <th className="px-2 py-2 text-left text-xs font-medium text-slate-500">Type</th>
               <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">In-Place</th>
               <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Asking</th>
-              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta</th>
+              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta $</th>
+              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta %</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -110,10 +112,47 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
                       {delta.formatted}
                     </span>
                   </td>
+                  <td className="px-2 py-2.5 text-right whitespace-nowrap">
+                    <span className={`text-xs font-medium ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {fp.inPlaceRent > 0 ? `${((fp.askingRent - fp.inPlaceRent) / fp.inPlaceRent * 100).toFixed(1)}%` : '—'}
+                    </span>
+                  </td>
                 </tr>
               );
             })}
           </tbody>
+          <tfoot>
+            {(() => {
+              const totalUnits = floorplans.reduce((s, f) => s + f.unitCount, 0);
+              const totalOccUnits = floorplans.filter(f => f.inPlaceRent > 0).reduce((s, f) => s + f.unitCount, 0);
+              const avgInPlace = totalOccUnits > 0 ? floorplans.filter(f => f.inPlaceRent > 0).reduce((s, f) => s + f.inPlaceRent * f.unitCount, 0) / totalOccUnits : 0;
+              const avgAsking = totalUnits > 0 ? floorplans.reduce((s, f) => s + f.askingRent * f.unitCount, 0) / totalUnits : 0;
+              const totalDelta = getDelta(avgInPlace, avgAsking);
+              const deltaPct = avgInPlace > 0 ? ((avgAsking - avgInPlace) / avgInPlace * 100).toFixed(1) : '—';
+              return (
+                <tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold text-slate-800">
+                  <td className="px-2 py-2.5">
+                    <div className="flex flex-col">
+                      <span>Total</span>
+                      <span className="text-xs text-slate-400 font-normal">{totalUnits} units</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2.5 text-right">{formatCurrency(avgInPlace)}</td>
+                  <td className="px-2 py-2.5 text-right">{formatCurrency(avgAsking)}</td>
+                  <td className="px-2 py-2.5 text-right">
+                    <span className={`inline-flex items-center gap-1 text-xs font-medium ${totalDelta.value >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {totalDelta.formatted}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5 text-right">
+                    <span className={`text-xs font-medium ${totalDelta.value >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {deltaPct !== '—' ? `${deltaPct}%` : '—'}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })()}
+          </tfoot>
         </table>
       </div>}
     </div>

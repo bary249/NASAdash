@@ -513,10 +513,21 @@ def import_lease_expiration_renewal(conn: sqlite3.Connection, records: List[Dict
             file_id TEXT
         )
     """)
+    # Clear old data for this property to prevent duplicates across ETL runs
+    prop_ids = set(r.get('property_id') for r in records if r.get('property_id'))
+    for pid in prop_ids:
+        cursor.execute("DELETE FROM realpage_lease_expiration_renewal WHERE property_id = ?", (pid,))
+        cursor.execute("DELETE FROM realpage_lease_exp_renewal_summary WHERE property_id = ?", (pid,))
+
     imported = 0
+    seen_details = set()  # Dedup within same import (multiple sheets)
     for r in records:
         try:
             if r.get('_type') == 'detail':
+                dedup_key = (r.get('property_id'), r.get('unit_number'), r.get('lease_end_date'))
+                if dedup_key in seen_details:
+                    continue
+                seen_details.add(dedup_key)
                 cursor.execute("""
                     INSERT INTO realpage_lease_expiration_renewal
                     (property_id, report_date, unit_number, floorplan, actual_rent,

@@ -127,7 +127,7 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
     );
   }
 
-  const trendWeeks = data.trend.weeks;
+  const trendWeeks = [...data.trend.weeks].reverse();
   const maxAtr = Math.max(...trendWeeks.map(w => w.atr), data.atr, 1);
 
   return (

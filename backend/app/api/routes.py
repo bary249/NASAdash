@@ -2442,6 +2442,32 @@ async def get_reputation(property_id: str):
     }
 
 
+@router.get("/properties/{property_id}/image")
+async def get_property_image(property_id: str):
+    """
+    GET: Property image URL from Zembra/Google reviews cache.
+    Returns the Google Maps profile image for the property.
+    """
+    from app.services.google_reviews_service import _load_reviews_cache
+    cache = _load_reviews_cache()
+
+    # Try direct match, then known mappings
+    PROPERTY_MAP = {
+        "5536211": "parkside",
+        "5472172": "nexus_east",
+    }
+    cache_key = PROPERTY_MAP.get(property_id, property_id)
+    entry = cache.get(cache_key)
+
+    if entry:
+        data = entry.get("data", {})
+        image_url = data.get("profile_image")
+        if image_url:
+            return {"property_id": property_id, "image_url": image_url, "source": "zembra/google"}
+
+    return {"property_id": property_id, "image_url": None, "source": "none"}
+
+
 @router.get("/properties/{property_id}/reviews")
 async def get_reviews(property_id: str):
     """

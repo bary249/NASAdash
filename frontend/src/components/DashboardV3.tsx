@@ -565,9 +565,11 @@ const RENEWAL_DRILL_COLUMNS = [
 ];
 
 function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo, timeRange = 'mtd', dynamicImageUrl }: PropertyDashboardProps) {
-  const { occupancy, funnel, priorFunnel, priorFunnelLabel, expirations, loading, error, periodEnd } = usePropertyData();
+  const { occupancy, funnel, priorFunnel, priorFunnelLabel, expirations, loading, refreshing: contextRefreshing, error, periodEnd } = usePropertyData();
 
   const periodLabel = timeRange === 'ytd' ? 'YTD' : timeRange === 'mtd' ? 'MTD' : timeRange === 'l30' ? 'Last 30 days' : 'Last 7 days';
+  const [periodRefreshing, setPeriodRefreshing] = useState(false);
+  const isRefreshing = contextRefreshing || periodRefreshing;
 
   // New KPI data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -603,6 +605,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   useEffect(() => {
     if (!propertyIds.length) return;
     let cancelled = false;
+    setPeriodRefreshing(true);
+    let pending = 7; // number of parallel fetch groups
+    const settle = () => { if (--pending <= 0 && !cancelled) setPeriodRefreshing(false); };
     const ids = propertyIds;
 
     // Map timeRange to days for period-based endpoints
@@ -629,7 +634,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         };
         merged.atr_pct = merged.total_units > 0 ? Math.round(merged.atr / merged.total_units * 1000) / 10 : 0;
         setAtrData(merged);
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Shows: sum across properties, merge details + by_date for drill-through
     Promise.all(ids.map(id => cachedCall(`shows_${id}_${periodDays}`, () => api.getShows(id, periodDays), { total_shows: 0, details: [], by_date: [] } as any)))
@@ -649,7 +654,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           details: allDetails,
           by_date: mergedByDate,
         });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Tradeouts: concat arrays, recalculate summary
     Promise.all(ids.map(id => cachedCall(`tradeouts_${id}_${periodDays}`, () => api.getTradeouts(id, periodDays), { tradeouts: [], summary: {} } as any)))
@@ -669,7 +674,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             avg_pct_change: totalPrior > 0 ? Math.round((totalNew - totalPrior) / totalPrior * 1000) / 10 : 0,
           },
         });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Availability by floorplan: merge across properties, consolidate same-name floorplans
     Promise.all(ids.map(id => cachedCall(`availfp_${id}`, () => api.getAvailabilityByFloorplan(id), { floorplans: [], totals: {} } as any)))
@@ -709,7 +714,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           }
         }
         setAvailByFp({ floorplans: mergedFps, totals });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Forecast: merge across properties by week index
     Promise.all(ids.map(id => cachedCall(`forecast_${id}`, () => api.getOccupancyForecast(id, 12), null)))
@@ -755,7 +760,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           move_in_units: valid.flatMap((r: any) => r.move_in_units || []),
           expiration_units: valid.flatMap((r: any) => r.expiration_units || []),
         });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Box score occupancy: fetch from /occupancy endpoint (same source as portfolio table)
     Promise.all(ids.map(id => cachedCall(`boxocc_${id}`, () => api.getOccupancy(id), null)))
@@ -774,7 +779,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           vacant_not_ready: valid.reduce((s: number, r: any) => s + (r.vacant_not_ready || 0), 0),
           aged_vacancy_90_plus: valid.reduce((s: number, r: any) => s + (r.aged_vacancy_90_plus || 0), 0),
         });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
     // Renewals: merge across properties
     Promise.all(ids.map(id => cachedCall(`renewals_${id}_${periodDays}`, () => api.getRenewals(id, periodDays), { renewals: [], summary: {} } as any)))
@@ -794,9 +799,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             avg_vs_prior_pct: totalPrior > 0 ? Math.round((totalRent - totalPrior) / totalPrior * 1000) / 10 : 0,
           },
         });
-      }).catch(() => {});
+      }).catch(() => {}).finally(settle);
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; setPeriodRefreshing(false); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyIds.join(','), timeRange]);
 
@@ -1114,6 +1119,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               timeLabel={asOfLabel}
               icon={<Home className="w-4 h-4" />}
               tooltip="Physical occupancy = Occupied Units ÷ Total Units × 100. Source: RealPage Box Score."
+              refreshing={isRefreshing}
             />
             
             <KPICard
@@ -1123,6 +1129,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               timeLabel={asOfLabel}
               icon={<DollarSign className="w-4 h-4" />}
               tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Source: RealPage Rent Roll."
+              refreshing={isRefreshing}
             />
             
             <KPICard
@@ -1131,6 +1138,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               subtitle={`${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} renewed`}
               icon={<TrendingUp className="w-4 h-4" />}
               tooltip="Leases with status 'Current - Future' ÷ All leases expiring within 90 days × 100. Source: RealPage Leases."
+              refreshing={isRefreshing}
             />
             
             <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full">
@@ -1141,6 +1149,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 timeLabel={periodLabel}
                 icon={<DollarSign className="w-4 h-4" />}
                 tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
+                refreshing={isRefreshing}
               />
             </div>
 
@@ -1151,6 +1160,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               agedCount={boxScoreOcc?.aged_vacancy_90_plus ?? occupancy?.agedVacancy90Plus}
               timeLabel={asOfLabel}
               tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
+              refreshing={isRefreshing}
             />
             
             <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full">
@@ -1160,6 +1170,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 subtitle={atrData ? `${atrData.atr_pct}% of ${atrData.total_units} units` : ''}
                 icon={<Home className="w-4 h-4" />}
                 tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
+                refreshing={isRefreshing}
               />
             </div>
 
@@ -1177,6 +1188,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 priorApplications={priorFunnel?.applications}
                 priorLeasesSigned={priorFunnel?.leaseSigns}
                 priorPeriodLabel={priorFunnelLabel}
+                refreshing={isRefreshing}
               />
             </div>
             
@@ -1188,6 +1200,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 timeLabel={periodLabel}
                 icon={<TrendingDown className="w-4 h-4" />}
                 tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases.`}
+                refreshing={isRefreshing}
               />
             </div>
           </div>

@@ -30,6 +30,7 @@ interface KPICardProps {
   children?: ReactNode;
   isMock?: boolean; // Show "mock" tag for hardcoded values
   isCalc?: boolean; // Show "calc" tag for calculated values
+  refreshing?: boolean; // Show subtle pulse when data is being refreshed
 }
 
 export function KPICard({
@@ -46,6 +47,7 @@ export function KPICard({
   children,
   isMock = false,
   isCalc = false,
+  refreshing = false,
 }: KPICardProps) {
   const variantStyles: Record<CardVariant, string> = {
     default: 'bg-white border-slate-200 hover:border-slate-300',
@@ -68,9 +70,10 @@ export function KPICard({
     <div
       onClick={onClick}
       className={`
-        rounded-xl border p-4 transition-all duration-200
+        relative rounded-xl border p-4 transition-all duration-200
         ${variantStyles[variant]}
         ${onClick ? 'cursor-pointer hover:shadow-md' : ''}
+        ${refreshing ? 'animate-pulse' : ''}
       `}
     >
       {/* Header with title and icon */}
@@ -147,6 +150,7 @@ interface FunnelKPICardProps {
   priorApplications?: number;
   priorLeasesSigned?: number;
   priorPeriodLabel?: string;
+  refreshing?: boolean;
 }
 
 function PeriodDelta({ current, prior, noData }: { current: number; prior?: number; noData?: boolean }) {
@@ -165,7 +169,7 @@ function PeriodDelta({ current, prior, noData }: { current: number; prior?: numb
   );
 }
 
-export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick, priorLeads, priorTours, priorApplications, priorLeasesSigned, priorPeriodLabel }: FunnelKPICardProps) {
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick, priorLeads, priorTours, priorApplications, priorLeasesSigned, priorPeriodLabel, refreshing = false }: FunnelKPICardProps) {
   const noCurrentData = leads === 0 && tours === 0 && applications === 0 && leasesSigned === 0;
   const stages = [
     { label: 'Leads', value: leads, prior: priorLeads },
@@ -180,6 +184,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
       className={`
         rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200 overflow-hidden
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
+        ${refreshing ? 'animate-pulse' : ''}
       `}
     >
       <div className="flex items-center justify-between mb-3">
@@ -216,15 +221,17 @@ interface VacantKPICardProps {
   timeLabel?: string;
   tooltip?: string;
   onClick?: () => void;
+  refreshing?: boolean;
 }
 
-export function VacantKPICard({ total, ready, agedCount, timeLabel, tooltip, onClick }: VacantKPICardProps) {
+export function VacantKPICard({ total, ready, agedCount, timeLabel, tooltip, onClick, refreshing = false }: VacantKPICardProps) {
   return (
     <div
       onClick={onClick}
       className={`
         rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
+        ${refreshing ? 'animate-pulse' : ''}
       `}
     >
       <div className="flex items-center justify-between">

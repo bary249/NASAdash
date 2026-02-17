@@ -100,6 +100,17 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
           },
           trend: valid[0].trend, // Use first property's trend for portfolio
         };
+        // Aggregate prior_month across all properties
+        const priorProps = valid.filter(r => r.prior_month);
+        if (priorProps.length > 0) {
+          merged.prior_month = {
+            atr: priorProps.reduce((s, r) => s + (r.prior_month?.atr || 0), 0),
+            atr_pct: 0,
+            snapshot_date: priorProps[0].prior_month!.snapshot_date,
+          };
+          merged.prior_month.atr_pct = merged.total_units > 0
+            ? Math.round(merged.prior_month.atr / merged.total_units * 1000) / 10 : 0;
+        }
         merged.atr_pct = merged.total_units > 0 ? Math.round(merged.atr / merged.total_units * 1000) / 10 : 0;
         merged.availability_pct = merged.atr_pct;
         setData(merged);

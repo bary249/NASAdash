@@ -229,7 +229,12 @@ def fetch_for_network(network: str, slug_key: str, cache_path: Path, force_refre
                 slug_parts = slug.split("/")
                 metrics["url"] = f"https://www.apartments.com/{slug_parts[0]}/{slug_parts[-1]}/"
 
-            cache[pid] = {"ts": time.time(), "data": metrics}
+            # Guard: never overwrite cache with fewer reviews than existing
+            existing_reviews = (existing or {}).get("data", {}).get("reviews_fetched", 0)
+            if metrics["reviews_fetched"] == 0 and existing_reviews > 0:
+                print(f"  WARNING: Zembra returned 0 reviews but cache has {existing_reviews} — keeping existing")
+            else:
+                cache[pid] = {"ts": time.time(), "data": metrics}
 
             print(f"  Stars: {metrics['star_distribution']}")
             print(f"  Responded: {metrics['responded']}/{metrics['reviews_fetched']} ({metrics['response_rate']}%)")

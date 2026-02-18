@@ -397,28 +397,38 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
                     <th className="px-4 py-2 text-left text-xs font-medium text-red-700 uppercase">Unit</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-red-700 uppercase">Status</th>
                     <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Delinquent</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">0-30</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">31-60</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">90+</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Deposits</th>
+                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Net Exposure</th>
+                    <th className="px-4 py-2 text-center text-xs font-medium text-red-700 uppercase">Est. Days</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-red-100">
-                  {evictionUnits.map((r, idx) => (
-                    <tr key={idx} className="bg-red-50 hover:bg-red-100">
-                      <td className="px-4 py-2 font-medium text-red-800">{r.unit}</td>
-                      <td className="px-4 py-2 text-red-600">{r.status}</td>
-                      <td className="px-4 py-2 text-right font-medium text-red-700">{formatCurrency(r.total_delinquent)}</td>
-                      <td className="px-4 py-2 text-right text-red-600">{r.days_30 > 0 ? formatCurrency(r.days_30) : '-'}</td>
-                      <td className="px-4 py-2 text-right text-red-600">{r.days_60 > 0 ? formatCurrency(r.days_60) : '-'}</td>
-                      <td className="px-4 py-2 text-right text-red-600">{r.days_90_plus > 0 ? formatCurrency(r.days_90_plus) : '-'}</td>
-                    </tr>
-                  ))}
+                  {evictionUnits.map((r, idx) => {
+                    const estDays = r.days_90_plus > 0 ? '90+' : r.days_60 > 0 ? '60–90' : r.days_30 > 0 ? '30–60' : '<30';
+                    const netExposure = r.total_delinquent - (r.deposits_held || 0);
+                    return (
+                      <tr key={idx} className="bg-red-50 hover:bg-red-100">
+                        <td className="px-4 py-2 font-medium text-red-800">{r.unit}</td>
+                        <td className="px-4 py-2 text-red-600 text-xs">{r.status}</td>
+                        <td className="px-4 py-2 text-right font-medium text-red-700">{formatCurrency(r.total_delinquent)}</td>
+                        <td className="px-4 py-2 text-right text-slate-500">{r.deposits_held ? formatCurrency(r.deposits_held) : '—'}</td>
+                        <td className={`px-4 py-2 text-right font-semibold ${netExposure > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{formatCurrency(netExposure)}</td>
+                        <td className="px-4 py-2 text-center">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${estDays === '90+' ? 'bg-red-200 text-red-800' : estDays === '60–90' ? 'bg-orange-200 text-orange-800' : estDays === '30–60' ? 'bg-amber-200 text-amber-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                            {estDays}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 border-red-300 bg-red-50 font-semibold text-red-800">
-                    <td className="px-4 py-2" colSpan={2}>Total</td>
+                    <td className="px-4 py-2" colSpan={2}>Total ({evictionUnits.length})</td>
                     <td className="px-4 py-2 text-right">{formatCurrency(evictionUnits.reduce((s, r) => s + r.total_delinquent, 0))}</td>
-                    <td className="px-4 py-2" colSpan={3}></td>
+                    <td className="px-4 py-2 text-right text-slate-500">{formatCurrency(evictionUnits.reduce((s, r) => s + (r.deposits_held || 0), 0))}</td>
+                    <td className="px-4 py-2 text-right">{formatCurrency(evictionUnits.reduce((s, r) => s + r.total_delinquent - (r.deposits_held || 0), 0))}</td>
+                    <td className="px-4 py-2"></td>
                   </tr>
                 </tfoot>
               </table>

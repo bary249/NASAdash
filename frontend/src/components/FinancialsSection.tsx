@@ -249,6 +249,8 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [propCount, setPropCount] = useState(0);
+  const [revOptOpen, setRevOptOpen] = useState(false);
+  const [payMethodsOpen, setPayMethodsOpen] = useState(false);
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
   const isMulti = effectiveIds.length > 1;
@@ -395,13 +397,17 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
         </div>
       </div>
 
-      {/* Revenue Optimization Metrics */}
+      {/* Revenue Optimization Metrics (#47 — collapsible) */}
       {data.computed && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100">
+          <button onClick={() => setRevOptOpen(!revOptOpen)} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
             <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Revenue Optimization</span>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-100">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">RevPAU {fmt(data.computed.rev_pau)}</span>
+              {revOptOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+            </div>
+          </button>
+          {revOptOpen && <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-100 border-t border-slate-100">
             <MetricCell label="RevPAU" value={fmt(data.computed.rev_pau)} sub="Revenue per available unit" />
             <MetricCell label="Avg Effective Rent" value={fmt(data.computed.avg_effective_rent)} sub={`Market: ${fmt(data.computed.avg_market_rent)}`} />
             <MetricCell label="Economic Occupancy" value={`${data.computed.economic_occupancy}%`} sub="Collections ÷ Possible" />
@@ -410,17 +416,21 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
             <MetricCell label="Concessions" value={pct(data.computed.concession_pct)} sub={fmt(data.computed.concession_total)} warn={data.computed.concession_pct > 3} />
             <MetricCell label="Bad Debt" value={pct(data.computed.bad_debt_pct)} sub={fmt(data.computed.bad_debt_total)} warn={data.computed.bad_debt_pct > 1} />
             <MetricCell label="Vacancy Loss" value={pct(data.computed.vacancy_loss_pct)} sub={fmt(data.computed.vacancy_loss_total)} warn={data.computed.vacancy_loss_pct > 5} />
-          </div>
+          </div>}
         </div>
       )}
 
-      {/* Payment Methods Breakdown */}
+      {/* Payment Methods Breakdown (#47 — collapsible) */}
       {data.computed && data.computed.payment_methods.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100">
+          <button onClick={() => setPayMethodsOpen(!payMethodsOpen)} className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
             <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Payment Methods</span>
-          </div>
-          <div className="px-5 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">{data.computed.payment_methods.length} methods</span>
+              {payMethodsOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+            </div>
+          </button>
+          {payMethodsOpen && <div className="px-5 py-3 border-t border-slate-100">
             {data.computed.payment_methods.map((pm, i) => {
               const maxAmt = Math.max(...data.computed!.payment_methods.map(p => Math.abs(p.amount)));
               const barPct = maxAmt > 0 ? Math.abs(pm.amount) / maxAmt * 100 : 0;
@@ -434,7 +444,7 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
                 </div>
               );
             })}
-          </div>
+          </div>}
         </div>
       )}
 

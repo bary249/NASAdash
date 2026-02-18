@@ -305,7 +305,8 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
         const mergedResponseRate = totalFetched > 0 ? Math.round((totalResponded / totalFetched) * 100) : 0;
         // Pick best source type
         const source = valid.some(v => v.source === 'serpapi') ? 'serpapi'
-          : valid.some(v => v.source === 'playwright') ? 'playwright' : valid[0].source;
+          : valid.some(v => v.source === 'playwright') ? 'playwright'
+          : valid.some(v => v.source === 'zembra/google') ? 'zembra/google' : valid[0].source;
         setData({
           rating: weightedRating,
           review_count: totalReviewCount,
@@ -328,7 +329,7 @@ export function GoogleReviewsSection({ propertyId, propertyIds, propertyName: _p
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveIds.join(',')]);
 
-  const hasFullData = data?.source === 'serpapi' || data?.source === 'playwright';
+  const hasFullData = data?.source === 'serpapi' || data?.source === 'playwright' || data?.source === 'zembra/google';
 
   const filteredReviews = useMemo(() => {
     if (!data) return [];

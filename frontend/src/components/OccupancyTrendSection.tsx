@@ -26,6 +26,8 @@ interface Props {
 export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
+  const [sortNewest, setSortNewest] = useState(true);
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
@@ -100,6 +102,17 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
 
   // Show newest first
   const sorted = [...snapshots].reverse();
+  const displaySnaps = sortNewest ? sorted : [...snapshots];
+
+  // For bar chart: use occupancy_pct, scale bars relative to range for visual impact
+  const allPcts = snapshots.map(s => s.occupancy_pct);
+  const minPct = Math.min(...allPcts);
+  const maxPct = Math.max(...allPcts);
+  const rangeMin = Math.max(Math.floor(minPct) - 3, 0);
+  const rangeMax = Math.min(Math.ceil(maxPct) + 2, 100);
+  const latestOcc = sorted[0]?.occupancy_pct ?? 0;
+  const prevOcc = sorted[1]?.occupancy_pct ?? 0;
+  const overallDelta = sorted.length >= 2 ? Math.round((latestOcc - prevOcc) * 10) / 10 : 0;
 
   return (
     <div className="venn-section">
@@ -109,58 +122,102 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
         description="Historical box score snapshots"
       />
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Date</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Units</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupied</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Vacant</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupancy</th>
-              <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Δ</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sorted.map((snap, idx) => {
-              const prev = sorted[idx + 1]; // previous in time (one row below = older)
-              const delta = prev ? snap.occupancy_pct - prev.occupancy_pct : 0;
-              const deltaRounded = Math.round(delta * 10) / 10;
+      <div className="flex items-center justify-end gap-2 mb-3">
+        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+          <button onClick={() => setViewMode('chart')} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${viewMode === 'chart' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Chart</button>
+          <button onClick={() => setViewMode('table')} className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${viewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Table</button>
+        </div>
+        <button onClick={() => setSortNewest(prev => !prev)} className="text-[10px] px-2 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-white hover:text-slate-700 transition-colors">
+          {sortNewest ? 'Newest ↓' : 'Oldest ↓'}
+        </button>
+      </div>
 
+      {viewMode === 'chart' ? (
+        <div className="bg-slate-50 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold text-slate-800">{latestOcc}%</span>
+              {overallDelta !== 0 && (
+                <span className={`inline-flex items-center gap-0.5 text-xs font-medium ${overallDelta > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  {overallDelta > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  {overallDelta > 0 ? '+' : ''}{overallDelta}%
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-slate-400">vs prior week</span>
+          </div>
+          <div className="space-y-2">
+            {displaySnaps.map((snap) => {
+              const barWidth = rangeMax > rangeMin ? ((snap.occupancy_pct - rangeMin) / (rangeMax - rangeMin)) * 100 : 50;
+              const color = snap.occupancy_pct >= 95 ? 'bg-emerald-400' : snap.occupancy_pct >= 90 ? 'bg-blue-400' : 'bg-rose-400';
               return (
-                <tr key={snap.date} className="hover:bg-slate-50">
-                  <td className="px-4 py-2 text-slate-600 font-medium">{snap.date}</td>
-                  <td className="px-4 py-2 text-right text-slate-600">{snap.total_units}</td>
-                  <td className="px-4 py-2 text-right text-slate-600">{snap.occupied}</td>
-                  <td className="px-4 py-2 text-right text-slate-600">{snap.vacant}</td>
-                  <td className="px-4 py-2 text-right font-semibold">
-                    <span className={snap.occupancy_pct >= 95 ? 'text-emerald-600' : snap.occupancy_pct >= 90 ? 'text-amber-600' : 'text-rose-600'}>
-                      {snap.occupancy_pct}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    {!prev ? (
-                      <span className="text-slate-300">—</span>
-                    ) : deltaRounded > 0 ? (
-                      <span className="inline-flex items-center gap-0.5 text-emerald-600 text-xs font-medium">
-                        <TrendingUp className="w-3 h-3" /> +{deltaRounded}%
-                      </span>
-                    ) : deltaRounded < 0 ? (
-                      <span className="inline-flex items-center gap-0.5 text-rose-500 text-xs font-medium">
-                        <TrendingDown className="w-3 h-3" /> {deltaRounded}%
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-0.5 text-slate-400 text-xs">
-                        <Minus className="w-3 h-3" /> 0
-                      </span>
-                    )}
-                  </td>
-                </tr>
+                <div key={snap.date} className="flex items-center gap-3">
+                  <span className="text-xs text-slate-500 w-20 shrink-0">{snap.date}</span>
+                  <div className="flex-1 h-4 bg-slate-200 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${Math.max(barWidth, 2)}%` }} />
+                  </div>
+                  <span className={`text-xs font-medium w-14 text-right ${snap.occupancy_pct >= 95 ? 'text-emerald-600' : snap.occupancy_pct >= 90 ? 'text-amber-600' : 'text-rose-600'}`}>
+                    {snap.occupancy_pct}%
+                  </span>
+                </div>
               );
             })}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Date</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Units</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupied</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Vacant</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupancy</th>
+                <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Δ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {displaySnaps.map((snap, idx) => {
+                const nextInTime = sortNewest ? displaySnaps[idx + 1] : displaySnaps[idx - 1];
+                const delta = nextInTime ? snap.occupancy_pct - nextInTime.occupancy_pct : 0;
+                const deltaRounded = Math.round(delta * 10) / 10;
+
+                return (
+                  <tr key={snap.date} className="hover:bg-slate-50">
+                    <td className="px-4 py-2 text-slate-600 font-medium">{snap.date}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{snap.total_units}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{snap.occupied}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{snap.vacant}</td>
+                    <td className="px-4 py-2 text-right font-semibold">
+                      <span className={snap.occupancy_pct >= 95 ? 'text-emerald-600' : snap.occupancy_pct >= 90 ? 'text-amber-600' : 'text-rose-600'}>
+                        {snap.occupancy_pct}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      {!nextInTime ? (
+                        <span className="text-slate-300">—</span>
+                      ) : deltaRounded > 0 ? (
+                        <span className="inline-flex items-center gap-0.5 text-emerald-600 text-xs font-medium">
+                          <TrendingUp className="w-3 h-3" /> +{deltaRounded}%
+                        </span>
+                      ) : deltaRounded < 0 ? (
+                        <span className="inline-flex items-center gap-0.5 text-rose-500 text-xs font-medium">
+                          <TrendingDown className="w-3 h-3" /> {deltaRounded}%
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-0.5 text-slate-400 text-xs">
+                          <Minus className="w-3 h-3" /> 0
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -1117,11 +1117,11 @@ class OccupancyService:
             
             periods = []
             
-            # Build list of next 4 calendar months for monthly view
+            # Build list of next 12 calendar months for monthly view
             from calendar import monthrange as _monthrange
             today = date.today()
             month_ranges = []
-            for offset in range(4):
+            for offset in range(12):
                 m = today.month + offset
                 y = today.year
                 while m > 12:

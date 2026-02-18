@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { LoadingScreen } from './LoadingScreen';
 import { 
   RefreshCw, Eye, EyeOff, LogOut,
-  Building2, DollarSign, TrendingUp, TrendingDown, Home, ChevronDown
+  Building2, DollarSign, TrendingUp, Home, ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -986,6 +986,39 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         );
         const atrUnits = results.flatMap((r: any) => r.units || []);
         setKpiDrillData(atrUnits);
+      } else if (type === 'occupancy') {
+        setKpiDrillTitle('All Units — Occupancy Breakdown');
+        setKpiDrillColumns(UNIT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id).catch(() => ({ units: [], count: 0 })))
+        );
+        const units = results.flatMap((r: any) => r.units || []);
+        setKpiDrillData(units);
+        const occupied = units.filter((u: any) => u.status === 'Occupied').length;
+        const vacant = units.filter((u: any) => u.status !== 'Occupied').length;
+        setKpiDrillSummary({ unit_number: `Total: ${units.length}`, floorplan: '', status: `${occupied} occupied, ${vacant} vacant`, sqft: '', market_rent: '', actual_rent: '', lease_end: '' });
+      } else if (type === 'vacant') {
+        setKpiDrillTitle('Vacant Units');
+        setKpiDrillColumns(VACANT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id, undefined, 'vacant').catch(() => ({ units: [], count: 0 })))
+        );
+        setKpiDrillData(results.flatMap((r: any) => r.units || []));
+      } else if (type === 'in_place') {
+        setKpiDrillTitle('Occupied Units — Rent Detail');
+        setKpiDrillColumns(UNIT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id, undefined, 'occupied').catch(() => ({ units: [], count: 0 })))
+        );
+        const units = results.flatMap((r: any) => r.units || []);
+        setKpiDrillData(units);
+        if (units.length > 0) {
+          const totalActual = units.reduce((s: number, u: any) => s + (u.actual_rent || 0), 0);
+          const totalMarket = units.reduce((s: number, u: any) => s + (u.market_rent || 0), 0);
+          const avgActual = Math.round(totalActual / units.length);
+          const avgMarket = Math.round(totalMarket / units.length);
+          setKpiDrillSummary({ unit_number: `Avg (${units.length})`, floorplan: '', status: '', sqft: '', market_rent: avgMarket, actual_rent: avgActual, lease_end: '' });
+        }
       } else if (type === 'renewals') {
         setKpiDrillTitle('Renewal Leases — Rent vs Prior');
         setKpiDrillColumns(RENEWAL_COLUMNS);
@@ -1078,6 +1111,12 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   const exp90 = expirations?.periods?.find(p => p.label === '90d');
   const renewalTrend = exp90?.renewal_pct ?? 0;
   
+  // Monthly renewal rates for next 3 months (#11)
+  const monthlyRenewals = (expirations?.periods || [])
+    .filter(p => !p.label.endsWith('d'))
+    .slice(0, 3)
+    .map(p => ({ label: p.label, pct: p.renewal_pct ?? 0, exp: p.expirations ?? 0, rnw: p.renewals ?? 0 }));
+  
   // Calculate lease trade-out values (use real data if available)
   const tradeoutSummary = tradeoutData?.summary;
   const avgTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_new_rent : (pricing?.total_asking_rent || 0);
@@ -1113,106 +1152,120 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
         {/* KPIs Grid - Right */}
         <div className="col-span-12 lg:col-span-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {/* Row 1 */}
-            <KPICard
-              title="Occupancy"
-              value={`${boxScoreOcc?.physical_occupancy ?? occupancy?.physicalOccupancy ?? 0}%`}
-              timeLabel={asOfLabel}
-              icon={<Home className="w-4 h-4" />}
-              tooltip="Physical occupancy = Occupied Units ÷ Total Units × 100. Source: RealPage Box Score."
-              refreshing={isRefreshing}
-            />
-            
-            <KPICard
-              title="In-Place"
-              value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
-              subtitle={(() => {
-                const ask = pricing?.total_asking_rent;
-                const inp = pricing?.total_in_place_rent;
-                const delta = ask && inp && inp > 0 ? Math.round((ask - inp) / inp * 1000) / 10 : null;
-                const askStr = ask ? `$${ask.toLocaleString()}` : '—';
-                return delta !== null
-                  ? `Asking ${askStr} (${delta >= 0 ? '+' : ''}${delta}%)`
-                  : `Asking ${askStr}`;
-              })()}
-              timeLabel={asOfLabel}
-              icon={<DollarSign className="w-4 h-4" />}
-              tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Delta % = (Asking − In-Place) ÷ In-Place × 100. Source: RealPage Rent Roll."
-              refreshing={isRefreshing}
-            />
-            
-            <KPICard
-              title="Renewal Rate (90d)"
-              value={`${renewalTrend}%`}
-              subtitle={`${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} renewed`}
-              icon={<TrendingUp className="w-4 h-4" />}
-              tooltip="Leases with status 'Current - Future' ÷ All leases expiring within 90 days × 100. Source: RealPage Leases."
-              refreshing={isRefreshing}
-            />
-            
-            <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full">
-              <KPICard
-                title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
-                value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
-                subtitle={prevTradeOut ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data'}
-                timeLabel={periodLabel}
-                icon={<DollarSign className="w-4 h-4" />}
-                tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
-                refreshing={isRefreshing}
-              />
+          <div className="space-y-4">
+            {/* Row 1: Status / Snapshot metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('occupancy')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('occupancy')} className="text-left w-full">
+                <KPICard
+                  title="Occupancy"
+                  value={`${boxScoreOcc?.physical_occupancy ?? occupancy?.physicalOccupancy ?? 0}%`}
+                  timeLabel={asOfLabel}
+                  icon={<Home className="w-4 h-4" />}
+                  tooltip="Physical occupancy = Occupied Units ÷ Total Units × 100. Source: RealPage Box Score."
+                  refreshing={isRefreshing}
+                />
+              </div>
+              
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('vacant')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('vacant')} className="text-left w-full">
+                <VacantKPICard
+                  total={atrData?.vacant ?? boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
+                  totalUnits={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
+                  ready={boxScoreOcc?.vacant_ready ?? occupancy?.vacantReady ?? 0}
+                  agedCount={boxScoreOcc?.aged_vacancy_90_plus ?? occupancy?.agedVacancy90Plus}
+                  timeLabel={asOfLabel}
+                  tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
+                  refreshing={isRefreshing}
+                />
+              </div>
+              
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full">
+                <KPICard
+                  title="ATR"
+                  value={atrData ? String(atrData.atr) : '—'}
+                  subtitle={atrData ? `${atrData.atr_pct}% of ${atrData.total_units} units` : ''}
+                  icon={<Home className="w-4 h-4" />}
+                  tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
+                  refreshing={isRefreshing}
+                />
+              </div>
+
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('in_place')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('in_place')} className="text-left w-full">
+                <KPICard
+                  title="In-Place"
+                  value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
+                  subtitle={(() => {
+                    const ask = pricing?.total_asking_rent;
+                    const inp = pricing?.total_in_place_rent;
+                    const delta = ask && inp && inp > 0 ? Math.round((ask - inp) / inp * 1000) / 10 : null;
+                    const askStr = ask ? `$${ask.toLocaleString()}` : '—';
+                    return delta !== null
+                      ? `Asking ${askStr} (${delta >= 0 ? '+' : ''}${delta}%)`
+                      : `Asking ${askStr}`;
+                  })()}
+                  timeLabel={asOfLabel}
+                  icon={<DollarSign className="w-4 h-4" />}
+                  tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Delta % = (Asking − In-Place) ÷ In-Place × 100. Source: RealPage Rent Roll."
+                  refreshing={isRefreshing}
+                />
+              </div>
             </div>
 
-            {/* Row 2 */}
-            <VacantKPICard
-              total={atrData?.vacant ?? boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
-              totalUnits={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
-              ready={boxScoreOcc?.vacant_ready ?? occupancy?.vacantReady ?? 0}
-              agedCount={boxScoreOcc?.aged_vacancy_90_plus ?? occupancy?.agedVacancy90Plus}
-              timeLabel={asOfLabel}
-              tooltip="Total vacant units from Box Score. Ready = units with made-ready date. Aged = vacant > 90 days. Source: RealPage Box Score."
-              refreshing={isRefreshing}
-            />
-            
-            <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full">
-              <KPICard
-                title="ATR"
-                value={atrData ? String(atrData.atr) : '—'}
-                subtitle={atrData ? `${atrData.atr_pct}% of ${atrData.total_units} units` : ''}
-                icon={<Home className="w-4 h-4" />}
-                tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
-                refreshing={isRefreshing}
-              />
-            </div>
+            {/* Row 2: Activity / Period metrics */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="md:col-span-2">
+                <FunnelKPICard
+                  leads={funnel?.leads || 0}
+                  tours={funnel?.tours || 0}
+                  applications={funnel?.applications || 0}
+                  leasesSigned={funnel?.leaseSigns || 0}
+                  sightUnseen={funnel?.sightUnseen || 0}
+                  tourToApp={funnel?.tourToApp || 0}
+                  timeLabel={periodLabel}
+                  priorLeads={priorFunnel?.leads}
+                  priorTours={priorFunnel?.tours}
+                  priorApplications={priorFunnel?.applications}
+                  priorLeasesSigned={priorFunnel?.leaseSigns}
+                  priorPeriodLabel={priorFunnelLabel}
+                  refreshing={isRefreshing}
+                />
+              </div>
 
-            <div className="md:col-span-2">
-              <FunnelKPICard
-                leads={funnel?.leads || 0}
-                tours={funnel?.tours || 0}
-                applications={funnel?.applications || 0}
-                leasesSigned={funnel?.leaseSigns || 0}
-                sightUnseen={funnel?.sightUnseen || 0}
-                tourToApp={funnel?.tourToApp || 0}
-                timeLabel={periodLabel}
-                priorLeads={priorFunnel?.leads}
-                priorTours={priorFunnel?.tours}
-                priorApplications={priorFunnel?.applications}
-                priorLeasesSigned={priorFunnel?.leaseSigns}
-                priorPeriodLabel={priorFunnelLabel}
-                refreshing={isRefreshing}
-              />
-            </div>
-            
-            <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">
-              <KPICard
-                title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
-                value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
-                subtitle={renewalCount ? `vs Prior ${renewalVsPriorPct >= 0 ? '+' : ''}${renewalVsPriorPct.toFixed(1)}%` : 'No data'}
-                timeLabel={periodLabel}
-                icon={<TrendingDown className="w-4 h-4" />}
-                tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Source: RealPage Leases.`}
-                refreshing={isRefreshing}
-              />
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full">
+                <KPICard
+                  title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
+                  value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
+                  subtitle={prevTradeOut ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data'}
+                  timeLabel={periodLabel}
+                  icon={<DollarSign className="w-4 h-4" />}
+                  tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
+                  refreshing={isRefreshing}
+                />
+              </div>
+
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">
+                <KPICard
+                  title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
+                  value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
+                  subtitle={renewalCount ? `vs Prior ${renewalVsPriorPct >= 0 ? '+' : ''}${renewalVsPriorPct.toFixed(1)}%` : 'No data'}
+                  timeLabel={periodLabel}
+                  icon={<TrendingUp className="w-4 h-4" />}
+                  tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Renewal Rate = ${renewalTrend}% (${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} expiring leases renewed within 90d). Source: RealPage Leases.`}
+                  refreshing={isRefreshing}
+                >
+                  {monthlyRenewals.length > 0 && (
+                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                      {monthlyRenewals.map(mr => (
+                        <div key={mr.label} className="flex items-center gap-1" title={`${mr.label}: ${mr.rnw} of ${mr.exp} renewed`}>
+                          <span className="text-[10px] text-slate-400">{mr.label}</span>
+                          <span className={`text-[10px] font-semibold ${mr.pct >= 50 ? 'text-emerald-600' : mr.pct >= 25 ? 'text-amber-500' : mr.exp > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
+                            {mr.exp > 0 ? `${mr.pct}%` : '—'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </KPICard>
+              </div>
             </div>
           </div>
         </div>
@@ -1227,10 +1280,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           {/* ATR & Availability Section */}
           <AvailabilitySection propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
 
-          <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
-
-          {/* Occupancy Trend (historical box score snapshots) */}
+          {/* Occupancy Trend (historical box score snapshots) — paired with ATR trend above */}
           <OccupancyTrendSection propertyId={propertyId} propertyIds={propertyIds} />
+
+          <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
 
           {/* Unit Mix & Pricing */}
           <UnitMixPricing floorplans={floorplans} />
@@ -1333,6 +1386,82 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             })}
           </div>
           <p className="text-sm text-slate-500">Renewal rate: <strong className={`${(exp90?.renewal_pct ?? 0) >= 50 ? 'text-emerald-600' : (exp90?.renewal_pct ?? 0) >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>{exp90?.renewal_pct ?? 0}%</strong> of leases expiring in 90 days have been renewed</p>
+
+          {/* Renewal Variance Summary Bar (#33) */}
+          {renewalCount > 0 && renewalSummary && (
+            <div className="mt-4 flex items-center gap-6 bg-slate-50 rounded-lg px-5 py-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Avg Renewal</span>
+                <span className="text-sm font-bold text-slate-800">${Math.round(avgRenewalRent).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Prior</span>
+                <span className="text-sm font-medium text-slate-600">${Math.round(renewalSummary.avg_prior_rent || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-500">Variance</span>
+                <span className={`text-sm font-bold ${renewalVsPriorPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {renewalVsPriorPct >= 0 ? '+' : ''}{renewalVsPriorPct.toFixed(1)}%
+                </span>
+                <span className={`text-xs ${renewalVsPriorPct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  ({renewalVsPriorPct >= 0 ? '+' : ''}${Math.round((avgRenewalRent - (renewalSummary.avg_prior_rent || 0)))}/unit)
+                </span>
+              </div>
+              <span className="text-xs text-slate-400 ml-auto">{renewalCount} renewals</span>
+            </div>
+          )}
+
+          {/* 12-Month Expiration/Renewal Chart (#35) */}
+          {(() => {
+            const monthlyPeriods = expirations?.periods?.filter(p => !p.label.endsWith('d')) || [];
+            if (monthlyPeriods.length === 0) return null;
+            const maxExp = Math.max(...monthlyPeriods.map(p => p.expirations || 0), 1);
+            return (
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <h4 className="text-sm font-semibold text-slate-700 mb-4">12-Month Expiration & Renewal Outlook</h4>
+                <div className="flex items-end gap-1.5" style={{ height: 200 }}>
+                  {monthlyPeriods.map((p) => {
+                    const total = p.expirations || 0;
+                    const renewed = p.renewals || 0;
+                    const vacating = p.vacating || 0;
+                    const mtm = p.mtm || 0;
+                    const movedOut = p.moved_out || 0;
+                    const pending = total - renewed - vacating - mtm - movedOut;
+                    const barH = total > 0 ? Math.max((total / maxExp) * 160, 8) : 4;
+                    const renewedH = total > 0 ? (renewed / total) * barH : 0;
+                    const vacatingH = total > 0 ? (vacating / total) * barH : 0;
+                    const mtmH = total > 0 ? (mtm / total) * barH : 0;
+                    const movedOutH = total > 0 ? (movedOut / total) * barH : 0;
+                    const pendingH = total > 0 ? Math.max(barH - renewedH - vacatingH - mtmH - movedOutH, 0) : 0;
+                    const rnwPct = total > 0 ? Math.round(renewed / total * 100) : 0;
+                    return (
+                      <div key={p.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+                        <span className={`text-[9px] font-semibold ${rnwPct >= 50 ? 'text-emerald-600' : rnwPct >= 25 ? 'text-amber-500' : total > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
+                          {total > 0 ? `${rnwPct}%` : ''}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-700">{total || ''}</span>
+                        <div className="w-full flex flex-col-reverse rounded-t overflow-hidden" style={{ height: barH }}>
+                          {renewedH > 0 && <div className="w-full bg-emerald-400" style={{ height: renewedH }} title={`${renewed} renewed`} />}
+                          {pendingH > 0 && <div className="w-full bg-amber-300" style={{ height: pendingH }} title={`${pending > 0 ? pending : 0} pending`} />}
+                          {vacatingH > 0 && <div className="w-full bg-rose-400" style={{ height: vacatingH }} title={`${vacating} vacating`} />}
+                          {mtmH > 0 && <div className="w-full bg-slate-300" style={{ height: mtmH }} title={`${mtm} MTM`} />}
+                          {movedOutH > 0 && <div className="w-full bg-slate-400" style={{ height: movedOutH }} title={`${movedOut} moved out`} />}
+                          {total === 0 && <div className="w-full bg-slate-100" style={{ height: 4 }} />}
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-medium">{p.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-center gap-4 mt-3 text-[10px] text-slate-500">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block" /> Renewed</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" /> Pending</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400 inline-block" /> Vacating</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" /> MTM</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1368,43 +1497,79 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             <h3 className="text-lg font-semibold text-slate-800">Leasing Activity</h3>
             <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded">{periodLabel}</span>
           </div>
-          <div className="grid grid-cols-4 gap-4 mb-6">
-            <div className="bg-indigo-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-indigo-700">{funnel?.leads || 0}</div>
-              <div className="text-sm text-indigo-600 inline-flex items-center gap-0.5">Total Leads <InfoTooltip text="Unique prospects who made first contact via email, phone call, text, walk-in, guest card, or internet inquiry. Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
-            </div>
-            <div className="bg-violet-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-violet-700">{funnel?.tours || 0}</div>
-              <div className="text-sm text-violet-600 inline-flex items-center gap-0.5">Tours <InfoTooltip text="Unique prospects who had a Visit or Visit (return) event recorded. Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
-            </div>
-            <div className="bg-fuchsia-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-fuchsia-700">{funnel?.applications || 0}</div>
-              <div className="text-sm text-fuchsia-600 inline-flex items-center gap-0.5">Applications <InfoTooltip text="Unique prospects who reached the application stage (pre-qualify, identity verification, agreement, or quote). Deduplicated by prospect name. Source: RealPage Activity Report." /></div>
-            </div>
-            <div className="bg-emerald-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-emerald-700">
-                {funnel?.leaseSigns || 0}
-                {funnel?.marketingNetLeases != null && funnel.marketingNetLeases !== funnel?.leaseSigns && (
-                  <span className="text-sm font-normal text-slate-400 ml-1">/ {funnel.marketingNetLeases} mktg</span>
-                )}
+          {/* Enhanced Funnel Visualization (#26) */}
+          {(() => {
+            const leads = funnel?.leads || 0;
+            const tours = funnel?.tours || 0;
+            const apps = funnel?.applications || 0;
+            const leases = funnel?.leaseSigns || 0;
+            const maxVal = Math.max(leads, 1);
+            const stages = [
+              { label: 'Leads', value: leads, color: 'bg-indigo-500', bg: 'bg-indigo-50', text: 'text-indigo-700', tip: 'Unique prospects who made first contact via email, phone call, text, walk-in, guest card, or internet inquiry. Deduplicated by prospect name. Source: RealPage Activity Report.' },
+              { label: 'Tours', value: tours, color: 'bg-violet-500', bg: 'bg-violet-50', text: 'text-violet-700', tip: 'Unique prospects who had a Visit or Visit (return) event recorded. Deduplicated by prospect name. Source: RealPage Activity Report.' },
+              { label: 'Applications', value: apps, color: 'bg-fuchsia-500', bg: 'bg-fuchsia-50', text: 'text-fuchsia-700', tip: 'Unique prospects who reached the application stage (pre-qualify, identity verification, agreement, or quote). Deduplicated by prospect name. Source: RealPage Activity Report.' },
+              { label: 'Leases', value: leases, color: 'bg-emerald-500', bg: 'bg-emerald-50', text: 'text-emerald-700', tip: 'Activity Report count of unique prospects with Leased status. Source: RealPage Activity Report.' },
+            ];
+            const convRates = [
+              leads > 0 ? Math.round(tours / leads * 100) : 0,
+              tours > 0 ? Math.round(apps / tours * 100) : 0,
+              apps > 0 ? Math.round(leases / apps * 100) : 0,
+            ];
+            return (
+              <div className="mb-6">
+                {/* Funnel bars with conversion arrows */}
+                <div className="space-y-2">
+                  {stages.map((s, i) => (
+                    <div key={s.label}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-24 shrink-0 text-right">
+                          <span className={`text-xs font-medium ${s.text} inline-flex items-center gap-0.5`}>{s.label} <InfoTooltip text={s.tip} /></span>
+                        </div>
+                        <div className="flex-1 h-8 bg-slate-100 rounded-lg overflow-hidden relative">
+                          <div
+                            className={`h-full ${s.color} rounded-lg transition-all duration-700 flex items-center`}
+                            style={{ width: `${Math.max(s.value / maxVal * 100, s.value > 0 ? 8 : 0)}%` }}
+                          >
+                            <span className="text-white text-sm font-bold px-3 drop-shadow-sm whitespace-nowrap">{s.value.toLocaleString()}</span>
+                          </div>
+                          {i === 3 && funnel?.marketingNetLeases != null && funnel.marketingNetLeases !== leases && (
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">/ {funnel.marketingNetLeases} mktg</span>
+                          )}
+                        </div>
+                      </div>
+                      {/* Conversion arrow between stages */}
+                      {i < 3 && (
+                        <div className="flex items-center gap-3 my-0.5">
+                          <div className="w-24" />
+                          <div className="flex items-center gap-1.5 pl-2">
+                            <svg className="w-3 h-3 text-slate-300" viewBox="0 0 12 12"><path d="M6 2 L6 10 M3 7 L6 10 L9 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            <span className={`text-[10px] font-semibold ${convRates[i] >= 50 ? 'text-emerald-600' : convRates[i] >= 25 ? 'text-amber-600' : 'text-rose-500'}`}>
+                              {convRates[i]}%
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {/* Secondary metrics row */}
+                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-sky-700">{leads > 0 ? (leases / leads * 100).toFixed(1) : 0}%</div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Lead → Lease <InfoTooltip text="Conversion Rate = Leases Signed ÷ Total Leads × 100." /></div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-amber-700">{funnel?.tourToApp || 0} <span className="text-xs font-normal text-slate-400">({tours > 0 ? Math.round((funnel?.tourToApp || 0) / tours * 100) : 0}%)</span></div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Tour → App <InfoTooltip text="Prospects who toured AND applied. % of total tours." /></div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-violet-700">{funnel?.sightUnseen || 0} <span className="text-xs font-normal text-slate-400">({apps > 0 ? Math.round((funnel?.sightUnseen || 0) / apps * 100) : 0}%)</span></div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Apps w/o Tour <InfoTooltip text="Prospects who applied without touring in person. % of total applications." /></div>
+                  </div>
+                </div>
               </div>
-              <div className="text-sm text-emerald-600 inline-flex items-center gap-0.5">Leases Signed <InfoTooltip text="Activity Report count / Marketing (Advertising Source) net leases. These may differ: Activity Report counts unique prospects with 'Leased' status; Marketing counts net leases (gross minus cancelled/denied) attributed to ad sources. Activity data may also lag behind Marketing data by a few days." /></div>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-amber-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-amber-700">{funnel?.tourToApp || 0}<span className="text-sm font-normal text-amber-500 ml-1">({funnel?.tours ? Math.round((funnel.tourToApp || 0) / funnel.tours * 100) : 0}%)</span></div>
-              <div className="text-sm text-amber-600 inline-flex items-center gap-0.5">Tour → Application <InfoTooltip text="Prospects who had a tour AND subsequently submitted an application. Percentage is of total tours." /></div>
-            </div>
-            <div className="bg-violet-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-violet-700">{funnel?.sightUnseen || 0}<span className="text-sm font-normal text-violet-500 ml-1">({funnel?.applications ? Math.round((funnel.sightUnseen || 0) / funnel.applications * 100) : 0}%)</span></div>
-              <div className="text-sm text-violet-600 inline-flex items-center gap-0.5">Apps w/o Tour <InfoTooltip text="Prospects who applied without ever touring the property in person. Percentage is of total applications." /></div>
-            </div>
-            <div className="bg-sky-50 rounded-lg p-4">
-              <div className="text-2xl font-bold text-sky-700">{funnel?.leads ? ((funnel.leaseSigns / funnel.leads) * 100).toFixed(1) : 0}%</div>
-              <div className="text-sm text-sky-600 inline-flex items-center gap-0.5">Lead → Lease <InfoTooltip text="Conversion Rate = Leases Signed ÷ Total Leads × 100. Source: RealPage Leasing Activity (last 30 days)." /></div>
-            </div>
-          </div>
+            );
+          })()}
         </div>
 
         {/* Lead Sources by Advertising Channel (merged from Marketing) */}
@@ -1420,40 +1585,55 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             {!availCollapsed && <div className="overflow-x-auto mt-4">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
-                    <th className="pb-2 pr-4">Floorplan</th>
-                    <th className="pb-2 pr-4">Type</th>
-                    <th className="pb-2 pr-4 text-right">Total</th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vacant <InfoTooltip text="Units with no current occupant. Source: RealPage Box Score." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice <InfoTooltip text="Occupied units with a Notice-to-Vacate filed. Source: RealPage Box Score." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Vac Not Leased <InfoTooltip text="Vacant units without a signed lease. Source: RealPage Box Score." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Mkt Rent <InfoTooltip text="Average market rent for this floorplan. Source: RealPage Box Score." /></span></th>
-                    <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Occupancy % for this floorplan. Source: RealPage Box Score." /></span></th>
+                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
+                    <th className="px-3 py-2">Floorplan</th>
+                    <th className="px-3 py-2 text-right">Units</th>
+                    <th className="px-3 py-2 text-right">Occ%</th>
+                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Vacant <InfoTooltip text="Units with no current occupant. Source: RealPage Box Score." /></span></th>
+                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
+                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="Occupied units with a Notice-to-Vacate filed. Source: RealPage Box Score." /></span></th>
+                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Market <InfoTooltip text="Average market rent for this floorplan. Source: RealPage Box Score." /></span></th>
                   </tr>
                 </thead>
                 <tbody>
                   {availByFp.floorplans.map((fp: { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }) => (
                     <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => openKpiDrill('availability', fp.floorplan)}>
-                      <td className="py-2 pr-4 font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</td>
-                      <td className="py-2 pr-4 text-slate-500">{fp.group}</td>
-                      <td className="py-2 pr-4 text-right">{fp.total_units}</td>
-                      <td className={`py-2 pr-4 text-right font-medium ${fp.vacant_units > 0 ? 'text-amber-600' : 'text-slate-400'}`}>{fp.vacant_units}</td>
-                      <td className={`py-2 pr-4 text-right ${fp.on_notice > 0 ? 'text-rose-500 font-medium' : 'text-slate-400'}`}>{fp.on_notice}</td>
-                      <td className="py-2 pr-4 text-right text-emerald-600">{fp.vacant_leased}</td>
-                      <td className="py-2 pr-4 text-right text-amber-600">{fp.vacant_not_leased}</td>
-                      <td className="py-2 pr-4 text-right">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                      <td className="py-2 text-right">{fp.occupancy_pct.toFixed(1)}%</td>
+                      <td className="px-3 py-2.5">
+                        <div className="font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</div>
+                        <div className="text-xs text-slate-400">{fp.group}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-700">{fp.total_units}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
+                            <div className={`h-full rounded-full transition-all duration-500 ${fp.occupancy_pct >= 95 ? 'bg-emerald-400' : fp.occupancy_pct >= 90 ? 'bg-blue-400' : fp.occupancy_pct >= 80 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${fp.occupancy_pct}%` }} />
+                          </div>
+                          <span className="text-xs font-medium text-slate-600 w-12 text-right">{fp.occupancy_pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-medium ${fp.vacant_units > 0 ? 'text-red-600' : 'text-slate-500'}`}>{fp.vacant_units}</td>
+                      <td className={`px-3 py-2.5 text-right ${fp.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>{fp.vacant_leased || '—'}</td>
+                      <td className={`px-3 py-2.5 text-right ${fp.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>{fp.on_notice || '—'}</td>
+                      <td className="px-3 py-2.5 text-right text-slate-700">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t-2 border-slate-300 font-semibold text-slate-800">
-                    <td className="pt-2" colSpan={2}>Total</td>
-                    <td className="pt-2 text-right">{availByFp.totals.total}</td>
-                    <td className="pt-2 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'vacant')}>{availByFp.totals.vacant}</td>
-                    <td className="pt-2 text-right text-rose-500 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'notice')}>{availByFp.totals.notice}</td>
-                    <td className="pt-2 text-right" colSpan={4}></td>
+                  <tr className="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
+                    <td className="px-3 py-2.5">Total</td>
+                    <td className="px-3 py-2.5 text-right">{availByFp.totals.total}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
+                          <div className={`h-full rounded-full transition-all duration-500 ${availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100 >= 95 ? 'bg-emerald-400' : 'bg-blue-400') : 'bg-slate-300'}`} style={{ width: `${availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100) : 0}%` }} />
+                        </div>
+                        <span className="text-xs font-medium text-slate-600 w-12 text-right">{availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100).toFixed(1) : 0}%</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-red-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'vacant')}>{availByFp.totals.vacant}</td>
+                    <td className="px-3 py-2.5 text-right" colSpan={1}></td>
+                    <td className="px-3 py-2.5 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'notice')}>{availByFp.totals.notice}</td>
+                    <td className="px-3 py-2.5 text-right"></td>
                   </tr>
                 </tfoot>
               </table>

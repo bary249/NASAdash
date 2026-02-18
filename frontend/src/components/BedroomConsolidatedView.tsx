@@ -166,10 +166,10 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                 <th className="px-3 py-2 text-right">Occ%</th>
                 <th className="px-3 py-2 text-right">Vacant</th>
                 <th className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="On Notice to Vacate" /></span>
+                  <span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant but leased (pending move-in)" /></span>
                 </th>
                 <th className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant but leased (pending move-in)" /></span>
+                  <span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="On Notice to Vacate" /></span>
                 </th>
                 <th className="px-3 py-2 text-right">Market</th>
                 <th className="px-3 py-2 text-right">In-Place</th>
@@ -196,11 +196,11 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                   <td className={`px-3 py-2.5 text-right font-medium ${bed.vacant > 0 ? 'text-red-600' : 'text-slate-700'}`}>
                     {bed.vacant}
                   </td>
-                  <td className={`px-3 py-2.5 text-right ${bed.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>
-                    {bed.on_notice || '—'}
-                  </td>
                   <td className={`px-3 py-2.5 text-right ${bed.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>
                     {bed.vacant_leased || '—'}
+                  </td>
+                  <td className={`px-3 py-2.5 text-right ${bed.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>
+                    {bed.on_notice || '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right text-slate-700">{fmt(bed.avg_market_rent)}</td>
                   <td className="px-3 py-2.5 text-right text-slate-700">{fmt(bed.avg_in_place_rent)}</td>
@@ -229,8 +229,8 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                   <OccBar occupied={totals.occupied} vacant={totals.vacant} total={totals.total_units} />
                 </td>
                 <td className="px-3 py-2.5 text-right">{totals.vacant}</td>
-                <td className="px-3 py-2.5 text-right">{totals.on_notice || '—'}</td>
                 <td className="px-3 py-2.5 text-right">{totals.vacant_leased || '—'}</td>
+                <td className="px-3 py-2.5 text-right">{totals.on_notice || '—'}</td>
                 <td className="px-3 py-2.5 text-right" colSpan={3}></td>
                 <td className="px-3 py-2.5 text-right">{totals.expiring_90d > 0 ? totals.expiring_90d : '—'}</td>
                 <td className="px-3 py-2.5 text-right">{pct(totals.renewal_pct_90d)}</td>

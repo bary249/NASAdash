@@ -277,6 +277,9 @@ Effort: **S** = < 2 hrs, **M** = 2–8 hrs, **L** = 1–3 days, **XL** = 3+ days
 | Feb 18 | #24 | **Fixed** — Added "Prev Month" period filter button between MTD and Last 30d. | `DashboardV3.tsx`, `MarketingSection.tsx` |
 | Feb 18 | #20 | **Fixed** — Reordered Overview tab sections: Bedroom → Availability → Market Comps (was Comps → Bedroom → Availability). | `DashboardV3.tsx` |
 | Feb 18 | #5 | **Fixed** — Reordered portfolio table columns: Property → Units → Occupancy → Vacant → ATR → Leased% → Expiring 90d → Renewals 90d. Vacant/ATR now immediately after Occupancy for quick scanning. | `PortfolioView.tsx` |
+| Feb 18 | #21 | **Fixed** — Bedroom table columns reordered: V-Leased before NTV (positive before negative). Delta already had color coding. | `BedroomConsolidatedView.tsx` |
+| Feb 18 | #32 | **Fixed** — Each renewal status line (renewed, vacating, pending, MTM, moved out) now shows % of total expiring. | `DashboardV3.tsx` |
+| Feb 18 | #41 | **Verified OK** — Former Residents section already demoted: collapsed by default, placed below evictions. | No change needed |
 
 ---
 

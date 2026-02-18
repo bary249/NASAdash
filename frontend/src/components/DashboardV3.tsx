@@ -1289,12 +1289,14 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   <button onClick={() => drill('renewed')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                     <span className="text-2xl font-bold text-emerald-600">{p.renewals}</span>
                     <span className="text-sm text-slate-500 underline decoration-dotted">renewed</span>
+                    {p.expirations > 0 && <span className="text-xs text-emerald-500 font-medium">({Math.round(p.renewals / p.expirations * 100)}%)</span>}
                     <InfoTooltip text="Resident has signed a renewal lease. The unit is secured for another term." />
                   </button>
                   {(p.vacating ?? 0) > 0 && (
                     <button onClick={() => drill('vacating')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-rose-500">{p.vacating}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">vacating</span>
+                      {p.expirations > 0 && <span className="text-xs text-rose-400 font-medium">({Math.round((p.vacating ?? 0) / p.expirations * 100)}%)</span>}
                       <InfoTooltip text="Resident has given notice to vacate. Unit will need to be turned and re-leased." />
                     </button>
                   )}
@@ -1302,6 +1304,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                     <button onClick={() => drill('pending')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-amber-500">{p.unknown}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">pending</span>
+                      {p.expirations > 0 && <span className="text-xs text-amber-400 font-medium">({Math.round((p.unknown ?? 0) / p.expirations * 100)}%)</span>}
                       <InfoTooltip text="No decision recorded yet. Resident has not renewed or given notice — follow up needed." />
                     </button>
                   )}
@@ -1309,6 +1312,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                     <button onClick={() => drill('mtm')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-slate-400">{p.mtm}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">MTM</span>
+                      {p.expirations > 0 && <span className="text-xs text-slate-400 font-medium">({Math.round((p.mtm ?? 0) / p.expirations * 100)}%)</span>}
                       <InfoTooltip text="Lease converted to month-to-month. Resident stays without a fixed-term renewal." />
                     </button>
                   )}
@@ -1316,6 +1320,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                     <button onClick={() => drill('moved_out')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-slate-500">{p.moved_out}</span>
                       <span className="text-xs text-slate-400 underline decoration-dotted">moved out</span>
+                      {p.expirations > 0 && <span className="text-xs text-slate-400 font-medium">({Math.round((p.moved_out ?? 0) / p.expirations * 100)}%)</span>}
                       <InfoTooltip text="Resident has already moved out. Unit is vacant or in turnover." />
                     </button>
                   )}

@@ -128,7 +128,7 @@ def parse_property_configs(
 
 
 @router.get("/occupancy", response_model=PortfolioOccupancy)
-async def get_portfolio_occupancy(
+def get_portfolio_occupancy(
     property_ids: str = Query(..., description="Comma-separated list of property IDs"),
     pms_types: Optional[str] = Query(None, description="Comma-separated list of PMS types (yardi/realpage)"),
     mode: AggregationMode = Query(
@@ -151,13 +151,13 @@ async def get_portfolio_occupancy(
     try:
         configs = parse_property_configs(property_ids, pms_types)
         service = get_portfolio_service()
-        return await service.get_portfolio_occupancy(configs, mode)
+        return service.get_portfolio_occupancy(configs, mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/pricing", response_model=PortfolioPricing)
-async def get_portfolio_pricing(
+def get_portfolio_pricing(
     property_ids: str = Query(..., description="Comma-separated list of property IDs"),
     pms_types: Optional[str] = Query(None, description="Comma-separated list of PMS types (yardi/realpage)"),
     mode: AggregationMode = Query(
@@ -180,13 +180,13 @@ async def get_portfolio_pricing(
     try:
         configs = parse_property_configs(property_ids, pms_types)
         service = get_portfolio_service()
-        return await service.get_portfolio_pricing(configs, mode)
+        return service.get_portfolio_pricing(configs, mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/summary", response_model=PortfolioSummary)
-async def get_portfolio_summary(
+def get_portfolio_summary(
     property_ids: str = Query(..., description="Comma-separated list of property IDs"),
     pms_types: Optional[str] = Query(None, description="Comma-separated list of PMS types (yardi/realpage)"),
     mode: AggregationMode = Query(
@@ -211,13 +211,13 @@ async def get_portfolio_summary(
     try:
         configs = parse_property_configs(property_ids, pms_types)
         service = get_portfolio_service()
-        return await service.get_portfolio_summary(configs, mode)
+        return service.get_portfolio_summary(configs, mode)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/units", response_model=List[UnifiedUnit])
-async def get_portfolio_units(
+def get_portfolio_units(
     property_ids: str = Query(..., description="Comma-separated list of property IDs"),
     pms_types: Optional[str] = Query(None, description="Comma-separated list of PMS types (yardi/realpage)"),
     status: Optional[str] = Query(None, description="Filter by unit status (occupied/vacant/notice)"),
@@ -235,7 +235,7 @@ async def get_portfolio_units(
     try:
         configs = parse_property_configs(property_ids, pms_types)
         service = get_portfolio_service()
-        units = await service.get_all_units(configs)
+        units = service.get_all_units(configs)
         
         # Filter by status if provided
         if status:
@@ -247,7 +247,7 @@ async def get_portfolio_units(
 
 
 @router.get("/residents", response_model=List[UnifiedResident])
-async def get_portfolio_residents(
+def get_portfolio_residents(
     property_ids: str = Query(..., description="Comma-separated list of property IDs"),
     pms_types: Optional[str] = Query(None, description="Comma-separated list of PMS types (yardi/realpage)"),
     status: Optional[str] = Query(None, description="Filter by resident status (current/future/past/notice)"),
@@ -265,7 +265,7 @@ async def get_portfolio_residents(
     try:
         configs = parse_property_configs(property_ids, pms_types)
         service = get_portfolio_service()
-        residents = await service.get_all_residents(configs, status)
+        residents = service.get_all_residents(configs, status)
         return residents
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -811,9 +811,9 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 continue
             try:
                 # Fetch core metrics for each property
-                occupancy = await _occupancy_service.get_occupancy_metrics(prop_id, Timeframe.CM)
-                funnel = await _occupancy_service.get_leasing_funnel(prop_id, Timeframe.CM)
-                pricing = await _pricing_service.get_unit_pricing(prop_id)
+                occupancy = _occupancy_service.get_occupancy_metrics(prop_id, Timeframe.CM)
+                funnel = _occupancy_service.get_leasing_funnel(prop_id, Timeframe.CM)
+                pricing = _pricing_service.get_unit_pricing(prop_id)
                 
                 occ_dict = occupancy.model_dump() if hasattr(occupancy, 'model_dump') else vars(occupancy)
                 funnel_dict = funnel.model_dump() if hasattr(funnel, 'model_dump') else vars(funnel)
@@ -838,7 +838,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 
                 # Exposure metrics
                 try:
-                    exposure = await _occupancy_service.get_exposure_metrics(prop_id, Timeframe.CM)
+                    exposure = _occupancy_service.get_exposure_metrics(prop_id, Timeframe.CM)
                     exp_dict = exposure.model_dump() if hasattr(exposure, 'model_dump') else vars(exposure)
                     prop_entry["exposure"] = exp_dict
                 except Exception:
@@ -846,7 +846,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 
                 # Renewals summary
                 try:
-                    renewals = await _pricing_service.get_renewal_leases(prop_id)
+                    renewals = _pricing_service.get_renewal_leases(prop_id)
                     if renewals and renewals.get("summary"):
                         prop_entry["renewals"] = renewals["summary"]
                         prop_entry["renewals"]["count_detail"] = len(renewals.get("renewals", []))
@@ -855,7 +855,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 
                 # Tradeouts summary
                 try:
-                    tradeouts = await _pricing_service.get_lease_tradeouts(prop_id)
+                    tradeouts = _pricing_service.get_lease_tradeouts(prop_id)
                     if tradeouts and tradeouts.get("summary"):
                         prop_entry["tradeouts"] = tradeouts["summary"]
                 except Exception:
@@ -863,7 +863,7 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 
                 # Expirations
                 try:
-                    expirations = await _occupancy_service.get_lease_expirations(prop_id)
+                    expirations = _occupancy_service.get_lease_expirations(prop_id)
                     if expirations and expirations.get("periods"):
                         prop_entry["expirations"] = expirations["periods"]
                 except Exception:

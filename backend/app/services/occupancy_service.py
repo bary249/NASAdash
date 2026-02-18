@@ -152,7 +152,7 @@ class OccupancyService:
         
         return properties
     
-    async def get_occupancy_metrics(
+    def get_occupancy_metrics(
         self, 
         property_id: str, 
         timeframe: Timeframe = Timeframe.CM
@@ -162,9 +162,9 @@ class OccupancyService:
         Primary source: unified_occupancy_metrics table.
         Fallback: compute from unified_units + unified_residents.
         """
-        return await self._get_occupancy_from_unified(property_id, timeframe)
+        return self._get_occupancy_from_unified(property_id, timeframe)
     
-    async def _get_occupancy_from_unified(
+    def _get_occupancy_from_unified(
         self,
         property_id: str,
         timeframe: Timeframe = Timeframe.CM
@@ -240,7 +240,7 @@ class OccupancyService:
             vacant_ready=0, vacant_not_ready=0, available_units=0, aged_vacancy_90_plus=0
         )
     
-    async def get_exposure_metrics(
+    def get_exposure_metrics(
         self, 
         property_id: str, 
         timeframe: Timeframe = Timeframe.CM
@@ -309,7 +309,7 @@ class OccupancyService:
             net_absorption=move_ins - move_outs
         )
     
-    async def get_leasing_funnel(
+    def get_leasing_funnel(
         self, 
         property_id: str, 
         timeframe: Timeframe = Timeframe.CM
@@ -593,11 +593,11 @@ class OccupancyService:
             lead_to_lease_rate=lead_to_lease
         )
     
-    async def get_raw_units(self, property_id: str) -> List[dict]:
+    def get_raw_units(self, property_id: str) -> List[dict]:
         """Get raw unit data for drill-through from unified.db."""
         return self._get_db_units(property_id)
     
-    async def get_raw_residents(
+    def get_raw_residents(
         self, 
         property_id: str, 
         status: str = "all",
@@ -653,7 +653,7 @@ class OccupancyService:
                     filtered.append(r)
         return filtered
     
-    async def get_raw_prospects(
+    def get_raw_prospects(
         self, 
         property_id: str,
         stage: Optional[str] = None,
@@ -662,7 +662,7 @@ class OccupancyService:
         """Get raw prospect data. Returns empty — prospect data not stored in unified.db."""
         return []
     
-    async def get_occupancy_trend(
+    def get_occupancy_trend(
         self, 
         property_id: str,
         start_date_str: Optional[str] = None,
@@ -759,7 +759,7 @@ class OccupancyService:
             )
         }
     
-    async def get_all_trends(
+    def get_all_trends(
         self, 
         property_id: str,
         start_date_str: Optional[str] = None,
@@ -825,8 +825,8 @@ class OccupancyService:
         
         # === FUNNEL TRENDS (Leads, Tours, Applications, Lease Signs) ===
         # Get guest activity for both periods
-        current_funnel = await self._get_funnel_counts(property_id, start_date, end_date)
-        prior_funnel = await self._get_funnel_counts(property_id, prior_start, prior_end)
+        current_funnel = self._get_funnel_counts(property_id, start_date, end_date)
+        prior_funnel = self._get_funnel_counts(property_id, prior_start, prior_end)
         
         return {
             "property_id": property_id,
@@ -897,7 +897,7 @@ class OccupancyService:
                     count += 1
         return count
     
-    async def _get_funnel_counts(
+    def _get_funnel_counts(
         self, 
         property_id: str, 
         period_start: date, 
@@ -995,7 +995,7 @@ class OccupancyService:
     
     # ---- Amenities methods ----
     
-    async def get_amenities(self, property_id: str, item_type: Optional[str] = None) -> List[dict]:
+    def get_amenities(self, property_id: str, item_type: Optional[str] = None) -> List[dict]:
         """
         Get rentable items (amenities) for a property.
         Reads from unified_amenities in unified.db.
@@ -1019,11 +1019,11 @@ class OccupancyService:
         except Exception:
             return []
     
-    async def get_amenities_summary(self, property_id: str) -> dict:
+    def get_amenities_summary(self, property_id: str) -> dict:
         """
         Get summary of amenities by type with revenue potential.
         """
-        items = await self.get_amenities(property_id)
+        items = self.get_amenities(property_id)
         
         if not items:
             return {
@@ -1086,7 +1086,7 @@ class OccupancyService:
             "by_type": list(by_type.values())
         }
 
-    async def get_lease_expirations(self, property_id: str) -> dict:
+    def get_lease_expirations(self, property_id: str) -> dict:
         """
         Get lease expiration and renewal metrics for 30/60/90 day periods.
         

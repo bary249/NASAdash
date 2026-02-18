@@ -52,7 +52,7 @@ class PricingService:
         except Exception:
             return property_id
     
-    async def get_unit_pricing(self, property_id: str) -> UnitPricingMetrics:
+    def get_unit_pricing(self, property_id: str) -> UnitPricingMetrics:
         """
         Get unit pricing metrics from unified.db.
         Primary: unified_pricing_metrics table.
@@ -169,7 +169,7 @@ class PricingService:
             logger.warning(f"[PRICING] DB fallback failed for {property_id}: {e}")
             return None
 
-    async def get_lease_tradeouts(self, property_id: str, days: int | None = None) -> dict:
+    def get_lease_tradeouts(self, property_id: str, days: int | None = None) -> dict:
         """
         Get lease trade-out data: compare prior lease rent vs new lease rent for same unit.
         Trade-out = when a resident moves out and a new one moves in.
@@ -269,7 +269,7 @@ class PricingService:
             logger.warning(f"[PRICING] Failed to get trade-outs: {e}")
             return {"tradeouts": [], "summary": {}}
 
-    async def get_renewal_leases(self, property_id: str, days: int = None, month: str = None) -> dict:
+    def get_renewal_leases(self, property_id: str, days: int = None, month: str = None) -> dict:
         """
         Get renewal lease data: renewal rent vs prior resident rent on the same unit.
         

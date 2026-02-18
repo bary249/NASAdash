@@ -31,7 +31,7 @@ market_comps_service = MarketCompsService()
 
 
 @router.get("/health")
-async def health_check():
+def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
@@ -49,28 +49,27 @@ async def get_properties():
 
 
 @router.get("/properties/{property_id}/occupancy", response_model=OccupancyMetrics)
-async def get_occupancy(
+def get_occupancy(
     property_id: str,
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd")
 ):
     """
-    GET: Occupancy metrics for a property.
+    GET: Core occupancy metrics for a property.
     
-    Timeframes:
-    - cm: Current Month (1st to today)
-    - pm: Previous Month (full month, static benchmark)
-    - ytd: Year-to-Date (Jan 1 to today)
+    Data hierarchy:
+    1. unified_occupancy_metrics table (from Box Score report - most reliable)
+    2. Computed from unified_units + unified_residents (fallback)
     
     Returns: Physical occupancy, leased %, vacancy breakdown, aged vacancy.
     """
     try:
-        return await occupancy_service.get_occupancy_metrics(property_id, timeframe)
+        return occupancy_service.get_occupancy_metrics(property_id, timeframe)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/exposure", response_model=ExposureMetrics)
-async def get_exposure(
+def get_exposure(
     property_id: str,
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd")
 ):
@@ -127,13 +126,13 @@ async def get_exposure(
     
     # Fall back to live API call
     try:
-        return await occupancy_service.get_exposure_metrics(property_id, timeframe)
+        return occupancy_service.get_exposure_metrics(property_id, timeframe)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/leasing-funnel", response_model=LeasingFunnelMetrics)
-async def get_leasing_funnel(
+def get_leasing_funnel(
     property_id: str,
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd"),
     start_date: Optional[str] = Query(None, description="Custom start date (YYYY-MM-DD). Overrides timeframe."),
@@ -161,7 +160,7 @@ async def get_leasing_funnel(
             pass  # fall through to normal logic
 
     # First try the service (reads imported_leasing_activity from unified.db)
-    result = await occupancy_service.get_leasing_funnel(property_id, timeframe)
+    result = occupancy_service.get_leasing_funnel(property_id, timeframe)
     if result.leads > 0:
         return result
     
@@ -344,24 +343,23 @@ async def get_leasing_funnel(
 
 
 @router.get("/properties/{property_id}/pricing", response_model=UnitPricingMetrics)
-async def get_pricing(property_id: str):
+def get_pricing(property_id: str):
     """
     GET: Unit pricing metrics.
     
-    Returns per-floorplan and total:
-    - In-Place Effective Rent (weighted avg current resident rents)
-    - Asking Effective Rent (weighted avg market rents)
-    - Rent per SF
+    Returns: Average asking rent, in-place rent, rent per square foot, rent growth.
+    - In-Place Rent: Average rent currently being paid by occupied units
+    - Asking Rent: Average market/list rent across all units  
     - Rent Growth: (Asking / In-Place) - 1
     """
     try:
-        return await pricing_service.get_unit_pricing(property_id)
+        return pricing_service.get_unit_pricing(property_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/tradeouts")
-async def get_tradeouts(property_id: str, days: Optional[int] = None):
+def get_tradeouts(property_id: str, days: Optional[int] = None):
     """
     GET: Lease trade-out data.
     
@@ -376,13 +374,13 @@ async def get_tradeouts(property_id: str, days: Optional[int] = None):
     - summary: Average rent change metrics
     """
     try:
-        return await pricing_service.get_lease_tradeouts(property_id, days=days)
+        return pricing_service.get_lease_tradeouts(property_id, days=days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/renewals")
-async def get_renewal_leases(
+def get_renewal_leases(
     property_id: str,
     days: Optional[int] = None,
     month: Optional[str] = Query(None, description="Calendar month filter (e.g. '2026-04')")
@@ -390,25 +388,18 @@ async def get_renewal_leases(
     """
     GET: Renewal lease data.
     
-    Shows renewal rent vs prior resident rent for residents who renewed.
-    Prior rent = what the resident was paying before the renewal.
-    
-    Query params:
-    - month: Calendar month filter (e.g. '2026-04') — preferred
-    - days: Optional trailing window in days (fallback)
-    
     Returns:
-    - renewals: List of individual renewals with prior rent comparison
+    - renewals: List of renewal leases with rent comparison
     - summary: Average renewal rent, prior rent, and variance
     """
     try:
-        return await pricing_service.get_renewal_leases(property_id, days=days, month=month)
+        return pricing_service.get_renewal_leases(property_id, days=days, month=month)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/turn-time")
-async def get_turn_time(property_id: str):
+def get_turn_time(property_id: str):
     """
     GET: Average unit turn time for a property.
     
@@ -485,7 +476,7 @@ async def get_turn_time(property_id: str):
 
 
 @router.get("/properties/{property_id}/loss-to-lease")
-async def get_loss_to_lease(property_id: str):
+def get_loss_to_lease(property_id: str):
     """
     GET: Loss-to-lease estimate for a property.
     
@@ -566,7 +557,7 @@ async def get_loss_to_lease(property_id: str):
 
 
 @router.get("/properties/{property_id}/projected-occupancy")
-async def get_projected_occupancy(property_id: str):
+def get_projected_occupancy(property_id: str):
     """
     GET: Projected occupancy at 30, 60, and 90 days.
     
@@ -681,7 +672,7 @@ async def get_projected_occupancy(property_id: str):
 
 
 @router.get("/properties/{property_id}/availability")
-async def get_availability(property_id: str):
+def get_availability(property_id: str):
     """
     GET: Availability metrics per PHH feedback.
     
@@ -871,7 +862,7 @@ async def get_availability(property_id: str):
 
 
 @router.get("/properties/{property_id}/occupancy-snapshots")
-async def get_occupancy_snapshots(property_id: str):
+def get_occupancy_snapshots(property_id: str):
     """
     GET: Historical occupancy snapshots for week-over-week trend display.
     Returns all available box score snapshots ordered by date.
@@ -923,21 +914,20 @@ async def get_occupancy_snapshots(property_id: str):
 
 
 @router.get("/properties/{property_id}/expirations")
-async def get_expirations(property_id: str):
+def get_expirations(property_id: str):
     """
     GET: Lease expiration and renewal metrics.
-    
-    Returns expiration count, renewal count, and renewal percentage
+    Returns count of expiring leases, signed renewals, submitted renewals, selected renewals
     for 30/60/90 day periods.
     """
     try:
-        return await occupancy_service.get_lease_expirations(property_id)
+        return occupancy_service.get_lease_expirations(property_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/expirations/details")
-async def get_expiration_details(
+def get_expiration_details(
     property_id: str,
     days: int = Query(90, description="Lookahead window in days (30, 60, or 90)"),
     filter: Optional[str] = Query(None, description="Decision filter: renewed, vacating, pending, mtm, moved_out, expiring (all non-renewed)"),
@@ -1131,7 +1121,7 @@ async def get_expiration_details(
 
 
 @router.get("/properties/{property_id}/occupancy-trend")
-async def get_occupancy_trend(
+def get_occupancy_trend(
     property_id: str,
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD). Defaults to 7 days ago."),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD). Defaults to today.")
@@ -1143,13 +1133,13 @@ async def get_occupancy_trend(
     If custom dates provided, compares that range to the same duration before start_date.
     """
     try:
-        return await occupancy_service.get_occupancy_trend(property_id, start_date, end_date)
+        return occupancy_service.get_occupancy_trend(property_id, start_date, end_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/all-trends")
-async def get_all_trends(
+def get_all_trends(
     property_id: str,
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD). Defaults to 7 days ago."),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD). Defaults to today.")
@@ -1163,7 +1153,7 @@ async def get_all_trends(
     - Funnel: leads, tours, applications, lease signs, conversion rates
     """
     try:
-        return await occupancy_service.get_all_trends(property_id, start_date, end_date)
+        return occupancy_service.get_all_trends(property_id, start_date, end_date)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1184,14 +1174,14 @@ async def get_summary(
         property_info = next((p for p in properties if p.id == property_id), 
                             PropertyInfo(id=property_id, name=property_id))
         
-        occupancy = await occupancy_service.get_occupancy_metrics(property_id, timeframe)
-        exposure = await occupancy_service.get_exposure_metrics(property_id, timeframe)
-        funnel = await occupancy_service.get_leasing_funnel(property_id, timeframe)
+        occupancy = occupancy_service.get_occupancy_metrics(property_id, timeframe)
+        exposure = occupancy_service.get_exposure_metrics(property_id, timeframe)
+        funnel = occupancy_service.get_leasing_funnel(property_id, timeframe)
         
         pricing = None
         if include_pricing:
             try:
-                pricing = await pricing_service.get_unit_pricing(property_id)
+                pricing = pricing_service.get_unit_pricing(property_id)
             except Exception:
                 pass
         
@@ -1210,7 +1200,7 @@ async def get_summary(
 # ---- Drill-through endpoints ----
 
 @router.get("/properties/{property_id}/units/raw")
-async def get_units_raw(
+def get_units_raw(
     property_id: str,
     status: Optional[str] = Query(None, description="Filter by status: occupied, vacant, available, aged")
 ):
@@ -1223,7 +1213,7 @@ async def get_units_raw(
     - aged: Vacant units with days_vacant > 90
     """
     try:
-        units = await occupancy_service.get_raw_units(property_id)
+        units = occupancy_service.get_raw_units(property_id)
         
         # Filter by status if provided
         if status:
@@ -1241,7 +1231,7 @@ async def get_units_raw(
 
 
 @router.get("/properties/{property_id}/residents/raw")
-async def get_residents_raw(
+def get_residents_raw(
     property_id: str,
     status: str = Query("all", description="Status filter: all, Current, Notice, Past, Future"),
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe for filtering"),
@@ -1257,25 +1247,25 @@ async def get_residents_raw(
     - notices_60: Notices with move-out in next 60 days
     """
     try:
-        return await occupancy_service.get_raw_residents(property_id, status, timeframe, metric_filter)
+        return occupancy_service.get_raw_residents(property_id, status, timeframe, metric_filter)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/prospects/raw")
-async def get_prospects_raw(
+def get_prospects_raw(
     property_id: str,
     stage: Optional[str] = Query(None, description="Funnel stage: leads, tours, applications, lease_signs"),
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe for filtering")
 ):
     """GET: Raw prospect data for drill-through."""
-    return await occupancy_service.get_raw_prospects(property_id, stage, timeframe)
+    return occupancy_service.get_raw_prospects(property_id, stage, timeframe)
 
 
 # ---- Amenities/Rentable Items endpoints ----
 
 @router.get("/properties/{property_id}/amenities")
-async def get_amenities(
+def get_amenities(
     property_id: str,
     item_type: Optional[str] = Query(None, description="Filter by type: carport, storage, etc.")
 ):
@@ -1285,18 +1275,18 @@ async def get_amenities(
     Returns inventory of rentable items with pricing and availability status.
     """
     try:
-        return await occupancy_service.get_amenities(property_id, item_type)
+        return occupancy_service.get_amenities(property_id, item_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/properties/{property_id}/amenities/summary")
-async def get_amenities_summary(property_id: str):
+def get_amenities_summary(property_id: str):
     """
     GET: Summary of amenities by type with revenue potential.
     """
     try:
-        return await occupancy_service.get_amenities_summary(property_id)
+        return occupancy_service.get_amenities_summary(property_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1410,7 +1400,7 @@ async def search_market_comps(
 # =========================================================================
 
 @router.get("/properties/{property_id}/delinquency")
-async def get_delinquency(property_id: str):
+def get_delinquency(property_id: str):
     """
     GET: Delinquency, eviction, and collections data for a property.
     
@@ -1607,7 +1597,7 @@ async def get_delinquency(property_id: str):
 # =========================================================================
 
 @router.get("/properties/{property_id}/risk-scores")
-async def get_risk_scores(property_id: str):
+def get_risk_scores(property_id: str):
     """
     GET: Resident risk scores for a property.
     
@@ -1680,7 +1670,7 @@ async def get_risk_scores(property_id: str):
 # =========================================================================
 
 @router.get("/properties/{property_id}/availability-by-floorplan")
-async def get_availability_by_floorplan(property_id: str):
+def get_availability_by_floorplan(property_id: str):
     """
     GET: Available units broken out by floorplan, showing vacant vs on-notice counts.
     
@@ -1753,7 +1743,7 @@ async def get_availability_by_floorplan(property_id: str):
 
 
 @router.get("/properties/{property_id}/consolidated-by-bedroom")
-async def get_consolidated_by_bedroom(property_id: str):
+def get_consolidated_by_bedroom(property_id: str):
     """
     GET: Dashboard Consolidation — aggregates occupancy, pricing, and availability
     by bedroom type (Studio, 1BR, 2BR, 3BR+).
@@ -1963,7 +1953,7 @@ async def get_consolidated_by_bedroom(property_id: str):
 
 
 @router.get("/properties/{property_id}/availability-by-floorplan/units")
-async def get_availability_units(property_id: str, floorplan: str = None, status: str = None):
+def get_availability_units(property_id: str, floorplan: str = None, status: str = None):
     """
     GET: Unit-level drill-down for availability by floorplan.
     
@@ -2122,7 +2112,7 @@ async def get_availability_units(property_id: str, floorplan: str = None, status
 
 
 @router.get("/properties/{property_id}/shows")
-async def get_shows(property_id: str, days: int = 7):
+def get_shows(property_id: str, days: int = 7):
     """
     GET: Number of property shows/tours in the last N days.
     
@@ -2188,7 +2178,7 @@ async def get_shows(property_id: str, days: int = 7):
 
 
 @router.get("/properties/{property_id}/occupancy-forecast")
-async def get_occupancy_forecast(property_id: str, weeks: int = 12):
+def get_occupancy_forecast(property_id: str, weeks: int = 12):
     """
     GET: Weekly occupancy forecast showing projected move-ins and move-outs.
     
@@ -2643,40 +2633,40 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
         # Parallel async fetches (biggest speed win — these were sequential before)
         async def _fetch_occ():
             try:
-                occ = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+                occ = occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
                 return ("occupancy", occ.model_dump() if hasattr(occ, 'model_dump') else {}, occ.property_name)
             except Exception:
                 return None
 
         async def _fetch_pricing():
             try:
-                p = await pricing_service.get_unit_pricing(property_id)
+                p = pricing_service.get_unit_pricing(property_id)
                 return ("pricing", p.model_dump() if hasattr(p, 'model_dump') else {})
             except Exception:
                 return None
 
         async def _fetch_funnel():
             try:
-                f = await get_leasing_funnel(property_id, Timeframe.L30)
+                f = get_leasing_funnel(property_id, Timeframe.L30)
                 return ("funnel", f.model_dump() if hasattr(f, 'model_dump') else {})
             except Exception:
                 return None
 
         async def _fetch_expirations():
             try:
-                return ("expirations", await occupancy_service.get_lease_expirations(property_id))
+                return ("expirations", occupancy_service.get_lease_expirations(property_id))
             except Exception:
                 return None
 
         async def _fetch_tradeouts():
             try:
-                return ("tradeouts", await pricing_service.get_lease_tradeouts(property_id))
+                return ("tradeouts", pricing_service.get_lease_tradeouts(property_id))
             except Exception:
                 return None
 
         async def _fetch_ltl():
             try:
-                return ("loss_to_lease", await pricing_service.get_loss_to_lease(property_id))
+                return ("loss_to_lease", pricing_service.get_loss_to_lease(property_id))
             except Exception:
                 return None
 
@@ -2863,25 +2853,25 @@ async def chat_with_ai(
         # Gather property data for context (all reads from unified.db)
         property_data = {"property_id": property_id, "property_name": property_id}
         
-        occupancy = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+        occupancy = occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
         property_data["property_name"] = occupancy.property_name
         property_data["occupancy"] = occupancy.model_dump() if hasattr(occupancy, 'model_dump') else vars(occupancy)
         
-        exposure = await occupancy_service.get_exposure_metrics(property_id, Timeframe.CM)
+        exposure = occupancy_service.get_exposure_metrics(property_id, Timeframe.CM)
         property_data["exposure"] = exposure.model_dump() if hasattr(exposure, 'model_dump') else vars(exposure)
         
-        funnel = await occupancy_service.get_leasing_funnel(property_id, Timeframe.CM)
+        funnel = occupancy_service.get_leasing_funnel(property_id, Timeframe.CM)
         property_data["funnel"] = funnel.model_dump() if hasattr(funnel, 'model_dump') else vars(funnel)
         
-        pricing = await pricing_service.get_unit_pricing(property_id)
+        pricing = pricing_service.get_unit_pricing(property_id)
         property_data["pricing"] = pricing.model_dump() if hasattr(pricing, 'model_dump') else vars(pricing)
         
-        property_data["units"] = await occupancy_service.get_raw_units(property_id)
-        property_data["residents"] = await occupancy_service.get_raw_residents(property_id, "all", Timeframe.CM)
+        property_data["units"] = occupancy_service.get_raw_units(property_id)
+        property_data["residents"] = occupancy_service.get_raw_residents(property_id, "all", Timeframe.CM)
         
         # Renewals summary
         try:
-            renewals = await pricing_service.get_renewal_leases(property_id)
+            renewals = pricing_service.get_renewal_leases(property_id)
             if renewals and renewals.get("summary"):
                 property_data["renewals"] = renewals["summary"]
                 property_data["renewals"]["count_detail"] = len(renewals.get("renewals", []))
@@ -2890,7 +2880,7 @@ async def chat_with_ai(
         
         # Tradeouts summary
         try:
-            tradeouts = await pricing_service.get_lease_tradeouts(property_id)
+            tradeouts = pricing_service.get_lease_tradeouts(property_id)
             if tradeouts and tradeouts.get("summary"):
                 property_data["tradeouts"] = tradeouts["summary"]
         except Exception:
@@ -2898,7 +2888,7 @@ async def chat_with_ai(
         
         # Expirations
         try:
-            expirations = await occupancy_service.get_lease_expirations(property_id)
+            expirations = occupancy_service.get_lease_expirations(property_id)
             if expirations and expirations.get("periods"):
                 property_data["expirations"] = expirations["periods"]
         except Exception:
@@ -3084,12 +3074,12 @@ async def toggle_watchpoint_endpoint(property_id: str, watchpoint_id: str):
     return wp
 
 
-async def _gather_current_metrics(property_id: str) -> dict:
+def _gather_current_metrics(property_id: str) -> dict:
     """Collect current metric values for watchpoint evaluation."""
     metrics = {}
     
     try:
-        occ = await occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
+        occ = occupancy_service.get_occupancy_metrics(property_id, Timeframe.CM)
         if occ:
             metrics["occupancy_pct"] = occ.physical_occupancy or 0
             metrics["vacant_units"] = occ.vacant_units or 0
@@ -3122,7 +3112,7 @@ async def _gather_current_metrics(property_id: str) -> dict:
         pass
     
     try:
-        p = await pricing_service.get_unit_pricing(property_id)
+        p = pricing_service.get_unit_pricing(property_id)
         if p and p.floorplans:
             total_rent = sum(f.in_place_rent * f.unit_count for f in p.floorplans if f.in_place_rent)
             total_units = sum(f.unit_count for f in p.floorplans if f.in_place_rent)
@@ -3163,16 +3153,8 @@ async def _gather_current_metrics(property_id: str) -> dict:
     except Exception:
         pass
     
-    try:
-        from app.services.google_reviews_service import get_property_reviews
-        reviews = await get_property_reviews(property_id)
-        if reviews and not reviews.get("error"):
-            if reviews.get("rating"):
-                metrics["google_rating"] = reviews["rating"]
-            if reviews.get("response_rate") is not None:
-                metrics["response_rate"] = reviews["response_rate"]
-    except Exception:
-        pass
+    # Google reviews skipped here — get_property_reviews is async and this
+    # function is sync (runs in thread pool). Rating data is not critical for watchpoints.
     
     return metrics
 

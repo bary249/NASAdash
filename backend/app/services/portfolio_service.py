@@ -103,6 +103,24 @@ class PortfolioService:
                 vacant_not_ready = row[10] or 0
                 notice_break = row[11] or 0
                 notice_units = row[12] or 0
+                
+                # Override vacant from unified_units for consistency with
+                # ATR, bedroom table, and KPI card (all read from unified_units)
+                try:
+                    conn2 = sqlite3.connect(UNIFIED_DB_PATH)
+                    c2 = conn2.cursor()
+                    c2.execute("""
+                        SELECT COUNT(*) FROM unified_units
+                        WHERE unified_property_id = ?
+                          AND occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')
+                    """, (property_id,))
+                    uu_row = c2.fetchone()
+                    conn2.close()
+                    if uu_row and uu_row[0] > 0:
+                        vacant_units = uu_row[0]
+                except Exception:
+                    pass
+                
                 # Fallback: if no vacant_ready data, use total vacant
                 if vacant_ready == 0 and vacant_not_ready == 0 and vacant_units > 0:
                     vacant_ready = vacant_units
@@ -126,7 +144,7 @@ class PortfolioService:
             pass
         return None
     
-    async def get_portfolio_occupancy(
+    def get_portfolio_occupancy(
         self,
         configs: List[PMSConfig],
         mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
@@ -144,11 +162,11 @@ class PortfolioService:
         property_ids = [c.property_id for c in configs]
         
         if mode == AggregationMode.ROW_METRICS:
-            return await self._occupancy_row_metrics(configs)
+            return self._occupancy_row_metrics(configs)
         else:
-            return await self._occupancy_weighted_average(configs)
+            return self._occupancy_weighted_average(configs)
     
-    async def _occupancy_weighted_average(
+    def _occupancy_weighted_average(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioOccupancy:
@@ -213,7 +231,7 @@ class PortfolioService:
             property_breakdown=property_metrics,
         )
     
-    async def _occupancy_row_metrics(
+    def _occupancy_row_metrics(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioOccupancy:
@@ -278,7 +296,7 @@ class PortfolioService:
             property_breakdown=property_metrics,
         )
     
-    async def get_portfolio_pricing(
+    def get_portfolio_pricing(
         self,
         configs: List[PMSConfig],
         mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
@@ -294,9 +312,9 @@ class PortfolioService:
             PortfolioPricing with aggregated metrics
         """
         if mode == AggregationMode.ROW_METRICS:
-            return await self._pricing_row_metrics(configs)
+            return self._pricing_row_metrics(configs)
         else:
-            return await self._pricing_weighted_average(configs)
+            return self._pricing_weighted_average(configs)
     
     def _get_pricing_from_db(self, property_id: str) -> Optional[Dict]:
         """Get pricing from unified.db for a property."""
@@ -342,7 +360,7 @@ class PortfolioService:
         except Exception:
             return None
     
-    async def _pricing_weighted_average(
+    def _pricing_weighted_average(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioPricing:
@@ -384,14 +402,14 @@ class PortfolioService:
             total_rent_growth=round(growth, 2),
         )
     
-    async def _pricing_row_metrics(
+    def _pricing_row_metrics(
         self, 
         configs: List[PMSConfig]
     ) -> PortfolioPricing:
         """Calculate pricing from combined unified.db data (same as weighted avg for DB source)."""
-        return await self._pricing_weighted_average(configs)
+        return self._pricing_weighted_average(configs)
     
-    async def get_all_units(
+    def get_all_units(
         self,
         configs: List[PMSConfig]
     ) -> List[UnifiedUnit]:
@@ -446,7 +464,7 @@ class PortfolioService:
         
         return all_units
     
-    async def get_all_residents(
+    def get_all_residents(
         self,
         configs: List[PMSConfig],
         status: Optional[str] = None
@@ -488,7 +506,7 @@ class PortfolioService:
         
         return all_residents
     
-    async def get_portfolio_summary(
+    def get_portfolio_summary(
         self,
         configs: List[PMSConfig],
         mode: AggregationMode = AggregationMode.WEIGHTED_AVERAGE
@@ -496,12 +514,12 @@ class PortfolioService:
         """
         Get complete portfolio summary with all metrics.
         """
-        occupancy = await self.get_portfolio_occupancy(configs, mode)
-        pricing = await self.get_portfolio_pricing(configs, mode)
+        occupancy = self.get_portfolio_occupancy(configs, mode)
+        pricing = self.get_portfolio_pricing(configs, mode)
         
         # Get counts
-        all_units = await self.get_all_units(configs)
-        all_residents = await self.get_all_residents(configs, status="current")
+        all_units = self.get_all_units(configs)
+        all_residents = self.get_all_residents(configs, status="current")
         
         # Get property names from unified.db
         property_names = []

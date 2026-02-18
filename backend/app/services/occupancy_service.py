@@ -87,7 +87,7 @@ class OccupancyService:
         except Exception:
             return property_id
     
-    async def get_property_list(self) -> List[PropertyInfo]:
+    def get_property_list(self) -> List[PropertyInfo]:
         """Get list of all properties from unified.db."""
         properties = []
         
@@ -125,11 +125,11 @@ class OccupancyService:
             
             conn.close()
             
-            # Get Google Places ratings (cached)
+            # Get Google Places ratings from cache (no live API calls)
             google_ratings = {}
             try:
-                from app.services.google_places_service import get_all_property_ratings
-                google_ratings = await get_all_property_ratings()
+                from app.services.google_places_service import get_all_property_ratings_cached
+                google_ratings = get_all_property_ratings_cached()
             except Exception as e:
                 logger.warning(f"[OCCUPANCY] Failed to get Google ratings: {e}")
 

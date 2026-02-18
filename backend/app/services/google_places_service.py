@@ -114,9 +114,51 @@ async def lookup_property_rating(
         return None
 
 
+def get_all_property_ratings_cached() -> dict[str, dict]:
+    """
+    Return cached Google ratings for all properties (no API calls).
+    Used by get_property_list() to avoid blocking the event loop.
+    Cache is populated by lookup_property_rating() or scrape_reviews.py.
+    """
+    from app.property_config.properties import ALL_PROPERTIES
+    import sqlite3
+
+    cache = _load_cache()
+    if not cache:
+        return {}
+
+    # Get city/state for cache key construction
+    prop_locations = {}
+    try:
+        conn = sqlite3.connect(UNIFIED_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT unified_property_id, city, state FROM unified_properties")
+        for row in cursor.fetchall():
+            prop_locations[row[0]] = {"city": row[1] or "", "state": row[2] or ""}
+        conn.close()
+    except Exception:
+        pass
+
+    results = {}
+    for prop_id, prop in ALL_PROPERTIES.items():
+        loc = prop_locations.get(prop_id, {})
+        query = f"{prop.name} apartments"
+        if loc.get("city"):
+            query += f" {loc['city']}"
+        if loc.get("state"):
+            query += f" {loc['state']}"
+        cache_key = query.lower().strip()
+        entry = cache.get(cache_key)
+        if entry and entry.get("data") and entry["data"].get("rating"):
+            results[prop_id] = entry["data"]
+
+    return results
+
+
 async def get_all_property_ratings() -> dict[str, dict]:
     """
-    Look up ratings for all configured properties.
+    Look up ratings for all configured properties (makes live API calls).
+    Prefer get_all_property_ratings_cached() for read paths.
     Returns: {property_id: {"rating": float, "review_count": int, ...}}
     """
     from app.property_config.properties import ALL_PROPERTIES

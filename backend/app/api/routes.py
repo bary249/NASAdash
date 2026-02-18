@@ -37,13 +37,13 @@ def health_check():
 
 
 @router.get("/properties", response_model=list[PropertyInfo])
-async def get_properties():
+def get_properties():
     """
     GET: List all properties.
     Used for property selector dropdown.
     """
     try:
-        return await occupancy_service.get_property_list()
+        return occupancy_service.get_property_list()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1159,7 +1159,7 @@ def get_all_trends(
 
 
 @router.get("/properties/{property_id}/summary", response_model=DashboardSummary)
-async def get_summary(
+def get_summary(
     property_id: str,
     timeframe: Timeframe = Query(Timeframe.CM, description="Timeframe: cm, pm, or ytd"),
     include_pricing: bool = Query(True, description="Include pricing data")
@@ -1170,7 +1170,7 @@ async def get_summary(
     Combines occupancy, exposure, leasing funnel, and pricing.
     """
     try:
-        properties = await occupancy_service.get_property_list()
+        properties = occupancy_service.get_property_list()
         property_info = next((p for p in properties if p.id == property_id), 
                             PropertyInfo(id=property_id, name=property_id))
         
@@ -1322,10 +1322,10 @@ async def get_submarkets():
 
 
 @router.get("/properties/{property_id}/location")
-async def get_property_location(property_id: str):
+def get_property_location(property_id: str):
     """GET: Property location for market comps submarket matching."""
     try:
-        properties = await occupancy_service.get_property_list()
+        properties = occupancy_service.get_property_list()
         prop = next((p for p in properties if p.id == property_id), None)
         
         if prop:

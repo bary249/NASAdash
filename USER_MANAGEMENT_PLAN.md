@@ -377,26 +377,120 @@ This turns passive alerts into collaborative conversations.
 
 **Effort:** L (depends on chat being built first)
 
-### 6f. User Roles V2: Granular Tab-Level Permissions ✅ CONFIRMED
-Beyond admin/user:
-- **Owner/Executive:** See financials, approve budgets
-- **Asset Manager:** Full operational access
-- **Property Manager:** Single-property access
-- **Regional Manager:** Multi-property subset
-- **View-Only:** Can see but not export or chat
+### 6f. Granular Permissions: Tabs + Sections/Views ✅ CONFIRMED
+Beyond admin/user, admins can check/uncheck **individual sections and tables** — not just whole tabs.
 
-Tab-level permissions: e.g., property manager can't see the Financials tab.
+#### Two levels of control
+
+| Level | What admin controls | Example |
+|-------|-------------------|---------|
+| **Tab** | Show/hide entire tab from nav | Hide "Financials" tab entirely for a property manager |
+| **View** | Show/hide a specific section/table within a visible tab | Show delinquency summary tiles but hide the unit-level AR table |
+
+#### Database schema
 
 ```sql
+-- Tab-level access (coarse)
 CREATE TABLE IF NOT EXISTS user_tab_access (
     user_id TEXT NOT NULL,
-    tab_id TEXT NOT NULL,            -- 'overview', 'leasing', 'financials', etc.
+    tab_id TEXT NOT NULL,
     can_view INTEGER DEFAULT 1,
     PRIMARY KEY (user_id, tab_id)
 );
+
+-- View/section-level access (granular, within a tab)
+CREATE TABLE IF NOT EXISTS user_view_access (
+    user_id TEXT NOT NULL,
+    view_id TEXT NOT NULL,            -- e.g. 'overview.bedroom_table', 'delinquency.ar_drillthrough'
+    can_view INTEGER DEFAULT 1,
+    PRIMARY KEY (user_id, view_id)
+);
 ```
 
-**Effort:** M (backend) + S (frontend tab guard)
+#### View ID registry (maps to actual frontend components)
+
+| Tab | View ID | Component | Description |
+|-----|---------|-----------|-------------|
+| **overview** | `overview.kpi_tiles` | KPICard grid | Occupancy, vacancy, leased %, ATR tiles |
+| | `overview.bedroom_table` | BedroomConsolidatedView | Bedroom type breakdown table |
+| | `overview.availability` | AvailabilitySection | Availability buckets + ATR trend |
+| | `overview.occ_trend` | OccupancyTrendSection | Occupancy trend chart |
+| | `overview.market_comps` | MarketCompsTable | Comp properties table |
+| | `overview.unit_mix` | UnitMixPricing | Unit mix & pricing section |
+| | `overview.trade_outs` | TradeOutSection | Trade-out details |
+| **leasing** | `leasing.funnel` | FunnelKPICards | Leads → Tours → Apps → Leases tiles |
+| | `leasing.conversions` | (in funnel) | Conversion rate matrix |
+| | `leasing.forecast` | Forecast table | Occupancy forecast table |
+| | `leasing.floorplan_avail` | (planned) | Available units by floorplan |
+| | `leasing.marketing` | MarketingSection | Lead sources & marketing |
+| **renewals** | `renewals.summary` | Renewal summary tiles | Renewed / vacating / pending counts |
+| | `renewals.drillthrough` | Renewal detail table | Individual renewal rows |
+| | `renewals.move_out` | MoveOutReasonsSection | Move-out reasons breakdown |
+| | `renewals.expiration_chart` | (planned) | 12-month expiration/renewal chart |
+| **delinquency** | `delinquency.summary` | Summary tiles | Aging bucket totals |
+| | `delinquency.ar_table` | AR drill-through table | Unit-level delinquency rows |
+| | `delinquency.evictions` | Eviction section | Eviction list + details |
+| | `delinquency.former_residents` | Former resident balance | Collections / former resident section |
+| **financials** | `financials.pnl` | P&L statement | Full income statement |
+| | `financials.revenue_detail` | Revenue breakdown | Revenue line items |
+| | `financials.kpi_header` | Financial KPIs | Econ occ, bad debt %, etc. |
+| **reviews** | `reviews.google` | GoogleReviewsSection | Google reviews + response tracking |
+| | `reviews.apartments` | Apartments.com section | Apartments.com reviews |
+| | `reviews.reputation` | ReputationOverview | Blended reputation score |
+| **risk** | `risk.churn` | Churn gauge + distribution | Churn risk scores |
+| | `risk.delinquency` | Delinquency gauge | Delinquency risk scores |
+| **maintenance** | `maintenance.summary` | MaintenanceSection | Work orders summary |
+
+#### Default behavior
+- **New users get ALL views enabled** (default `can_view=1`)
+- Admin **unchecks** specific views to restrict — whitelist model, not blacklist
+- If a tab is hidden (`user_tab_access.can_view=0`), all views inside it are automatically hidden regardless of `user_view_access`
+- Admin users always see everything — view restrictions only apply to `role='user'`
+
+#### Admin panel UI for permissions
+
+```
+┌─ Edit Permissions: Sarah M. ──────────────────────────┐
+│                                                        │
+│  ☑ Overview                                            │
+│    ☑ KPI Tiles                                         │
+│    ☑ Bedroom Breakdown Table                           │
+│    ☑ Availability & ATR                                │
+│    ☑ Occupancy Trend Chart                             │
+│    ☑ Market Comps                                      │
+│    ☐ Unit Mix & Pricing          ← admin unchecked     │
+│    ☐ Trade-Out Details           ← admin unchecked     │
+│                                                        │
+│  ☑ Leasing                                             │
+│    ☑ Funnel Tiles                                      │
+│    ☑ Conversion Rates                                  │
+│    ☑ Occupancy Forecast                                │
+│                                                        │
+│  ☐ Financials                    ← entire tab hidden   │
+│    (all sections hidden)                               │
+│                                                        │
+│  ☑ Delinquency                                         │
+│    ☑ Summary Tiles                                     │
+│    ☐ AR Drill-Through Table      ← admin unchecked     │
+│    ☑ Evictions                                         │
+│                                                        │
+│                              [Save]  [Cancel]          │
+└────────────────────────────────────────────────────────┘
+```
+
+Unchecking a tab auto-unchecks all children. Checking a tab re-enables all children to their previous state.
+
+#### Frontend enforcement
+- API endpoint: `GET /api/auth/me` returns `permissions: { tabs: [...], views: [...] }` alongside user info
+- `AuthContext` stores permissions
+- Each section component wraps in a `<PermissionGate viewId="overview.bedroom_table">` that renders `null` if the user lacks access
+- Tabs not in the user's `tabs` list are removed from `TabNavigation`
+
+#### Backend enforcement
+- Drill-through / detail endpoints check `user_view_access` before returning data
+- Prevents bypassing the frontend by calling the API directly
+
+**Effort:** L (1-2 days — DB + admin UI checkboxes + PermissionGate component + backend checks)
 
 ---
 

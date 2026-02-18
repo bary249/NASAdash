@@ -1165,7 +1165,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
             {/* Row 2 */}
             <VacantKPICard
-              total={boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
+              total={atrData?.vacant ?? boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
               totalUnits={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
               ready={boxScoreOcc?.vacant_ready ?? occupancy?.vacantReady ?? 0}
               agedCount={boxScoreOcc?.aged_vacancy_90_plus ?? occupancy?.agedVacancy90Plus}

@@ -29,12 +29,24 @@ interface AIInsightsPanelProps {
 
 // ---- Saved-questions helpers (localStorage) ----
 const SAVED_Q_KEY = 'ai_saved_questions';
+const SAVED_A_KEY = 'ai_saved_answers';
 
 export function loadSavedQuestions(): string[] {
   try {
     const raw = localStorage.getItem(SAVED_Q_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
+}
+
+function loadSavedAnswers(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SAVED_A_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveSavedAnswers(answers: Record<string, string>) {
+  try { localStorage.setItem(SAVED_A_KEY, JSON.stringify(answers)); } catch {}
 }
 
 export function saveQuestion(q: string) {
@@ -49,6 +61,10 @@ export function saveQuestion(q: string) {
 export function removeSavedQuestion(q: string) {
   const qs = loadSavedQuestions().filter(x => x !== q);
   localStorage.setItem(SAVED_Q_KEY, JSON.stringify(qs));
+  // Clean up cached answer too
+  const answers = loadSavedAnswers();
+  delete answers[q];
+  saveSavedAnswers(answers);
   window.dispatchEvent(new Event('saved-questions-changed'));
 }
 // ---- End helpers ----
@@ -134,22 +150,33 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
       if (errors.length) setError(errors[0] || null);
       setExpandedAlert(0);
 
-      // Load saved questions — show them immediately with "loading" answers
+      // Load saved questions — use cached answers on normal load, only re-call LLM on refresh
       const savedQs = loadSavedQuestions();
-      const savedQna: QnA[] = savedQs.map(q => ({ question: q, answer: '', saved: true, loading: true }));
+      const cachedAnswers = loadSavedAnswers();
+      const needsRecalc = refresh ? savedQs : savedQs.filter(q => !cachedAnswers[q]);
+      const savedQna: QnA[] = savedQs.map(q => ({
+        question: q,
+        answer: cachedAnswers[q] || '',
+        saved: true,
+        loading: !cachedAnswers[q] || refresh,
+      }));
       // Cap AI-generated QnA to 5 items (saved questions always shown)
       setQna([...savedQna, ...aiQna.slice(0, 5)]);
       setLoading(false);
 
-      // Recalculate answers for saved questions in parallel
-      if (savedQs.length > 0) {
+      // Only call LLM for questions that need recalculation
+      if (needsRecalc.length > 0) {
         const primaryId = effectiveIds[0];
-        const answers = await Promise.all(savedQs.map(q => recalcSavedAnswer(q, primaryId)));
+        const answers = await Promise.all(needsRecalc.map(q => recalcSavedAnswer(q, primaryId)));
+        // Update cached answers
+        const updatedCache = { ...cachedAnswers };
+        needsRecalc.forEach((q, i) => { updatedCache[q] = answers[i]; });
+        saveSavedAnswers(updatedCache);
         setQna(prev => prev.map(item => {
           if (!item.saved) return item;
-          const idx = savedQs.indexOf(item.question);
+          const idx = needsRecalc.indexOf(item.question);
           if (idx >= 0) return { ...item, answer: answers[idx], loading: false };
-          return item;
+          return { ...item, loading: false };
         }));
       }
     } catch (e) {
@@ -186,6 +213,7 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
           <div className="flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-violet-500" />
             <h3 className="text-xs font-semibold text-slate-800">AI Insights</h3>
+            <span className="text-[10px] text-slate-400 hidden sm:inline">Click the refresh button to refresh AI insights etc.</span>
           </div>
           <div className="flex items-center gap-1">
             <button

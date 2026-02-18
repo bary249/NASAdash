@@ -5,6 +5,8 @@
  */
 import { useState, useEffect } from 'react';
 import { Building2, Filter, ChevronDown, ChevronUp, MapPin, Crosshair } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { api } from '../api';
 
 interface MarketCompRow {
@@ -175,9 +177,11 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
   const avgThreeBed = getAverage('threeBedRent');
 
   // Build final list: subject property on top (from our data), then ALN comps
+  const nonSubjectComps = comps.filter(c => !c.isSubject);
+  const { sorted: sortedNonSubject, sortKey: compSortKey, sortDir: compSortDir, toggleSort: toggleCompSort } = useSortable(nonSubjectComps);
   const sortedComps = [
     ...(subjectRents ? [subjectRents] : []),
-    ...comps.filter(c => !c.isSubject),
+    ...sortedNonSubject,
   ];
 
   const getDeltaIndicator = (value?: number, avg?: number | null) => {
@@ -294,11 +298,11 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Property</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">Studio</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">1BR</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">2BR</th>
-              <th className="px-4 py-2 text-right text-xs font-medium text-slate-500">3BR</th>
+              <SortHeader label="Property" column="name" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} />
+              <SortHeader label="Studio" column="studioRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="1BR" column="oneBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="2BR" column="twoBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="3BR" column="threeBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">

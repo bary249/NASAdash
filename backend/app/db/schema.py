@@ -1097,6 +1097,23 @@ CREATE TABLE IF NOT EXISTS unified_lost_rent (
 );
 CREATE INDEX IF NOT EXISTS idx_unified_lost_rent_prop ON unified_lost_rent(unified_property_id);
 
+-- Unified Income Statement (from realpage_income_statement report 3836)
+CREATE TABLE IF NOT EXISTS unified_income_statement (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    unified_property_id TEXT NOT NULL,
+    pms_source TEXT NOT NULL,
+    fiscal_period TEXT,
+    section TEXT,
+    category TEXT,
+    gl_account_code TEXT,
+    gl_account_name TEXT,
+    sign TEXT,
+    amount REAL,
+    line_type TEXT,
+    snapshot_date TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unified_income_stmt_prop ON unified_income_statement(unified_property_id);
+
 -- Unified Amenities / Rentable Items (from realpage_rentable_items SOAP)
 CREATE TABLE IF NOT EXISTS unified_amenities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

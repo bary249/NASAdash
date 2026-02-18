@@ -5,6 +5,8 @@
  */
 import { useState } from 'react';
 import { TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { InfoTooltip } from './InfoTooltip';
 
 interface FloorplanRow {
@@ -22,6 +24,8 @@ interface UnitMixPricingProps {
 
 export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true }: UnitMixPricingProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const enriched = floorplans.map(fp => ({ ...fp, delta: fp.inPlaceRent > 0 ? fp.askingRent - fp.inPlaceRent : 0, deltaPct: fp.inPlaceRent > 0 ? (fp.askingRent - fp.inPlaceRent) / fp.inPlaceRent * 100 : 0 }));
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(enriched);
   // Format currency with max 2 decimal places
   const formatCurrency = (value: number) => {
     const rounded = Math.round(value * 100) / 100;
@@ -66,21 +70,21 @@ export function UnitMixPricing({ floorplans, onRowClick, defaultExpanded = true 
           </colgroup>
           <thead>
             <tr className="border-b border-slate-100">
-              <th className="px-2 py-2 text-left text-xs font-medium text-slate-500">Type</th>
-              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">In-Place</th>
-              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Asking</th>
-              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta $</th>
-              <th className="px-2 py-2 text-right text-xs font-medium text-slate-500">Delta %</th>
+              <SortHeader label="Type" column="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-2" />
+              <SortHeader label="In-Place" column="inPlaceRent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-2" />
+              <SortHeader label="Asking" column="askingRent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-2" />
+              <SortHeader label="Delta $" column="delta" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-2" />
+              <SortHeader label="Delta %" column="deltaPct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-2" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
-            {floorplans.map((fp) => {
+            {sorted.map((fp, idx) => {
               const delta = getDelta(fp.inPlaceRent, fp.askingRent);
               const isPositive = delta.value >= 0;
 
               return (
                 <tr 
-                  key={fp.name}
+                  key={`${fp.name}-${idx}`}
                   onClick={() => onRowClick?.(fp.name)}
                   className={`
                     hover:bg-slate-50 transition-colors

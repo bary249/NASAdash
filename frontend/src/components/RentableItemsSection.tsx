@@ -3,6 +3,8 @@
  * Shows parking, storage, pet fees, and other ancillary revenue items
  */
 import { useEffect, useState } from 'react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { api } from '../api';
 import { AmenityTypeSummary } from '../types';
 
@@ -69,6 +71,8 @@ export function RentableItemsSection({ propertyId, propertyIds }: RentableItemsS
       .finally(() => setLoading(false));
   }, [effectiveIds.join(',')]);
 
+  const { sorted: sortedItems, sortKey, sortDir, toggleSort } = useSortable(items);
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-6">
@@ -110,16 +114,16 @@ export function RentableItemsSection({ propertyId, propertyIds }: RentableItemsS
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200">
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Type</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Total</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Monthly Rate</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Available</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Rented</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Revenue</th>
+              <SortHeader label="Type" column="type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Total" column="total" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Monthly Rate" column="monthly_rate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Available" column="available" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Rented" column="rented" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Revenue" column="actual_revenue" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {items.map((item, idx) => (
+            {sortedItems.map((item, idx) => (
               <tr key={idx} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-slate-800">{item.type}</td>
                 <td className="px-4 py-3 text-right text-slate-600">{item.total}</td>

@@ -5,6 +5,8 @@
  */
 import { useState, useEffect } from 'react';
 import { AlertTriangle, DollarSign, Users, ChevronDown, ChevronUp } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { SectionHeader } from './SectionHeader';
 
 interface DelinquencyAging {
@@ -94,6 +96,115 @@ function AgingBar({ label, value, total, color }: { label: string; value: number
       <span className={`text-sm font-medium w-24 text-right ${value > 0 ? 'text-red-600' : 'text-slate-600'}`}>
         {formatCurrency(value)}
       </span>
+    </div>
+  );
+}
+
+function EvictionTable({ units }: { units: ResidentDelinquency[] }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(units, 'total_delinquent');
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-red-100">
+          <tr>
+            <SortHeader label="Unit" column="unit" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Delinquent" column="total_delinquent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Deposits" column="deposits_held" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Net Exposure" column="net_exposure" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <th className="px-4 py-2 text-center text-xs font-medium text-red-700 uppercase">Est. Days</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-red-100">
+          {sorted.map((r, idx) => {
+            const estDays = r.days_90_plus > 0 ? '90+' : r.days_60 > 0 ? '60–90' : r.days_30 > 0 ? '30–60' : '<30';
+            const netExposure = r.total_delinquent - (r.deposits_held || 0);
+            return (
+              <tr key={idx} className="bg-red-50 hover:bg-red-100">
+                <td className="px-4 py-2 font-medium text-red-800">{r.unit}</td>
+                <td className="px-4 py-2 text-red-600 text-xs">{r.status}</td>
+                <td className="px-4 py-2 text-right font-medium text-red-700">{formatCurrency(r.total_delinquent)}</td>
+                <td className="px-4 py-2 text-right text-slate-500">{r.deposits_held ? formatCurrency(r.deposits_held) : '—'}</td>
+                <td className={`px-4 py-2 text-right font-semibold ${netExposure > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{formatCurrency(netExposure)}</td>
+                <td className="px-4 py-2 text-center">
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${estDays === '90+' ? 'bg-red-200 text-red-800' : estDays === '60–90' ? 'bg-orange-200 text-orange-800' : estDays === '30–60' ? 'bg-amber-200 text-amber-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                    {estDays}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-red-300 bg-red-50 font-semibold text-red-800">
+            <td className="px-4 py-2" colSpan={2}>Total ({units.length})</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(units.reduce((s, r) => s + r.total_delinquent, 0))}</td>
+            <td className="px-4 py-2 text-right text-slate-500">{formatCurrency(units.reduce((s, r) => s + (r.deposits_held || 0), 0))}</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(units.reduce((s, r) => s + r.total_delinquent - (r.deposits_held || 0), 0))}</td>
+            <td className="px-4 py-2"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function DelinquentTable({ residents, variant, totalLabel, total }: { residents: ResidentDelinquency[]; variant: 'current' | 'former'; totalLabel: string; total: number }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(residents, 'total_delinquent');
+  const isCurrent = variant === 'current';
+  const headBg = isCurrent ? 'bg-slate-100' : 'bg-amber-100';
+  const headText = isCurrent ? 'text-slate-500' : 'text-amber-700';
+  const rowBg = isCurrent ? '' : 'bg-amber-50';
+  const rowHover = isCurrent ? 'hover:bg-slate-50' : 'hover:bg-amber-100';
+  const amtText = isCurrent ? 'text-red-600' : 'text-amber-700';
+  const bucketText = isCurrent ? 'text-slate-600' : 'text-amber-600';
+  const footBorder = isCurrent ? 'border-slate-300' : 'border-amber-300';
+  const footBg = isCurrent ? 'bg-slate-50' : 'bg-amber-50';
+  const footText = isCurrent ? 'text-slate-800' : 'text-amber-800';
+  const totalAmtText = isCurrent ? 'text-red-700' : 'text-amber-700';
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className={headBg}>
+          <tr>
+            <SortHeader label="Unit" column="unit" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={headText} />
+            <SortHeader label="Status" column="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className={headText} />
+            <SortHeader label="Delinquent" column="total_delinquent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className={headText} />
+            <SortHeader label="0-30" column="days_30" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className={headText} />
+            <SortHeader label="31-60" column="days_60" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className={headText} />
+            <SortHeader label="61-90" column="current" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className={headText} />
+            <SortHeader label="90+" column="days_90_plus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className={headText} />
+          </tr>
+        </thead>
+        <tbody className={isCurrent ? 'divide-y divide-slate-100' : 'divide-y divide-amber-100'}>
+          {sorted.map((resident, idx) => (
+            <tr key={idx} className={`${resident.is_eviction && isCurrent ? 'bg-red-50' : rowBg} ${rowHover}`}>
+              <td className={`px-4 py-2 font-medium ${isCurrent ? '' : 'text-amber-800'}`}>
+                {resident.unit}
+                {resident.is_eviction && isCurrent && (
+                  <span className="ml-2 text-xs text-red-600 font-semibold">EVICTION</span>
+                )}
+              </td>
+              <td className={`px-4 py-2 ${bucketText}`}>{resident.status}</td>
+              <td className={`px-4 py-2 text-right font-medium ${amtText}`}>{formatCurrency(resident.total_delinquent)}</td>
+              <td className={`px-4 py-2 text-right ${bucketText}`}>{resident.days_30 > 0 ? formatCurrency(resident.days_30) : '-'}</td>
+              <td className={`px-4 py-2 text-right ${bucketText}`}>{resident.days_60 > 0 ? formatCurrency(resident.days_60) : '-'}</td>
+              <td className={`px-4 py-2 text-right ${bucketText}`}>{(resident.current || 0) > 0 ? formatCurrency(resident.current || 0) : '-'}</td>
+              <td className={`px-4 py-2 text-right ${bucketText}`}>{resident.days_90_plus > 0 ? formatCurrency(resident.days_90_plus) : '-'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className={`border-t-2 ${footBorder} font-semibold ${footText} ${footBg}`}>
+            <td className="px-4 py-2" colSpan={2}>{totalLabel}</td>
+            <td className={`px-4 py-2 text-right ${totalAmtText}`}>{formatCurrency(total)}</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(residents.reduce((s, r) => s + r.days_30, 0))}</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(residents.reduce((s, r) => s + r.days_60, 0))}</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(residents.reduce((s, r) => s + (r.current || 0), 0))}</td>
+            <td className="px-4 py-2 text-right">{formatCurrency(residents.reduce((s, r) => s + r.days_90_plus, 0))}</td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
@@ -237,7 +348,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
   const totalAgingAbs = Math.abs(aging_0_30) + Math.abs(aging_31_60) + Math.abs(aging_61_90) + Math.abs(aging_90_plus);
 
   // Eviction units from resident_details
-  const evictionUnits = data.resident_details
+  const evictionUnitsRaw = data.resident_details
     ?.filter(r => r.is_eviction)
     ?.sort((a, b) => b.total_delinquent - a.total_delinquent) || [];
 
@@ -389,50 +500,8 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
               </div>
             </div>
           </div>
-          {showEvictions && evictionUnits.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-red-100">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-red-700 uppercase">Unit</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-red-700 uppercase">Status</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Delinquent</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Deposits</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-red-700 uppercase">Net Exposure</th>
-                    <th className="px-4 py-2 text-center text-xs font-medium text-red-700 uppercase">Est. Days</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-red-100">
-                  {evictionUnits.map((r, idx) => {
-                    const estDays = r.days_90_plus > 0 ? '90+' : r.days_60 > 0 ? '60–90' : r.days_30 > 0 ? '30–60' : '<30';
-                    const netExposure = r.total_delinquent - (r.deposits_held || 0);
-                    return (
-                      <tr key={idx} className="bg-red-50 hover:bg-red-100">
-                        <td className="px-4 py-2 font-medium text-red-800">{r.unit}</td>
-                        <td className="px-4 py-2 text-red-600 text-xs">{r.status}</td>
-                        <td className="px-4 py-2 text-right font-medium text-red-700">{formatCurrency(r.total_delinquent)}</td>
-                        <td className="px-4 py-2 text-right text-slate-500">{r.deposits_held ? formatCurrency(r.deposits_held) : '—'}</td>
-                        <td className={`px-4 py-2 text-right font-semibold ${netExposure > 0 ? 'text-red-700' : 'text-emerald-600'}`}>{formatCurrency(netExposure)}</td>
-                        <td className="px-4 py-2 text-center">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${estDays === '90+' ? 'bg-red-200 text-red-800' : estDays === '60–90' ? 'bg-orange-200 text-orange-800' : estDays === '30–60' ? 'bg-amber-200 text-amber-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                            {estDays}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-red-300 bg-red-50 font-semibold text-red-800">
-                    <td className="px-4 py-2" colSpan={2}>Total ({evictionUnits.length})</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(evictionUnits.reduce((s, r) => s + r.total_delinquent, 0))}</td>
-                    <td className="px-4 py-2 text-right text-slate-500">{formatCurrency(evictionUnits.reduce((s, r) => s + (r.deposits_held || 0), 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(evictionUnits.reduce((s, r) => s + r.total_delinquent - (r.deposits_held || 0), 0))}</td>
-                    <td className="px-4 py-2"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+          {showEvictions && evictionUnitsRaw.length > 0 && (
+            <EvictionTable units={evictionUnitsRaw} />
           )}
         </div>
       )}
@@ -455,59 +524,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
           </button>
           
           {showCurrentDetails && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-100">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Unit</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Delinquent</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">0-30</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">31-60</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">61-90</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">90+</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {currentResidents.map((resident, idx) => (
-                    <tr key={idx} className={resident.is_eviction ? 'bg-red-50' : 'hover:bg-slate-50'}>
-                      <td className="px-4 py-2 font-medium">
-                        {resident.unit}
-                        {resident.is_eviction && (
-                          <span className="ml-2 text-xs text-red-600 font-semibold">EVICTION</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-slate-600">{resident.status}</td>
-                      <td className="px-4 py-2 text-right font-medium text-red-600">
-                        {formatCurrency(resident.total_delinquent)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-600">
-                        {resident.days_30 > 0 ? formatCurrency(resident.days_30) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-600">
-                        {resident.days_60 > 0 ? formatCurrency(resident.days_60) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-600">
-                        {(resident.current || 0) > 0 ? formatCurrency(resident.current || 0) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-slate-600">
-                        {resident.days_90_plus > 0 ? formatCurrency(resident.days_90_plus) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-slate-300 font-semibold text-slate-800 bg-slate-50">
-                    <td className="px-4 py-2" colSpan={2}>Total ({currentResidents.length} units)</td>
-                    <td className="px-4 py-2 text-right text-red-700">{formatCurrency(currentTotal)}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_30, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_60, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + (r.current || 0), 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(currentResidents.reduce((s, r) => s + r.days_90_plus, 0))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <DelinquentTable residents={currentResidents} variant="current" totalLabel={`Total (${currentResidents.length} units)`} total={currentTotal} />
           )}
         </div>
       )}
@@ -533,54 +550,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
           </button>
           
           {showFormerDetails && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-amber-100">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase">Unit</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-amber-700 uppercase">Status</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">Delinquent</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">0-30</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">31-60</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">61-90</th>
-                    <th className="px-4 py-2 text-right text-xs font-medium text-amber-700 uppercase">90+</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100">
-                  {formerResidents.map((resident, idx) => (
-                    <tr key={idx} className="bg-amber-50 hover:bg-amber-100">
-                      <td className="px-4 py-2 font-medium text-amber-800">{resident.unit}</td>
-                      <td className="px-4 py-2 text-amber-600">{resident.status}</td>
-                      <td className="px-4 py-2 text-right font-medium text-amber-700">
-                        {formatCurrency(resident.total_delinquent)}
-                      </td>
-                      <td className="px-4 py-2 text-right text-amber-600">
-                        {resident.days_30 > 0 ? formatCurrency(resident.days_30) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-amber-600">
-                        {resident.days_60 > 0 ? formatCurrency(resident.days_60) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-amber-600">
-                        {(resident.current || 0) > 0 ? formatCurrency(resident.current || 0) : '-'}
-                      </td>
-                      <td className="px-4 py-2 text-right text-amber-600">
-                        {resident.days_90_plus > 0 ? formatCurrency(resident.days_90_plus) : '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-amber-300 font-semibold text-amber-800 bg-amber-50">
-                    <td className="px-4 py-2" colSpan={2}>Total ({formerResidents.length} units)</td>
-                    <td className="px-4 py-2 text-right text-amber-700">{formatCurrency(formerTotal)}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_30, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_60, 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + (r.current || 0), 0))}</td>
-                    <td className="px-4 py-2 text-right">{formatCurrency(formerResidents.reduce((s, r) => s + r.days_90_plus, 0))}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+            <DelinquentTable residents={formerResidents} variant="former" totalLabel={`Total (${formerResidents.length} units)`} total={formerTotal} />
           )}
         </div>
       )}

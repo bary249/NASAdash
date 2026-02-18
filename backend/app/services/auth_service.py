@@ -46,7 +46,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
     """Authenticate a user. Returns user info dict or None."""
-    user = USERS.get(username)
+    # Case-insensitive username lookup
+    user = None
+    matched_key = None
+    for key, val in USERS.items():
+        if key.lower() == username.lower():
+            user = val
+            matched_key = key
+            break
     if not user:
         return None
     if not verify_password(password, user["password_hash"]):

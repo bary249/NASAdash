@@ -6,6 +6,8 @@
  */
 import { useState, useEffect } from 'react';
 import { Car, Package, DollarSign, CheckCircle } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { MetricCard } from './MetricCard';
 import { api } from '../api';
 import type { AmenitiesSummary, AmenityItem, AmenityTypeSummary } from '../types';
@@ -21,6 +23,44 @@ const AMENITY_COLUMNS = [
   { key: 'lease_id', label: 'Rented', format: (v: unknown) => v && String(v) !== '0' && String(v) !== '' ? '✓ Yes' : 'Available' },
   { key: 'date_available', label: 'Available Date', format: (v: unknown) => v ? String(v).split(' ')[0] : '—' },
 ];
+
+function AmenityDrillTable({ items }: { items: AmenityItem[] }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(items);
+  return (
+    <div className="overflow-auto max-h-[60vh]">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 sticky top-0">
+          <tr>
+            {AMENITY_COLUMNS.map(col => (
+              <SortHeader
+                key={col.key}
+                label={col.label}
+                column={col.key}
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={toggleSort}
+              />
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((item, idx) => (
+            <tr key={(item as unknown as Record<string, unknown>).rid_id as string || idx} className="border-t hover:bg-gray-50">
+              {AMENITY_COLUMNS.map(col => (
+                <td key={col.key} className="px-4 py-2">
+                  {col.format
+                    ? col.format((item as unknown as Record<string, unknown>)[col.key])
+                    : String((item as unknown as Record<string, unknown>)[col.key] ?? '—')
+                  }
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function AmenitiesSection({ propertyId }: AmenitiesSectionProps) {
   const [summary, setSummary] = useState<AmenitiesSummary | null>(null);
@@ -193,33 +233,7 @@ export function AmenitiesSection({ propertyId }: AmenitiesSectionProps) {
                 ×
               </button>
             </div>
-            <div className="overflow-auto max-h-[60vh]">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    {AMENITY_COLUMNS.map(col => (
-                      <th key={col.key} className="px-4 py-2 text-left font-medium text-gray-600">
-                        {col.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredItems.map((item, idx) => (
-                    <tr key={item.rid_id || idx} className="border-t hover:bg-gray-50">
-                      {AMENITY_COLUMNS.map(col => (
-                        <td key={col.key} className="px-4 py-2">
-                          {col.format 
-                            ? col.format((item as unknown as Record<string, unknown>)[col.key])
-                            : String((item as unknown as Record<string, unknown>)[col.key] ?? '—')
-                          }
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <AmenityDrillTable items={filteredItems} />
           </div>
         </div>
       )}

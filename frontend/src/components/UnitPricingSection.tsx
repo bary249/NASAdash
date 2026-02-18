@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Home, ChevronDown, ChevronUp } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { MetricCard } from './MetricCard';
 import { SectionHeader } from './SectionHeader';
 import { DrillThroughModal } from './DrillThroughModal';
@@ -19,6 +21,48 @@ const UNIT_COLUMNS = [
   { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${v}` : '—' },
   { key: 'status', label: 'Status' },
 ];
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function FloorplanTable({ floorplans, onDrill, formatCurrency }: { floorplans: any[]; onDrill: (title: string, fp?: string) => void; formatCurrency: (v: number) => string }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(floorplans);
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <SortHeader label="Unit Type" column="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Units" column="unit_count" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="SF" column="square_feet" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="In-Place Rent" column="in_place_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="In-Place $/SF" column="in_place_rent_per_sf" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Asking Rent" column="asking_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Asking $/SF" column="asking_rent_per_sf" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Growth" column="rent_growth" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {sorted.map((fp) => (
+            <tr key={fp.floorplan_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => onDrill(`${fp.name} Units`, fp.name)}>
+              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                {fp.name}
+                {fp.bedrooms > 0 && <span className="text-gray-400 ml-1">({fp.bedrooms}BR)</span>}
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">{fp.unit_count}</td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">{fp.square_feet}</td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">{formatCurrency(fp.in_place_rent)}</td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">${fp.in_place_rent_per_sf.toFixed(2)}</td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">{formatCurrency(fp.asking_rent)}</td>
+              <td className="px-4 py-3 text-sm text-gray-500 text-right">${fp.asking_rent_per_sf.toFixed(2)}</td>
+              <td className={`px-4 py-3 text-sm text-right font-medium ${fp.rent_growth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {fp.rent_growth >= 0 ? '+' : ''}{fp.rent_growth.toFixed(1)}%
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export function UnitPricingSection({ propertyId }: UnitPricingSectionProps) {
   const [pricing, setPricing] = useState<UnitPricingMetrics | null>(null);
@@ -173,75 +217,7 @@ export function UnitPricingSection({ propertyId }: UnitPricingSectionProps) {
               {unitTypeExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </span>
           </button>
-          {unitTypeExpanded && <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Unit Type
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Units
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    SF
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    In-Place Rent
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    In-Place $/SF
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Asking Rent
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Asking $/SF
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Growth
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {pricing?.floorplans.map((fp) => (
-                  <tr 
-                    key={fp.floorplan_id} 
-                    className="hover:bg-gray-50 cursor-pointer"
-                    onClick={() => openDrill(`${fp.name} Units`, fp.name)}
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {fp.name}
-                      {fp.bedrooms > 0 && <span className="text-gray-400 ml-1">({fp.bedrooms}BR)</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {fp.unit_count}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {fp.square_feet}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {formatCurrency(fp.in_place_rent)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      ${fp.in_place_rent_per_sf.toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      {formatCurrency(fp.asking_rent)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                      ${fp.asking_rent_per_sf.toFixed(2)}
-                    </td>
-                    <td className={`px-4 py-3 text-sm text-right font-medium ${
-                      fp.rent_growth >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {fp.rent_growth >= 0 ? '+' : ''}{fp.rent_growth.toFixed(1)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>}
+          {unitTypeExpanded && <FloorplanTable floorplans={pricing?.floorplans || []} onDrill={openDrill} formatCurrency={formatCurrency} />}
         </div>
       </div>
 

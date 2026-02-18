@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect rx='20' width='100' height='100' fill='%236366f1'/><text x='50' y='72' font-size='60' text-anchor='middle' fill='white'>🔧</text></svg>">
+<title>Maintenance & Operations Platform — Executive Summary</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+  
+  :root {
+    --bg-dark: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-card-hover: #1a1a28;
+    --accent: #6366f1;
+    --accent-light: #818cf8;
+    --accent-glow: rgba(99, 102, 241, 0.15);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --border: rgba(255,255,255,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  
+  html {
+    scroll-behavior: smooth;
+    scroll-snap-type: y mandatory;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+
+  /* ========== SLIDE LAYOUT ========== */
+  .slide {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 60px 80px;
+    scroll-snap-align: start;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -30%;
+    width: 800px;
+    height: 800px;
+    background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .slide > * { position: relative; z-index: 1; }
+
+  /* ========== TITLE SLIDE ========== */
+  .slide-title {
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .slide-title .kicker {
+    font-size: 13px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--accent-light);
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+
+  .slide-title h1 {
+    font-size: 64px;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, #fff 30%, var(--accent-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    max-width: 900px;
+  }
+
+  .slide-title .subtitle {
+    font-size: 20px;
+    color: var(--text-secondary);
+    margin-top: 24px;
+    font-weight: 400;
+    max-width: 700px;
+  }
+
+  .badge-row {
+    display: flex;
+    gap: 12px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .badge .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .dot-green { background: var(--success); }
+  .dot-purple { background: var(--accent); }
+  .dot-amber { background: var(--warning); }
+
+  /* ========== SECTION HEADERS ========== */
+  .section-num {
+    font-size: 12px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--accent-light);
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  h2 {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+
+  h3 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+  }
+
+  .section-subtitle {
+    font-size: 17px;
+    color: var(--text-secondary);
+    margin-bottom: 40px;
+    line-height: 1.5;
+    max-width: 750px;
+  }
+
+  /* ========== CARDS ========== */
+  .card-grid {
+    display: grid;
+    gap: 20px;
+  }
+
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    transition: all 0.3s ease;
+  }
+
+  .card:hover {
+    background: var(--bg-card-hover);
+    border-color: rgba(99, 102, 241, 0.2);
+    transform: translateY(-2px);
+  }
+
+  .card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card h4 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+
+  .card p, .card li {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+
+  .card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .card ul li::before {
+    content: '→ ';
+    color: var(--accent-light);
+    font-weight: 600;
+  }
+
+  /* ========== PROOF BANNER ========== */
+  .proof-banner {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(16,185,129,0.06) 100%);
+    border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 14px;
+    padding: 20px 28px;
+    margin-top: 24px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .proof-banner .proof-icon {
+    font-size: 22px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .proof-banner .proof-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--accent-light);
+    margin-bottom: 4px;
+  }
+
+  .proof-banner p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .proof-banner strong {
+    color: var(--text-primary);
+  }
+
+  /* ========== KPI STAT ========== */
+  .kpi-row {
+    display: flex;
+    gap: 24px;
+    margin-top: 32px;
+    flex-wrap: wrap;
+  }
+
+  .kpi {
+    text-align: center;
+    min-width: 140px;
+  }
+
+  .kpi .kpi-value {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #fff, var(--accent-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .kpi .kpi-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  /* ========== TABLE ========== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+
+  th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    font-size: 14px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+  }
+
+  tr:hover td {
+    background: rgba(255,255,255,0.015);
+  }
+
+  td:first-child {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .highlight-row td {
+    background: var(--accent-glow);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  /* ========== PIPELINE VISUAL ========== */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 32px 0;
+  }
+
+  .pipeline-step {
+    flex: 1;
+    text-align: center;
+    padding: 20px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    position: relative;
+  }
+
+  .pipeline-step:first-child {
+    border-radius: 14px 0 0 14px;
+  }
+
+  .pipeline-step:last-child {
+    border-radius: 0 14px 14px 0;
+  }
+
+  .pipeline-step .step-num {
+    font-size: 28px;
+    font-weight: 900;
+    color: var(--accent-light);
+  }
+
+  .pipeline-step .step-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  .pipeline-arrow {
+    font-size: 22px;
+    color: var(--accent);
+    margin: 0 -6px;
+    z-index: 2;
+  }
+
+  /* ========== AGENTIC SECTION SPECIAL ========== */
+  .agentic-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(139,92,246,0.04) 100%);
+    border: 1px solid rgba(99,102,241,0.15);
+  }
+
+  .agentic-card:hover {
+    border-color: rgba(99,102,241,0.35);
+    box-shadow: 0 0 40px rgba(99,102,241,0.08);
+  }
+
+  .agent-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(99,102,241,0.12);
+    color: var(--accent-light);
+    margin-bottom: 12px;
+  }
+
+  /* ========== FOOTER / NAV ========== */
+  .slide-footer {
+    position: absolute;
+    bottom: 24px;
+    left: 80px;
+    right: 80px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 2;
+  }
+
+  .slide-footer .page-num {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .slide-footer .brand {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  /* ========== TWO-COL LAYOUT ========== */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+
+  .col-sticky {
+    position: sticky;
+    top: 100px;
+  }
+
+  /* ========== COMPARISON ========== */
+  .vs-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 24px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .vs-divider {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--accent-light);
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--accent-glow);
+  }
+
+  .vs-before {
+    text-align: right;
+    padding: 16px 20px;
+    background: rgba(239,68,68,0.06);
+    border: 1px solid rgba(239,68,68,0.12);
+    border-radius: 12px;
+  }
+
+  .vs-after {
+    padding: 16px 20px;
+    background: rgba(16,185,129,0.06);
+    border: 1px solid rgba(16,185,129,0.12);
+    border-radius: 12px;
+  }
+
+  .vs-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .vs-before .vs-label { color: var(--danger); }
+  .vs-after .vs-label { color: var(--success); }
+
+  .vs-text {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+
+  /* ========== RESPONSIVE ========== */
+  @media (max-width: 1024px) {
+    .slide { padding: 40px; }
+    h2 { font-size: 32px; }
+    .slide-title h1 { font-size: 42px; }
+    .grid-3 { grid-template-columns: 1fr; }
+    .grid-4 { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .pipeline { flex-wrap: wrap; }
+  }
+
+  /* ========== TIMELINE ========== */
+  .timeline {
+    position: relative;
+    padding-left: 32px;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent), var(--success));
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 28px;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -27px;
+    top: 6px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-dark);
+  }
+
+  .timeline-item .tl-period {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--accent-light);
+    margin-bottom: 4px;
+  }
+
+  .timeline-item .tl-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .timeline-item .tl-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 1 — TITLE                                        ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide slide-title">
+  <div class="kicker">Bozzuto Management × Venn</div>
+  <h1>Maintenance-First Operations Platform</h1>
+  <div class="subtitle">
+    A purpose-built maintenance & unit-turn platform powered by real-time PMS data and agentic AI — built on production-grade infrastructure designed to scale to millions of units.
+  </div>
+  <div class="badge-row">
+    <span class="badge"><span class="dot dot-green"></span> SOC 2 Compliant</span>
+    <span class="badge"><span class="dot dot-purple"></span> Multi-PMS Integrated</span>
+    <span class="badge"><span class="dot dot-amber"></span> AI-Native Architecture</span>
+  </div>
+  <div class="slide-footer">
+    <span class="page-num">01 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 2 — THE THREE PAIN POINTS                        ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">01 — Problem Statement</div>
+  <h2>Three Critical Operational Gaps</h2>
+  <p class="section-subtitle">Most maintenance platforms ignore the complexity that Bozzuto's 130,000+ unit portfolio actually faces every day.</p>
+
+  <div class="card-grid grid-3">
+    <!-- Pain 1 -->
+    <div class="card">
+      <div class="card-icon" style="background: rgba(239,68,68,0.1);">📡</div>
+      <h4>The "Basement" Problem</h4>
+      <p>Technicians lose data in dead zones — basements, mechanical rooms, parking decks. Incomplete records, frustrated teams, zero accountability.</p>
+      <div class="proof-banner" style="margin-top:16px;">
+        <div class="proof-label">Our Solution</div>
+        <p><strong>Local-First Mobile Architecture.</strong> 100% on-device data storage with invisible background sync. Zero data loss, instant UI.</p>
+      </div>
+    </div>
+    <!-- Pain 2 -->
+    <div class="card">
+      <div class="card-icon" style="background: rgba(245,158,11,0.1);">🔄</div>
+      <h4>The "Unit Turn" Chaos</h4>
+      <p>Move-Out → Paint → Carpet → Clean is fragmented across spreadsheets, texts, and calls. Every vacancy day costs $50–$70 in lost rent.</p>
+      <div class="proof-banner" style="margin-top:16px;">
+        <div class="proof-label">Our Solution</div>
+        <p><strong>Digital Turn Board (Kanban).</strong> Real-time unit readiness visualization. Auto-triggers vendor assignments when dependencies resolve.</p>
+      </div>
+    </div>
+    <!-- Pain 3 -->
+    <div class="card">
+      <div class="card-icon" style="background: rgba(99,102,241,0.1);">📋</div>
+      <h4>The "Acquisition" Gap</h4>
+      <p>Due diligence relies on spreadsheets for lease/file audits. Most maintenance platforms completely ignore the acquisition phase.</p>
+      <div class="proof-banner" style="margin-top:16px;">
+        <div class="proof-label">Our Solution</div>
+        <p><strong>Due Diligence Module.</strong> Ingest Rent Rolls from any PMS, high-speed audit forms for leases & physical assets. One platform, not two.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">02 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 3 — UNIT TURN KANBAN (DEEP DIVE)                  ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">02 — Core Module</div>
+  <h2>Digital Turn Board</h2>
+  <p class="section-subtitle">From notice-to-vacate through make-ready to revenue-generating — visualized as a Kanban pipeline with automated vendor orchestration.</p>
+
+  <div class="pipeline">
+    <div class="pipeline-step">
+      <div class="step-num">1</div>
+      <div class="step-label">Notice Given</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step">
+      <div class="step-num">2</div>
+      <div class="step-label">Move-Out</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step">
+      <div class="step-num">3</div>
+      <div class="step-label">Paint</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step">
+      <div class="step-num">4</div>
+      <div class="step-label">Carpet / Floor</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step">
+      <div class="step-num">5</div>
+      <div class="step-label">Final Clean</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step">
+      <div class="step-num">6</div>
+      <div class="step-label">Inspect</div>
+    </div>
+    <span class="pipeline-arrow">▸</span>
+    <div class="pipeline-step" style="border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.04);">
+      <div class="step-num" style="color: var(--success);">✓</div>
+      <div class="step-label">Ready to Lease</div>
+    </div>
+  </div>
+
+  <div class="card-grid grid-2">
+    <div class="card">
+      <h4>What Our Platform Already Provides</h4>
+      <ul>
+        <li>Real-time make-ready pipeline with live PMS data sync</li>
+        <li>Days vacant per unit with overdue thresholds flagged automatically</li>
+        <li>Unit status enrichment (Vacant / Notice / Occupied / Pre-Turn)</li>
+        <li>Completed turn history with cost tracking per unit</li>
+        <li>Turn time analysis: avg, min, max from lease-to-lease gaps</li>
+        <li>Vacancy cost attribution tied to market rent</li>
+      </ul>
+    </div>
+    <div class="card agentic-card">
+      <div class="agent-badge">🤖 New: Agentic Layer</div>
+      <h4>What We Add for Bozzuto</h4>
+      <ul>
+        <li><strong>Auto-Dispatch:</strong> When Paint completes → Carpet vendor auto-notified via SMS/email</li>
+        <li><strong>SLA Enforcement:</strong> AI agent escalates to Regional if a unit exceeds SLA thresholds</li>
+        <li><strong>Photo Capture:</strong> Offline-first photo tagging per turn stage (stored on device, synced later)</li>
+        <li><strong>Predictive ETA:</strong> ML model predicts turn completion based on historical data</li>
+        <li><strong>Cost Forecasting:</strong> Estimated turn cost pre-calculated from unit type + floorplan history</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">03 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 4 — AGENTIC AI CAPABILITIES                       ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">03 — Agentic Intelligence</div>
+  <h2>AI That Acts, Not Just Reports</h2>
+  <p class="section-subtitle">Our platform already runs AI-powered insights across every property. For Bozzuto, we extend this into autonomous maintenance agents that detect, decide, and act.</p>
+
+  <div class="card-grid grid-3">
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 1</div>
+      <h4>Turn Velocity Optimizer</h4>
+      <p style="margin-bottom:12px;">Monitors every unit in the make-ready pipeline. When a turn falls behind SLA:</p>
+      <ul>
+        <li>Identifies the bottleneck stage (e.g., Paint stuck 3 days)</li>
+        <li>Auto-pings the assigned vendor</li>
+        <li>Escalates to maintenance supervisor after 24h no-response</li>
+        <li>Recommends alternative vendor if SLA breach is imminent</li>
+      </ul>
+    </div>
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 2</div>
+      <h4>Predictive Maintenance Scheduler</h4>
+      <p style="margin-bottom:12px;">Uses historical work order data + asset age to predict failures before they happen:</p>
+      <ul>
+        <li>HVAC replacement predictions based on unit age + service history</li>
+        <li>Auto-creates preventive WOs 30 days before expected failure</li>
+        <li>Seasonal prep batching (e.g., pre-winter boiler inspections)</li>
+        <li>Prioritizes by unit revenue impact (higher-rent units first)</li>
+      </ul>
+    </div>
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 3</div>
+      <h4>Vacancy Revenue Recovery Agent</h4>
+      <p style="margin-bottom:12px;">Ties maintenance directly to revenue impact:</p>
+      <ul>
+        <li>Calculates real-time revenue loss per vacant day × market rent</li>
+        <li>Flags when turn delays exceed the cost of expedited service</li>
+        <li>Auto-generates "cost of delay" alerts for portfolio managers</li>
+        <li>Recommends pricing adjustments if unit sits vacant post-ready</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card-grid grid-3" style="margin-top:20px;">
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 4</div>
+      <h4>Resident Churn Prevention Agent</h4>
+      <p style="margin-bottom:12px;">Connects maintenance quality to resident retention:</p>
+      <ul>
+        <li>Integrates with data warehouse risk scores for churn prediction</li>
+        <li>Correlates open WO age with churn likelihood</li>
+        <li>Auto-escalates WOs for high-risk-of-churn residents</li>
+        <li>Triggers proactive outreach when maintenance SLA fails</li>
+      </ul>
+    </div>
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 5</div>
+      <h4>Review Sentiment Agent</h4>
+      <p style="margin-bottom:12px;">Monitors online reputation across major review platforms:</p>
+      <ul>
+        <li>NLP detects maintenance-related negative reviews in real-time</li>
+        <li>Maps complaints to specific unit/building/issue type</li>
+        <li>Auto-creates follow-up WOs from review complaints</li>
+        <li>Tracks response rate and sentiment trend over time</li>
+      </ul>
+    </div>
+    <div class="card agentic-card">
+      <div class="agent-badge">Agent 6</div>
+      <h4>Due Diligence Audit Agent</h4>
+      <p style="margin-bottom:12px;">Automates the acquisition audit workflow:</p>
+      <ul>
+        <li>Ingests rent rolls from target properties via any supported PMS</li>
+        <li>Auto-flags lease anomalies (below-market rents, expired leases)</li>
+        <li>Physical walk app: offline photo capture + checklist per unit</li>
+        <li>Generates acquisition report with maintenance CapEx estimate</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">04 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 5 — BEFORE VS AFTER                               ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">04 — Impact</div>
+  <h2>Before vs. After</h2>
+  <p class="section-subtitle">Concrete operational improvements powered by data already flowing through our production pipeline.</p>
+
+  <div style="max-width: 900px;">
+    <div class="vs-row">
+      <div class="vs-before">
+        <div class="vs-label">Today</div>
+        <div class="vs-text">Turn status tracked in Excel or whiteboard. No visibility for regionals.</div>
+      </div>
+      <div class="vs-divider">→</div>
+      <div class="vs-after">
+        <div class="vs-label">With Platform</div>
+        <div class="vs-text">Real-time Kanban board with auto-vendor dispatch. Portfolio-wide turn velocity dashboard.</div>
+      </div>
+    </div>
+    <div class="vs-row">
+      <div class="vs-before">
+        <div class="vs-label">Today</div>
+        <div class="vs-text">No one knows vacancy cost. "It's just empty." Average turn: 14–21 days.</div>
+      </div>
+      <div class="vs-divider">→</div>
+      <div class="vs-after">
+        <div class="vs-label">With Platform</div>
+        <div class="vs-text">Unit 204: $57/day vacancy loss. AI agent auto-escalated at day 10. Turn target: 7 days.</div>
+      </div>
+    </div>
+    <div class="vs-row">
+      <div class="vs-before">
+        <div class="vs-label">Today</div>
+        <div class="vs-text">Acquisition audits take 2 weeks with manual spreadsheets. Data stuck in emails.</div>
+      </div>
+      <div class="vs-divider">→</div>
+      <div class="vs-after">
+        <div class="vs-label">With Platform</div>
+        <div class="vs-text">Rent roll auto-ingested. Physical walk completed on tablet. Report generated in 48 hours.</div>
+      </div>
+    </div>
+    <div class="vs-row">
+      <div class="vs-before">
+        <div class="vs-label">Today</div>
+        <div class="vs-text">Preventive maintenance is calendar-based. Reactive repairs dominate.</div>
+      </div>
+      <div class="vs-divider">→</div>
+      <div class="vs-after">
+        <div class="vs-label">With Platform</div>
+        <div class="vs-text">AI predicts HVAC failure 30 days out. Auto-schedules PM work order. Parts pre-ordered.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">05 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 6 — PRODUCTION PROOF (MARKETING)                  ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">05 — Why Us</div>
+  <h2>Not a Prototype — A Production Platform</h2>
+  <p class="section-subtitle">This isn't a pitch deck for something we plan to build. Our owner analytics platform is already live, processing real PMS data every day. The maintenance operations module extends what's already working.</p>
+
+  <div class="card-grid grid-3" style="margin-top:24px;">
+    <div class="card">
+      <div class="card-icon" style="background: rgba(16,185,129,0.1);">🔄</div>
+      <h4>Continuous Data Pipeline</h4>
+      <p>Automated ingestion from all major PMS platforms — units, residents, leases, work orders, financials. No manual uploads. No stale spreadsheets. Data flows continuously.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background: rgba(99,102,241,0.1);">🧠</div>
+      <h4>AI Insights — Already Live</h4>
+      <p>AI-powered anomaly detection and red-flag alerts are running in production today — surfacing overdue turns, occupancy risks, and delinquency spikes without human prompting.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background: rgba(245,158,11,0.1);">📊</div>
+      <h4>Full Operational Coverage</h4>
+      <p>Occupancy, leasing, pricing, delinquency, maintenance, renewals, reputation management, risk scoring, and financial reporting — all unified in a single dashboard.</p>
+    </div>
+  </div>
+
+  <div class="card-grid grid-3" style="margin-top:20px;">
+    <div class="card">
+      <div class="card-icon" style="background: rgba(139,92,246,0.1);">🏗️</div>
+      <h4>Multi-PMS Architecture</h4>
+      <p>Unified data schema handles properties from multiple PMS providers side by side. No vendor lock-in. Built to onboard any PMS in weeks, not months.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background: rgba(236,72,153,0.1);">🔒</div>
+      <h4>Enterprise-Grade Security</h4>
+      <p>SOC 2 compliant. JWT authentication with role-based access control. Owner-group scoping ensures strict data isolation between clients.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon" style="background: rgba(34,211,238,0.1);">🚀</div>
+      <h4>Built for Scale</h4>
+      <p>Architecture designed to handle millions of units. Automated CI/CD pipeline, scheduled data refreshes, and production monitoring already in place.</p>
+    </div>
+  </div>
+
+  <div class="proof-banner" style="margin-top:24px;">
+    <span class="proof-icon">⚡</span>
+    <div>
+      <div class="proof-label">Cross-Module Intelligence</div>
+      <p>Maintenance data doesn't live in a silo. It feeds directly into <strong>occupancy forecasting</strong>, <strong>delinquency tracking</strong>, <strong>loss-to-lease analysis</strong>, <strong>AI-generated red flags</strong>, and <strong>resident churn prediction</strong> — giving portfolio managers a complete operational picture, not just a work order list.</p>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">06 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 7 — DEVELOPMENT SCOPE & BUDGET                    ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">06 — Scope & Investment</div>
+  <h2>Development Budget</h2>
+  <p class="section-subtitle">Team: 2 senior full-stack developers. MVP delivery in ~3 months. Significantly de-risked by existing production infrastructure.</p>
+
+  <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; overflow: hidden;">
+    <table>
+      <thead>
+        <tr>
+          <th>Module / Feature</th>
+          <th>MVP Effort</th>
+          <th>MVP Cost</th>
+          <th>Full Product (Yr 1)</th>
+          <th>Full Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mobile Field App (Offline Core + Sync)</td>
+          <td>160–200 hrs</td>
+          <td>$28k–$35k</td>
+          <td>300–400 hrs</td>
+          <td>$52k–$70k</td>
+        </tr>
+        <tr>
+          <td>Unit Turn / Make Ready (Kanban + Vendor Logic)</td>
+          <td>80–100 hrs</td>
+          <td>$14k–$17.5k</td>
+          <td>180–220 hrs</td>
+          <td>$31.5k–$38.5k</td>
+        </tr>
+        <tr>
+          <td>Due Diligence & Audits</td>
+          <td>60–80 hrs</td>
+          <td>$10.5k–$14k</td>
+          <td>120–160 hrs</td>
+          <td>$21k–$28k</td>
+        </tr>
+        <tr>
+          <td>Preventative Maintenance (Scheduling)</td>
+          <td>40–60 hrs</td>
+          <td>$7k–$10.5k</td>
+          <td>100–140 hrs</td>
+          <td>$17.5k–$24.5k</td>
+        </tr>
+        <tr>
+          <td>PMS Integration Layer</td>
+          <td>40–60 hrs</td>
+          <td>$7k–$10.5k</td>
+          <td>100–150 hrs</td>
+          <td>$17.5k–$26.2k</td>
+        </tr>
+        <tr>
+          <td>Reporting & BI (Dashboards)</td>
+          <td>30–40 hrs</td>
+          <td>$5.2k–$7k</td>
+          <td>100–140 hrs</td>
+          <td>$17.5k–$24.5k</td>
+        </tr>
+        <tr>
+          <td>Vendor Portal</td>
+          <td>20–30 hrs</td>
+          <td>$3.5k–$5.2k</td>
+          <td>60–80 hrs</td>
+          <td>$10.5k–$14k</td>
+        </tr>
+        <tr>
+          <td>Agentic AI Layer (6 Agents)</td>
+          <td>60–80 hrs</td>
+          <td>$10.5k–$14k</td>
+          <td>160–200 hrs</td>
+          <td>$28k–$35k</td>
+        </tr>
+        <tr>
+          <td>Testing / Demo Prep</td>
+          <td>20–30 hrs</td>
+          <td>$3.5k–$5.2k</td>
+          <td>80–100 hrs</td>
+          <td>$14k–$17.5k</td>
+        </tr>
+        <tr class="highlight-row">
+          <td>TOTAL</td>
+          <td>510–680 hrs</td>
+          <td>$89k–$119k</td>
+          <td>1,200–1,590 hrs</td>
+          <td>$210k–$278k</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="proof-banner" style="margin-top:20px;">
+    <span class="proof-icon">⚡</span>
+    <div>
+      <div class="proof-label">De-Risk Factor</div>
+      <p>The PMS integration layer and the BI/dashboard framework <strong>already exist in production</strong>. The Reporting & BI line item leverages our existing stack. The Agentic AI layer extends our live AI integration. This is not greenfield — it's building on proven infrastructure.</p>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">07 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 8 — COMMERCIAL MODEL                              ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">07 — Commercial Model</div>
+  <h2>Pricing & Revenue</h2>
+  <p class="section-subtitle">Bozzuto manages 130,000+ units. Our "Land and Expand" model: aggressive pilot pricing, premium upside from Due Diligence and AI modules.</p>
+
+  <div class="card-grid grid-3" style="margin-bottom:32px;">
+    <div class="card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Core Tier</div>
+      <div style="font-size:36px;font-weight:900;color:var(--text-primary);">$1.35</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">per unit / month</div>
+      <ul>
+        <li>Work Orders & PM</li>
+        <li>Mobile Field App</li>
+        <li>PMS Sync</li>
+      </ul>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary);">
+        Full Portfolio ARR: <strong style="color:var(--text-primary);">$2.1M</strong>
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(99,102,241,0.3);background:linear-gradient(135deg,rgba(99,102,241,0.04),rgba(99,102,241,0.01));">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--accent-light);margin-bottom:8px;">Pro Tier — Recommended</div>
+      <div style="font-size:36px;font-weight:900;color:var(--text-primary);">$1.85</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">per unit / month</div>
+      <ul>
+        <li>Everything in Core</li>
+        <li>Turn Board + Vendor Portal</li>
+        <li>Custom BI Dashboards</li>
+        <li>Agentic AI Insights</li>
+      </ul>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(99,102,241,0.2);font-size:13px;color:var(--accent-light);font-weight:600;">
+        Full Portfolio ARR: <strong>$2.9M</strong>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">Enterprise Tier</div>
+      <div style="font-size:36px;font-weight:900;color:var(--text-primary);">$2.25</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">per unit / month</div>
+      <ul>
+        <li>Everything in Pro</li>
+        <li>Due Diligence Module</li>
+        <li>SSO + Dedicated CSM</li>
+        <li>All 6 AI Agents</li>
+      </ul>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);font-size:13px;color:var(--text-secondary);">
+        Full Portfolio ARR: <strong style="color:var(--text-primary);">$3.5M</strong>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col" style="gap:24px;">
+    <div class="card">
+      <h4>Implementation Fee</h4>
+      <p><strong>Waived for Pilot.</strong> Standard fee: $5k–$15k per property. Waiving lowers barrier to entry significantly vs. incumbents (SightPlan, HappyCo).</p>
+    </div>
+    <div class="card">
+      <h4>Revenue Projection</h4>
+      <p>A 5,000-unit pilot at $1.85 PUPM = <strong>$111k ARR</strong> — covering MVP development costs in Year 1. Full portfolio (130k units) at Pro tier = <strong>$2.9M ARR.</strong></p>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">08 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<!-- ╔══════════════════════════════════════════════════════════╗ -->
+<!-- ║  SLIDE 9 — ROADMAP + CLOSE                               ║ -->
+<!-- ╚══════════════════════════════════════════════════════════╝ -->
+<section class="slide">
+  <div class="section-num">08 — Delivery Roadmap</div>
+  <h2>From Today to Pilot in 12 Weeks</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="timeline">
+        <div class="timeline-item">
+          <div class="tl-period">Weeks 1–4</div>
+          <div class="tl-title">Foundation Sprint</div>
+          <div class="tl-desc">Offline-first mobile shell, sync engine, PMS integration (leveraging existing connectors), auth + role-based access.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="tl-period">Weeks 5–8</div>
+          <div class="tl-title">Core Operations</div>
+          <div class="tl-desc">Work order CRUD, Digital Turn Board (Kanban), vendor assignment engine, photo capture, preventive maintenance scheduler.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="tl-period">Weeks 9–10</div>
+          <div class="tl-title">Intelligence Layer</div>
+          <div class="tl-desc">Agentic AI integration (Turn Velocity, Vacancy Recovery, Predictive Maintenance agents). BI dashboards + portfolio reporting.</div>
+        </div>
+        <div class="timeline-item">
+          <div class="tl-period">Weeks 11–12</div>
+          <div class="tl-title">Pilot Launch</div>
+          <div class="tl-desc">QA, security review, pilot property onboarding, training, UAT with Bozzuto maintenance teams.</div>
+        </div>
+        <div class="timeline-item" style="margin-bottom:0;">
+          <div class="tl-period">Post-Pilot (Month 4+)</div>
+          <div class="tl-title">Scale & Differentiate</div>
+          <div class="tl-desc">Due Diligence module, Vendor Portal, remaining AI agents, portfolio rollout across 130k+ units.</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:20px;">
+        <h3>Why We Win</h3>
+        <ul style="font-size:15px;line-height:2;">
+          <li><strong>SOC 2 + Multi-PMS Integration</strong> — eliminates IT red flags on day 1</li>
+          <li><strong>Production infrastructure</strong> — not a prototype, already live and serving real data</li>
+          <li><strong>Due Diligence "Trojan Horse"</strong> — solves corporate HQ pain, not just maintenance</li>
+          <li><strong>AI-native from day 1</strong> — AI-powered insights already in production</li>
+          <li><strong>Automated data pipeline</strong> — continuous refresh cycle, zero manual effort</li>
+          <li><strong>Multi-PMS unified schema</strong> — properties from any PMS side by side</li>
+        </ul>
+      </div>
+
+      <div class="card agentic-card">
+        <h3>The AI Moat</h3>
+        <p style="font-size:15px;line-height:1.7;">Competitors offer dashboards. We offer <strong>autonomous agents</strong> that detect problems, make decisions, and take action — from escalating overdue turns to predicting equipment failures to calculating the revenue cost of every vacant day. This isn't a reporting tool. It's an <strong>operational co-pilot</strong>.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="slide-footer">
+    <span class="page-num">09 / 09</span>
+    <span class="brand">Confidential</span>
+  </div>
+</section>
+
+<script>
+// Keyboard navigation (← → arrows, Page Up/Down)
+document.addEventListener('keydown', (e) => {
+  const slides = document.querySelectorAll('.slide');
+  const scrollY = window.scrollY;
+  const vh = window.innerHeight;
+  let current = Math.round(scrollY / vh);
+
+  if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === 'PageDown') {
+    e.preventDefault();
+    if (current < slides.length - 1) slides[current + 1].scrollIntoView({ behavior: 'smooth' });
+  } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'PageUp') {
+    e.preventDefault();
+    if (current > 0) slides[current - 1].scrollIntoView({ behavior: 'smooth' });
+  }
+});
+</script>
+</body>
+</html>

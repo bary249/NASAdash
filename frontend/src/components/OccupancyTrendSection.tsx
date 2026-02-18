@@ -4,6 +4,8 @@
  */
 import { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Minus, BarChart3 } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { SectionHeader } from './SectionHeader';
 import { api } from '../api';
 
@@ -21,6 +23,65 @@ interface Snapshot {
 interface Props {
   propertyId: string;
   propertyIds?: string[];
+}
+
+function OccupancyTrendTable({ snaps, sortNewest }: { snaps: Snapshot[]; sortNewest: boolean }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(snaps);
+  // When no explicit sort is active, use the original display order
+  const displayData = sortKey ? sorted : snaps;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 border-b border-slate-200">
+          <tr>
+            <SortHeader label="Date" column="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <SortHeader label="Units" column="total_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Occupied" column="occupied" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Vacant" column="vacant" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <SortHeader label="Occupancy" column="occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+            <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Δ</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {displayData.map((snap) => {
+            const nextInTime = sortNewest ? snaps[snaps.indexOf(snap) + 1] : snaps[snaps.indexOf(snap) - 1];
+            const delta = nextInTime ? snap.occupancy_pct - nextInTime.occupancy_pct : 0;
+            const deltaRounded = Math.round(delta * 10) / 10;
+            return (
+              <tr key={snap.date} className="hover:bg-slate-50">
+                <td className="px-4 py-2 text-slate-600 font-medium">{snap.date}</td>
+                <td className="px-4 py-2 text-right text-slate-600">{snap.total_units}</td>
+                <td className="px-4 py-2 text-right text-slate-600">{snap.occupied}</td>
+                <td className="px-4 py-2 text-right text-slate-600">{snap.vacant}</td>
+                <td className="px-4 py-2 text-right font-semibold">
+                  <span className={snap.occupancy_pct >= 95 ? 'text-emerald-600' : snap.occupancy_pct >= 90 ? 'text-amber-600' : 'text-rose-600'}>
+                    {snap.occupancy_pct}%
+                  </span>
+                </td>
+                <td className="px-4 py-2 text-center">
+                  {!nextInTime ? (
+                    <span className="text-slate-300">—</span>
+                  ) : deltaRounded > 0 ? (
+                    <span className="inline-flex items-center gap-0.5 text-emerald-600 text-xs font-medium">
+                      <TrendingUp className="w-3 h-3" /> +{deltaRounded}%
+                    </span>
+                  ) : deltaRounded < 0 ? (
+                    <span className="inline-flex items-center gap-0.5 text-rose-500 text-xs font-medium">
+                      <TrendingDown className="w-3 h-3" /> {deltaRounded}%
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 text-slate-400 text-xs">
+                      <Minus className="w-3 h-3" /> 0
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
@@ -165,58 +226,7 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Date</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Units</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupied</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Vacant</th>
-                <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Occupancy</th>
-                <th className="px-4 py-2 text-center text-xs font-medium text-slate-500 uppercase">Δ</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {displaySnaps.map((snap, idx) => {
-                const nextInTime = sortNewest ? displaySnaps[idx + 1] : displaySnaps[idx - 1];
-                const delta = nextInTime ? snap.occupancy_pct - nextInTime.occupancy_pct : 0;
-                const deltaRounded = Math.round(delta * 10) / 10;
-
-                return (
-                  <tr key={snap.date} className="hover:bg-slate-50">
-                    <td className="px-4 py-2 text-slate-600 font-medium">{snap.date}</td>
-                    <td className="px-4 py-2 text-right text-slate-600">{snap.total_units}</td>
-                    <td className="px-4 py-2 text-right text-slate-600">{snap.occupied}</td>
-                    <td className="px-4 py-2 text-right text-slate-600">{snap.vacant}</td>
-                    <td className="px-4 py-2 text-right font-semibold">
-                      <span className={snap.occupancy_pct >= 95 ? 'text-emerald-600' : snap.occupancy_pct >= 90 ? 'text-amber-600' : 'text-rose-600'}>
-                        {snap.occupancy_pct}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-center">
-                      {!nextInTime ? (
-                        <span className="text-slate-300">—</span>
-                      ) : deltaRounded > 0 ? (
-                        <span className="inline-flex items-center gap-0.5 text-emerald-600 text-xs font-medium">
-                          <TrendingUp className="w-3 h-3" /> +{deltaRounded}%
-                        </span>
-                      ) : deltaRounded < 0 ? (
-                        <span className="inline-flex items-center gap-0.5 text-rose-500 text-xs font-medium">
-                          <TrendingDown className="w-3 h-3" /> {deltaRounded}%
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-0.5 text-slate-400 text-xs">
-                          <Minus className="w-3 h-3" /> 0
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <OccupancyTrendTable snaps={displaySnaps} sortNewest={sortNewest} />
       )}
     </div>
   );

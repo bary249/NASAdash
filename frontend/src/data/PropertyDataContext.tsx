@@ -693,7 +693,9 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
             priorLabel = 'prev month';
           }
           setPriorFunnelLabel(priorLabel);
-          // For pm/ytd, just use 'pm' timeframe directly (no custom dates needed)
+          // For pm: no meaningful prior period (would compare pm to itself)
+          // For ytd: compare against pm
+          const skipPrior = timeframe === 'pm';
 
           const [allFunnels, allPriorFunnels] = await Promise.all([
             Promise.all(effectiveIds.map(pid => {
@@ -702,15 +704,17 @@ export function PropertyDataProvider({ propertyId, propertyIds, timeframe: propT
               if (cached) return Promise.resolve(cached);
               return api.getLeasingFunnel(pid, timeframe).then(d => { setCache(_funnelCache, ck, d); return d; }).catch(() => null);
             })),
-            Promise.all(effectiveIds.map(pid => {
-              const priorKey = priorStart && priorEnd ? `${pid}_${timeframe}_${priorStart}_${priorEnd}` : `${pid}_pm`;
-              const cached = getCached(_priorFunnelCache, priorKey);
-              if (cached) return Promise.resolve(cached);
-              const p = priorStart && priorEnd
-                ? api.getLeasingFunnel(pid, timeframe, priorStart, priorEnd)
-                : api.getLeasingFunnel(pid, 'pm');
-              return p.then(d => { setCache(_priorFunnelCache, priorKey, d); return d; }).catch(() => null);
-            })),
+            skipPrior
+              ? Promise.resolve(effectiveIds.map(() => null))
+              : Promise.all(effectiveIds.map(pid => {
+                  const priorKey = priorStart && priorEnd ? `${pid}_${timeframe}_${priorStart}_${priorEnd}` : `${pid}_pm`;
+                  const cached = getCached(_priorFunnelCache, priorKey);
+                  if (cached) return Promise.resolve(cached);
+                  const p = priorStart && priorEnd
+                    ? api.getLeasingFunnel(pid, timeframe, priorStart, priorEnd)
+                    : api.getLeasingFunnel(pid, 'pm');
+                  return p.then(d => { setCache(_priorFunnelCache, priorKey, d); return d; }).catch(() => null);
+                })),
           ]);
           const merged = allFunnels.reduce((acc, f) => {
             if (f && (f.leads > 0 || f.tours > 0 || f.applications > 0)) {

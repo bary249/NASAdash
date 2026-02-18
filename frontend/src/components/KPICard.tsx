@@ -70,14 +70,14 @@ export function KPICard({
     <div
       onClick={onClick}
       className={`
-        relative rounded-xl border p-4 transition-all duration-200
+        relative rounded-xl border p-4 transition-all duration-200 h-full flex flex-col justify-center
         ${variantStyles[variant]}
         ${onClick ? 'cursor-pointer hover:shadow-md' : ''}
         ${refreshing ? 'animate-pulse' : ''}
       `}
     >
       {/* Header with title and icon */}
-      <div className="flex items-start justify-between mb-2">
+      <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-1">
           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
             {title}
@@ -105,7 +105,7 @@ export function KPICard({
       </div>
 
       {/* Main Value */}
-      <div className="flex items-baseline gap-2 min-w-0">
+      <div className="flex items-baseline gap-2 min-w-0 mt-1">
         <span className="text-2xl font-bold text-slate-900 truncate">{value}</span>
         {trend && (
           <div className={`flex items-center gap-0.5 text-xs font-medium whitespace-nowrap ${getTrendColor()}`}>
@@ -117,7 +117,7 @@ export function KPICard({
 
       {/* Subtitle */}
       {subtitle && (
-        <p className="text-xs text-slate-500 mt-1">{subtitle}</p>
+        <p className="text-xs text-slate-500 mt-2">{subtitle}</p>
       )}
 
       {/* Comparison */}
@@ -128,7 +128,7 @@ export function KPICard({
       )}
 
       {/* Custom children (for funnel, etc.) */}
-      {children}
+      {children && <div className="mt-1">{children}</div>}
     </div>
   );
 }
@@ -182,7 +182,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
     <div
       onClick={onClick}
       className={`
-        rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200 overflow-hidden
+        rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200 overflow-hidden h-full
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
         ${refreshing ? 'animate-pulse' : ''}
       `}
@@ -286,7 +286,7 @@ export function VacantKPICard({ total, ready, totalUnits, agedCount, timeLabel, 
     <div
       onClick={onClick}
       className={`
-        rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200
+        rounded-xl border border-slate-200 p-4 bg-white transition-all duration-200 h-full
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-slate-300' : ''}
         ${refreshing ? 'animate-pulse' : ''}
       `}

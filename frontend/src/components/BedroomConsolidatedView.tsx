@@ -5,6 +5,8 @@
  */
 import { useState, useEffect } from 'react';
 import { ChevronDown, Home } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { InfoTooltip } from './InfoTooltip';
 import { api } from '../api';
 
@@ -127,6 +129,8 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveIds.join(',')]);
 
+  const { sorted: sortedBedrooms, sortKey, sortDir, toggleSort } = useSortable(data?.bedrooms ?? []);
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden animate-pulse">
@@ -140,7 +144,7 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
 
   if (!data || data.bedrooms.length === 0) return null;
 
-  const { bedrooms, totals } = data;
+  const { totals } = data;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -161,29 +165,25 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
-                <th className="px-4 py-2">Type</th>
-                <th className="px-3 py-2 text-right">Units</th>
-                <th className="px-3 py-2 text-right">Occ%</th>
-                <th className="px-3 py-2 text-right">Vacant</th>
+                <SortHeader label="Type" column="bedroom_type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-4" />
+                <SortHeader label="Units" column="total_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Occ%" column="occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Vacant" column="vacant" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <th className="px-3 py-2 text-right">
                   <span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant but leased (pending move-in)" /></span>
                 </th>
                 <th className="px-3 py-2 text-right">
                   <span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="On Notice to Vacate" /></span>
                 </th>
-                <th className="px-3 py-2 text-right">Market</th>
-                <th className="px-3 py-2 text-right">In-Place</th>
-                <th className="px-3 py-2 text-right">Delta</th>
-                <th className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center gap-0.5">Exp 90d <InfoTooltip text="Leases expiring within 90 days" /></span>
-                </th>
-                <th className="px-3 py-2 text-right">
-                  <span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal rate for 90-day expirations" /></span>
-                </th>
+                <SortHeader label="Market" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="In-Place" column="avg_in_place_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Delta" column="rent_delta" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Exp 90d" column="expiring_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Rnw%" column="renewal_pct_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
               </tr>
             </thead>
             <tbody>
-              {bedrooms.map(bed => (
+              {sortedBedrooms.map(bed => (
                 <tr key={bed.bedroom_type} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-2.5">
                     <div className="font-medium text-slate-800">{bed.bedroom_type}</div>

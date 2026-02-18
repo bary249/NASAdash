@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowRightLeft, TrendingUp, TrendingDown } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { SectionHeader } from './SectionHeader';
 
 interface TradeOut {
@@ -69,6 +71,8 @@ export function TradeOutSection({ propertyId }: TradeOutSectionProps) {
     return `${sign}${formatCurrency(val)}`;
   };
 
+  const { sorted: tradeouts, sortKey, sortDir, toggleSort } = useSortable(data?.tradeouts ?? []);
+
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
@@ -99,7 +103,7 @@ export function TradeOutSection({ propertyId }: TradeOutSectionProps) {
     );
   }
 
-  const { tradeouts, summary } = data;
+  const { summary } = data;
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -133,13 +137,13 @@ export function TradeOutSection({ propertyId }: TradeOutSectionProps) {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Prior Rent</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">New Rent</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">$ Change</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">% Change</th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Move-In</th>
+              <SortHeader label="Unit" column="unit_id" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Type" column="unit_type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <SortHeader label="Prior Rent" column="prior_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="New Rent" column="new_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="$ Change" column="dollar_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="% Change" column="pct_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+              <SortHeader label="Move-In" column="move_in_date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">

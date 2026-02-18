@@ -6,6 +6,8 @@
  */
 import { useState, useEffect } from 'react';
 import { DollarSign, ChevronDown, ChevronUp } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { SectionHeader } from './SectionHeader';
 import { api } from '../api';
 
@@ -101,9 +103,10 @@ function formatPeriod(fp: string): string {
 
 function TransactionTable({ items, title }: { items: TransactionItem[]; title: string }) {
   const [expanded, setExpanded] = useState(false);
-  if (items.length === 0) return null;
   const totalThisMonth = items.reduce((sum, i) => sum + i.this_month, 0);
-  const displayItems = expanded ? items : items.filter(i => Math.abs(i.this_month) > 0).slice(0, 5);
+  const baseItems = expanded ? items : items.filter(i => Math.abs(i.this_month) > 0).slice(0, 5);
+  const { sorted: displayItems, sortKey, sortDir, toggleSort } = useSortable(baseItems);
+  if (items.length === 0) return null;
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -125,9 +128,9 @@ function TransactionTable({ items, title }: { items: TransactionItem[]; title: s
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-400 uppercase tracking-wider">
-                <th className="text-left px-5 py-2 font-medium">Description</th>
-                <th className="text-right px-5 py-2 font-medium">This Month</th>
-                <th className="text-right px-5 py-2 font-medium hidden sm:table-cell">YTD</th>
+                <SortHeader label="Description" column="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-5" />
+                <SortHeader label="This Month" column="this_month" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-5" />
+                <SortHeader label="YTD" column="ytd_through" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-5 hidden sm:table-cell" />
               </tr>
             </thead>
             <tbody>

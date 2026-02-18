@@ -36,6 +36,7 @@ import { BedroomConsolidatedView } from './BedroomConsolidatedView';
 import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
 import FinancialsSection from './FinancialsSection';
+import IncomeStatementSection from './IncomeStatementSection';
 import MarketingSection from './MarketingSection';
 import MaintenanceSection from './MaintenanceSection';
 import MoveOutReasonsSection from './MoveOutReasonsSection';
@@ -44,6 +45,8 @@ import { DrillThroughModal } from './DrillThroughModal';
 import { AIResponseModal, AITableColumn, AITableRow, SuggestedAction } from './AIResponseModal';
 import { PortfolioView } from './PortfolioView';
 import { InfoTooltip } from './InfoTooltip';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 
 
 import { api } from '../api';
@@ -564,6 +567,90 @@ const RENEWAL_DRILL_COLUMNS = [
   { key: 'renewal_type', label: 'Renewal Type' },
   { key: 'move_in', label: 'Move In' },
 ];
+
+interface AvailFp { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }
+
+function AvailByFloorplanTable({ floorplans, onRowClick }: { floorplans: AvailFp[]; onRowClick: (fp: string) => void }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(floorplans);
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
+          <SortHeader label="Floorplan" column="floorplan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-3" />
+          <SortHeader label="Units" column="total_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <SortHeader label="Occ%" column="occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <SortHeader label="Vacant" column="vacant_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
+          <SortHeader label="NTV" column="on_notice" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <SortHeader label="Market" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((fp) => (
+          <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onRowClick(fp.floorplan)}>
+            <td className="px-3 py-2.5">
+              <div className="font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</div>
+              <div className="text-xs text-slate-400">{fp.group}</div>
+            </td>
+            <td className="px-3 py-2.5 text-right text-slate-700">{fp.total_units}</td>
+            <td className="px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
+                  <div className={`h-full rounded-full transition-all duration-500 ${fp.occupancy_pct >= 95 ? 'bg-emerald-400' : fp.occupancy_pct >= 90 ? 'bg-blue-400' : fp.occupancy_pct >= 80 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${fp.occupancy_pct}%` }} />
+                </div>
+                <span className="text-xs font-medium text-slate-600 w-12 text-right">{fp.occupancy_pct.toFixed(1)}%</span>
+              </div>
+            </td>
+            <td className={`px-3 py-2.5 text-right font-medium ${fp.vacant_units > 0 ? 'text-red-600' : 'text-slate-500'}`}>{fp.vacant_units}</td>
+            <td className={`px-3 py-2.5 text-right ${fp.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>{fp.vacant_leased || '—'}</td>
+            <td className={`px-3 py-2.5 text-right ${fp.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>{fp.on_notice || '—'}</td>
+            <td className="px-3 py-2.5 text-right text-slate-700">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+interface ForecastWeek { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; net_change: number; lease_expirations: number; renewals: number; net_expirations: number }
+
+function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (type: string, param?: string, start?: string, end?: string) => void }) {
+  const { sorted, sortKey, sortDir, toggleSort } = useSortable(weeks);
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
+          <SortHeader label="Week" column="week" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="pr-4" />
+          <SortHeader label="Projected Occ" column="projected_occupied" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Occ%" column="projected_occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Move Ins" column="scheduled_move_ins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Notice Outs" column="notice_move_outs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Net" column="net_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Expirations" column="lease_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Renewals" column="renewals" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
+          <SortHeader label="Net Exp" column="net_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+        </tr>
+      </thead>
+      <tbody>
+        {sorted.map((w) => (
+          <tr key={w.week} className="border-b border-slate-100 hover:bg-slate-50">
+            <td className="py-2 pr-4 text-slate-600">Wk {w.week} <span className="text-slate-400 text-xs">({w.week_start.slice(5)})</span></td>
+            <td className="py-2 pr-4 text-right font-medium">{w.projected_occupied}</td>
+            <td className="py-2 pr-4 text-right">{w.projected_occupancy_pct}%</td>
+            <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => onDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
+            <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => onDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
+            <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
+            <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => onDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
+            <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
+            <td className={`py-2 pr-4 text-right font-medium ${w.lease_expirations > 0 ? (w.renewals / w.lease_expirations >= 0.5 ? 'text-emerald-600' : w.renewals / w.lease_expirations >= 0.25 ? 'text-amber-600' : 'text-rose-500') : 'text-slate-400'}`}>{w.lease_expirations > 0 ? `${Math.round(w.renewals / w.lease_expirations * 100)}%` : '—'}</td>
+            <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo, timeRange = 'mtd', dynamicImageUrl }: PropertyDashboardProps) {
   const { occupancy, funnel, priorFunnel, priorFunnelLabel, expirations, loading, refreshing: contextRefreshing, error, periodEnd } = usePropertyData();
@@ -1119,8 +1206,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   
   // Calculate lease trade-out values (use real data if available)
   const tradeoutSummary = tradeoutData?.summary;
-  const avgTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_new_rent : (pricing?.total_asking_rent || 0);
-  const prevTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_prior_rent : (pricing?.total_in_place_rent || 0);
+  const avgTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_new_rent : 0;
+  const prevTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_prior_rent : 0;
   const tradeoutPct = tradeoutSummary?.count ? tradeoutSummary.avg_pct_change : 0;
   const renewalSummary = renewalData?.summary;
   const renewalCount = renewalSummary?.count ?? 0;
@@ -1152,10 +1239,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
 
         {/* KPIs Grid - Right */}
         <div className="col-span-12 lg:col-span-10">
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4 h-full">
             {/* Row 1: Status / Snapshot metrics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('occupancy')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('occupancy')} className="text-left w-full">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('occupancy')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('occupancy')} className="text-left w-full h-full">
                 <KPICard
                   title="Occupancy"
                   value={`${boxScoreOcc?.physical_occupancy ?? occupancy?.physicalOccupancy ?? 0}%`}
@@ -1166,7 +1253,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
               
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('vacant')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('vacant')} className="text-left w-full">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('vacant')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('vacant')} className="text-left w-full h-full">
                 <VacantKPICard
                   total={atrData?.vacant ?? boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
                   totalUnits={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
@@ -1178,7 +1265,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
               
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('atr')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('atr')} className="text-left w-full h-full">
                 <KPICard
                   title="ATR"
                   value={atrData ? String(atrData.atr) : '—'}
@@ -1189,7 +1276,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('in_place')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('in_place')} className="text-left w-full">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('in_place')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('in_place')} className="text-left w-full h-full">
                 <KPICard
                   title="In-Place"
                   value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
@@ -1211,8 +1298,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             </div>
 
             {/* Row 2: Activity / Period metrics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="md:col-span-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+              <div className="md:col-span-2 h-full">
                 <FunnelKPICard
                   leads={funnel?.leads || 0}
                   tours={funnel?.tours || 0}
@@ -1230,11 +1317,11 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full h-full">
                 <KPICard
                   title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
                   value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
-                  subtitle={prevTradeOut ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data'}
+                  subtitle={tradeoutSummary?.count ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data this period'}
                   timeLabel={periodLabel}
                   icon={<DollarSign className="w-4 h-4" />}
                   tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
@@ -1242,7 +1329,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full">
+              <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full h-full">
                 <KPICard
                   title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
                   value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
@@ -1583,41 +1670,8 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               <h3 className="text-lg font-semibold text-slate-800">Available Units by Floorplan</h3>
             </button>
             {!availCollapsed && <div className="overflow-x-auto mt-4">
+              <AvailByFloorplanTable floorplans={availByFp.floorplans} onRowClick={(fp) => openKpiDrill('availability', fp)} />
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
-                    <th className="px-3 py-2">Floorplan</th>
-                    <th className="px-3 py-2 text-right">Units</th>
-                    <th className="px-3 py-2 text-right">Occ%</th>
-                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Vacant <InfoTooltip text="Units with no current occupant. Source: RealPage Box Score." /></span></th>
-                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
-                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="Occupied units with a Notice-to-Vacate filed. Source: RealPage Box Score." /></span></th>
-                    <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Market <InfoTooltip text="Average market rent for this floorplan. Source: RealPage Box Score." /></span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {availByFp.floorplans.map((fp: { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }) => (
-                    <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => openKpiDrill('availability', fp.floorplan)}>
-                      <td className="px-3 py-2.5">
-                        <div className="font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</div>
-                        <div className="text-xs text-slate-400">{fp.group}</div>
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-slate-700">{fp.total_units}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
-                            <div className={`h-full rounded-full transition-all duration-500 ${fp.occupancy_pct >= 95 ? 'bg-emerald-400' : fp.occupancy_pct >= 90 ? 'bg-blue-400' : fp.occupancy_pct >= 80 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${fp.occupancy_pct}%` }} />
-                          </div>
-                          <span className="text-xs font-medium text-slate-600 w-12 text-right">{fp.occupancy_pct.toFixed(1)}%</span>
-                        </div>
-                      </td>
-                      <td className={`px-3 py-2.5 text-right font-medium ${fp.vacant_units > 0 ? 'text-red-600' : 'text-slate-500'}`}>{fp.vacant_units}</td>
-                      <td className={`px-3 py-2.5 text-right ${fp.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>{fp.vacant_leased || '—'}</td>
-                      <td className={`px-3 py-2.5 text-right ${fp.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>{fp.on_notice || '—'}</td>
-                      <td className="px-3 py-2.5 text-right text-slate-700">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
                 <tfoot>
                   <tr className="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
                     <td className="px-3 py-2.5">Total</td>
@@ -1666,38 +1720,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               )}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
-                    <th className="pb-2 pr-4">Week</th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Projected Occ <InfoTooltip text="Projected occupied units at week end. Source: RealPage Projected Occupancy Report." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Occ% <InfoTooltip text="Projected Occupied ÷ Total Units × 100." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Move Ins <InfoTooltip text="Scheduled move-ins for this week." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Notice Outs <InfoTooltip text="Units on notice-to-vacate with move-out date in this week." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Net <InfoTooltip text="Net = Move Ins − Move Outs." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="Leases expiring this week." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Renewals <InfoTooltip text="Already renewed leases expiring this week." /></span></th>
-                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
-                    <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Net Exp <InfoTooltip text="Expirations − Renewals." /></span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(forecast.forecast as { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; net_change: number; lease_expirations: number; renewals: number; net_expirations: number }[]).map((w) => (
-                    <tr key={w.week} className="border-b border-slate-100 hover:bg-slate-50">
-                      <td className="py-2 pr-4 text-slate-600">Wk {w.week} <span className="text-slate-400 text-xs">({w.week_start.slice(5)})</span></td>
-                      <td className="py-2 pr-4 text-right font-medium">{w.projected_occupied}</td>
-                      <td className="py-2 pr-4 text-right">{w.projected_occupancy_pct}%</td>
-                      <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => openKpiDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
-                      <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => openKpiDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
-                      <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
-                      <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
-                      <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
-                      <td className={`py-2 pr-4 text-right font-medium ${w.lease_expirations > 0 ? (w.renewals / w.lease_expirations >= 0.5 ? 'text-emerald-600' : w.renewals / w.lease_expirations >= 0.25 ? 'text-amber-600' : 'text-rose-500') : 'text-slate-400'}`}>{w.lease_expirations > 0 ? `${Math.round(w.renewals / w.lease_expirations * 100)}%` : '—'}</td>
-                      <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ForecastTable weeks={forecast.forecast as ForecastWeek[]} onDrill={(type, param, start, end) => openKpiDrill(type, param, start, end)} />
             </div>
           </>}
           </div>
@@ -1710,7 +1733,12 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       )}
 
       {activeTab === 'financials' && (
-        <FinancialsSection propertyId={propertyId} propertyIds={propertyIds} />
+        <>
+          <FinancialsSection propertyId={propertyId} propertyIds={propertyIds} />
+          <div className="mt-6">
+            <IncomeStatementSection propertyId={propertyId} propertyIds={propertyIds} />
+          </div>
+        </>
       )}
 
       {activeTab === 'maintenance' && (

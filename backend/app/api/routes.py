@@ -1863,7 +1863,7 @@ def get_consolidated_by_bedroom(property_id: str):
                        SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
                 FROM unified_leases
                 WHERE unified_property_id = ?
-                  AND status IN ('Current', 'Current - Future')
+                  AND status = 'Current'
                   AND lease_end IS NOT NULL AND lease_end != ''
                   AND {le_expr} BETWEEN date('now') AND date('now', '+90 days')
             """, (property_id,))
@@ -2797,7 +2797,7 @@ async def get_ai_insights(property_id: str, refresh: int = 0):
         # Inject custom watchpoints (WS8)
         try:
             from app.services.watchpoint_service import format_watchpoints_for_ai
-            current_metrics = await _gather_current_metrics(property_id)
+            current_metrics = _gather_current_metrics(property_id)
             wp_text = format_watchpoints_for_ai(property_id, current_metrics)
             if wp_text:
                 property_data["watchpoint_summary"] = wp_text
@@ -3016,7 +3016,7 @@ async def get_watchpoints(property_id: str):
     )
     
     # Gather current metrics for evaluation
-    current_metrics = await _gather_current_metrics(property_id)
+    current_metrics = _gather_current_metrics(property_id)
     
     wps = _get_wps(property_id)
     evaluated = evaluate_watchpoints(property_id, current_metrics)
@@ -3717,3 +3717,120 @@ async def get_move_out_reasons(property_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get move-out reasons: {str(e)}")
+
+
+# =========================================================================
+# Income Statement (Report 3836)
+# =========================================================================
+
+@router.get("/properties/{property_id}/income-statement")
+async def get_income_statement(property_id: str):
+    """Revenue-side P&L from unified_income_statement (report 3836).
+    
+    Returns GL-level detail grouped by section/category, plus key totals.
+    """
+    import sqlite3
+    
+    try:
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT fiscal_period, section, category, gl_account_code,
+                   gl_account_name, sign, amount, line_type
+            FROM unified_income_statement
+            WHERE unified_property_id = ?
+            ORDER BY id
+        """, (property_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        if not rows:
+            raise HTTPException(status_code=404, detail="No income statement data for this property")
+        
+        fiscal_period = rows[0]["fiscal_period"]
+        
+        # Build structured sections
+        sections = {}
+        totals = {}
+        detail_items = []
+        
+        for row in rows:
+            lt = row["line_type"]
+            amt = row["amount"] or 0
+            name = row["gl_account_name"] or ""
+            section = row["section"] or ""
+            
+            if lt == "total":
+                totals[name] = round(amt, 2)
+            elif lt == "subtotal":
+                totals[name] = round(amt, 2)
+            else:
+                # Detail line
+                if section not in sections:
+                    sections[section] = []
+                sections[section].append({
+                    "gl_code": row["gl_account_code"] or "",
+                    "name": name,
+                    "sign": row["sign"] or "",
+                    "amount": round(amt, 2),
+                    "category": row["category"] or "",
+                })
+                detail_items.append({"name": name, "amount": amt, "sign": row["sign"], "gl_code": row["gl_account_code"] or ""})
+        
+        # Compute summary metrics
+        total_income = totals.get("TOTAL INCOME", 0)
+        total_potential = totals.get("TOTAL POTENTIAL INCOME", 0)
+        
+        # Extract key line items using GL codes for reliability
+        # 5100-0001=Market Rent, 5100-0200=L2L, 5100-0201=Vacancy,
+        # 5100-0202=Concessions, 5100-0203=Admin/Down, 5100-0204=Employee,
+        # 5100-0205=Bad Debt, 6500-0009=Referral Concessions
+        gl_amounts = {}
+        other_income = 0.0
+        for d in detail_items:
+            gc = d.get("gl_code", "")
+            amt = d["amount"]
+            if gc:
+                gl_amounts[gc] = gl_amounts.get(gc, 0) + amt
+            # Other income: 52xx fees + 53xx utilities (positive items excl. market rent)
+            if gc.startswith("52") or gc.startswith("53"):
+                other_income += amt
+        
+        market_rent = gl_amounts.get("5100-0001", 0)
+        loss_to_lease = abs(gl_amounts.get("5100-0200", 0))
+        vacancy = abs(gl_amounts.get("5100-0201", 0))
+        concessions = abs(gl_amounts.get("5100-0202", 0)) + abs(gl_amounts.get("6500-0009", 0))
+        bad_debt = abs(gl_amounts.get("5100-0205", 0))
+        admin_down = abs(gl_amounts.get("5100-0203", 0))
+        employee_units = abs(gl_amounts.get("5100-0204", 0))
+        
+        summary = {
+            "fiscal_period": fiscal_period,
+            "market_rent": round(market_rent, 2),
+            "loss_to_lease": round(loss_to_lease, 2),
+            "loss_to_lease_pct": round(loss_to_lease / market_rent * 100, 1) if market_rent > 0 else 0,
+            "vacancy": round(vacancy, 2),
+            "vacancy_pct": round(vacancy / market_rent * 100, 1) if market_rent > 0 else 0,
+            "concessions": round(concessions, 2),
+            "concessions_pct": round(concessions / market_rent * 100, 1) if market_rent > 0 else 0,
+            "bad_debt": round(bad_debt, 2),
+            "admin_down_units": round(admin_down, 2),
+            "employee_units": round(employee_units, 2),
+            "other_income": round(other_income, 2),
+            "total_potential_income": round(total_potential, 2),
+            "total_income": round(total_income, 2),
+            "effective_rent_pct": round(total_income / market_rent * 100, 1) if market_rent > 0 else 0,
+        }
+        
+        return {
+            "property_id": property_id,
+            "summary": summary,
+            "totals": totals,
+            "sections": {k: v for k, v in sections.items()},
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get income statement: {str(e)}")

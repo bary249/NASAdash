@@ -5,6 +5,8 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { AlertTriangle, Building2, TrendingDown, DollarSign, Star, RefreshCw, ChevronDown, Settings, Check, RotateCcw } from 'lucide-react';
+import { useSortable } from '../hooks/useSortable';
+import { SortHeader } from './SortHeader';
 import { api } from '../api';
 
 interface WatchFlag {
@@ -198,6 +200,19 @@ export function WatchListTab({ onPropertyClick, ownerGroup, propertyIds }: Props
     savePinnedIds(next);
   };
 
+  // Filter by selected property IDs (when multiple are selected in portfolio)
+  const groupFiltered = (data && propertyIds && propertyIds.length > 1)
+    ? data.watchlist.filter(p => propertyIds.includes(p.id))
+    : (data?.watchlist ?? []);
+
+  const flaggedOnly = groupFiltered.filter(p => p.flag_count > 0 || pinnedIds.has(p.id));
+  const displayed = showAll ? groupFiltered : flaggedOnly;
+  const filtered = filterMetric === 'all'
+    ? displayed
+    : displayed.filter(p => p.flags.some(f => f.metric === filterMetric) || pinnedIds.has(p.id));
+
+  const { sorted: sortedFiltered, sortKey: wlSortKey, sortDir: wlSortDir, toggleSort: toggleWlSort } = useSortable(filtered);
+
   if (loading) {
     return (
       <div className="space-y-4 animate-pulse">
@@ -210,17 +225,6 @@ export function WatchListTab({ onPropertyClick, ownerGroup, propertyIds }: Props
   if (!data) {
     return <div className="text-center py-12 text-slate-500">Failed to load watchlist data</div>;
   }
-
-  // Filter by selected property IDs (when multiple are selected in portfolio)
-  const groupFiltered = (propertyIds && propertyIds.length > 1)
-    ? data.watchlist.filter(p => propertyIds.includes(p.id))
-    : data.watchlist;
-
-  const flaggedOnly = groupFiltered.filter(p => p.flag_count > 0 || pinnedIds.has(p.id));
-  const displayed = showAll ? groupFiltered : flaggedOnly;
-  const filtered = filterMetric === 'all'
-    ? displayed
-    : displayed.filter(p => p.flags.some(f => f.metric === filterMetric) || pinnedIds.has(p.id));
 
   // Count matches per metric (among flagged/pinned properties) for badge display
   const metricCounts: Record<string, number> = {
@@ -390,19 +394,19 @@ export function WatchListTab({ onPropertyClick, ownerGroup, propertyIds }: Props
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
                 <th className="pb-2 pr-1 w-8"></th>
-                <th className="pb-2 pr-4">Property</th>
-                <th className="pb-2 pr-4 text-right">Units</th>
-                <th className="pb-2 pr-4 text-right">Occ%</th>
-                <th className="pb-2 pr-4 text-right">Vacant</th>
-                <th className="pb-2 pr-4 text-right">Delinquent</th>
-                <th className="pb-2 pr-4 text-right">Renewal%</th>
-                <th className="pb-2 pr-4 text-right">Rating</th>
-                <th className="pb-2 pr-4 text-right">At-Risk</th>
+                <SortHeader label="Property" column="name" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} className="pb-2 pr-4" />
+                <SortHeader label="Units" column="total_units" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="Occ%" column="occupancy_pct" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="Vacant" column="vacant" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="Delinquent" column="delinquent_total" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="Renewal%" column="renewal_rate_90d" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="Rating" column="google_rating" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
+                <SortHeader label="At-Risk" column="at_risk_residents" sortKey={wlSortKey} sortDir={wlSortDir} onSort={toggleWlSort} align="right" className="pb-2 pr-4" />
                 <th className="pb-2">Flags</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(prop => {
+              {sortedFiltered.map(prop => {
                 const isPinned = pinnedIds.has(prop.id);
                 return (
                   <tr

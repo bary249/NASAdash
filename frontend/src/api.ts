@@ -584,6 +584,22 @@ export const api = {
     return response.json();
   },
 
+  // Income Statement (Report 3836 — Revenue P&L by GL)
+  getIncomeStatement: (propertyId: string): Promise<{
+    property_id: string;
+    summary: {
+      fiscal_period: string;
+      market_rent: number; loss_to_lease: number; loss_to_lease_pct: number;
+      vacancy: number; vacancy_pct: number;
+      concessions: number; concessions_pct: number;
+      bad_debt: number; admin_down_units: number; employee_units: number;
+      other_income: number;
+      total_potential_income: number; total_income: number; effective_rent_pct: number;
+    };
+    totals: Record<string, number>;
+    sections: Record<string, { gl_code: string; name: string; sign: string; amount: number; category: string }[]>;
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/income-statement`),
+
   getMoveOutReasons: (propertyId: string): Promise<{
     property_id: string;
     date_range: string;

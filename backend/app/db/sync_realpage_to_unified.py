@@ -1882,6 +1882,52 @@ def log_sync(property_count, occupancy_count, pricing_count, unit_count, residen
     uni_conn.close()
 
 
+def sync_income_statement():
+    """Sync income statement from report 3836."""
+    print("\n📊 Syncing income statement...")
+    
+    rp_conn = get_realpage_conn()
+    uni_conn = get_unified_conn()
+    rp_cursor = rp_conn.cursor()
+    uni_cursor = uni_conn.cursor()
+    
+    now_iso = datetime.now().isoformat()
+    uni_cursor.execute("DELETE FROM unified_income_statement")
+    
+    count = 0
+    try:
+        rp_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='realpage_income_statement'")
+        if rp_cursor.fetchone():
+            rp_cursor.execute("""
+                SELECT property_id, fiscal_period, section, category,
+                       gl_account_code, gl_account_name, sign, amount, line_type
+                FROM realpage_income_statement
+                WHERE property_id IS NOT NULL
+            """)
+            for row in rp_cursor.fetchall():
+                if row[0] not in PROPERTY_MAPPING:
+                    continue
+                unified_id = PROPERTY_MAPPING[row[0]]["unified_id"]
+                uni_cursor.execute("""
+                    INSERT INTO unified_income_statement
+                    (unified_property_id, pms_source, fiscal_period, section, category,
+                     gl_account_code, gl_account_name, sign, amount, line_type, snapshot_date)
+                    VALUES (?, 'realpage', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (unified_id, row[1] or '', row[2] or '', row[3] or '',
+                      row[4] or '', row[5] or '', row[6] or '', row[7] or 0,
+                      row[8] or '', now_iso))
+                count += 1
+    except Exception as e:
+        print(f"  ⚠️  Income statement: {e}")
+    
+    uni_conn.commit()
+    rp_conn.close()
+    uni_conn.close()
+    
+    print(f"  ✅ Synced {count} income statement records")
+    return count
+
+
 def run_full_sync():
     """Run full sync from RealPage to Unified."""
     print("=" * 60)
@@ -1908,6 +1954,7 @@ def run_full_sync():
     ad_source_count = sync_advertising_sources()
     lost_rent_count = sync_lost_rent()
     amenity_count = sync_amenities()
+    income_stmt_count = sync_income_statement()
     
     log_sync(property_count, occupancy_count, pricing_count, unit_count, resident_count, delinquency_count)
     
@@ -1930,6 +1977,7 @@ def run_full_sync():
     print(f"  Ad Sources:        {ad_source_count}")
     print(f"  Lost Rent:         {lost_rent_count}")
     print(f"  Amenities:         {amenity_count}")
+    print(f"  Income Statement:  {income_stmt_count}")
     print(f"\nCompleted at: {datetime.now().isoformat()}")
 
 

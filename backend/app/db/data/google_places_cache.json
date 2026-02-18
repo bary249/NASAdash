@@ -18,7 +18,7 @@
     }
   },
   "7 east apartments": {
-    "cached_at": 1771263660.436576,
+    "cached_at": 1771406722.3148859,
     "data": {
       "rating": 4.3,
       "review_count": 94,
@@ -27,7 +27,7 @@
     }
   },
   "aspire 7th and grant apartments": {
-    "cached_at": 1771263661.481884,
+    "cached_at": 1771406722.930048,
     "data": {
       "rating": 4.8,
       "review_count": 156,
@@ -36,7 +36,7 @@
     }
   },
   "block 44 apartments": {
-    "cached_at": 1771263662.2120378,
+    "cached_at": 1771406723.5299342,
     "data": {
       "rating": 3.9,
       "review_count": 127,
@@ -45,7 +45,7 @@
     }
   },
   "the broadleaf apartments": {
-    "cached_at": 1771263663.24277,
+    "cached_at": 1771406724.039393,
     "data": {
       "rating": 4.8,
       "review_count": 71,
@@ -54,7 +54,7 @@
     }
   },
   "the confluence apartments": {
-    "cached_at": 1771263664.172859,
+    "cached_at": 1771406724.631331,
     "data": {
       "rating": 4.4,
       "review_count": 248,
@@ -63,16 +63,16 @@
     }
   },
   "curate at orchard town center apartments": {
-    "cached_at": 1771263665.1402292,
+    "cached_at": 1771406725.063623,
     "data": {
       "rating": 4.6,
-      "review_count": 216,
+      "review_count": 217,
       "place_id": "ChIJ7U8cOBF1bIcRgJ11DrOGHsA",
       "address": "14705 Orchard Pkwy, Westminster, CO 80023, USA"
     }
   },
   "discovery at kingwood apartments": {
-    "cached_at": 1771263666.172253,
+    "cached_at": 1771406725.638196,
     "data": {
       "rating": 4.4,
       "review_count": 291,
@@ -81,7 +81,7 @@
     }
   },
   "eden keller ranch apartments": {
-    "cached_at": 1771263667.1713789,
+    "cached_at": 1771406726.166337,
     "data": {
       "rating": 4.1,
       "review_count": 155,
@@ -90,7 +90,7 @@
     }
   },
   "edison at rino apartments": {
-    "cached_at": 1771263668.136044,
+    "cached_at": 1771406726.593654,
     "data": {
       "rating": 4.4,
       "review_count": 252,
@@ -99,7 +99,7 @@
     }
   },
   "harvest apartments": {
-    "cached_at": 1771263669.141717,
+    "cached_at": 1771406727.1079302,
     "data": {
       "rating": 4,
       "review_count": 86,
@@ -108,16 +108,16 @@
     }
   },
   "heights at interlocken apartments": {
-    "cached_at": 1771263670.1319602,
+    "cached_at": 1771406727.713305,
     "data": {
       "rating": 3.7,
-      "review_count": 240,
+      "review_count": 243,
       "place_id": "ChIJXwjZuoKLa4cR4DZFYclcCQQ",
       "address": "401 Interlocken Blvd, Broomfield, CO 80021, USA"
     }
   },
   "izzy apartments": {
-    "cached_at": 1771263670.824898,
+    "cached_at": 1771406728.218791,
     "data": {
       "rating": 3.3,
       "review_count": 517,
@@ -126,7 +126,7 @@
     }
   },
   "kalaco apartments": {
-    "cached_at": 1771263671.776685,
+    "cached_at": 1771406728.715348,
     "data": {
       "rating": 5,
       "review_count": 63,
@@ -135,7 +135,7 @@
     }
   },
   "the links at plum creek apartments": {
-    "cached_at": 1771263672.7837381,
+    "cached_at": 1771406729.2381709,
     "data": {
       "rating": 4.2,
       "review_count": 186,
@@ -144,16 +144,11 @@
     }
   },
   "luna apartments": {
-    "cached_at": 1771263673.812782,
-    "data": {
-      "rating": 3.5,
-      "review_count": 32,
-      "place_id": "ChIJ48Ipilyp9x4Rc90zozPE_-U",
-      "address": "477 Anton Lembede St, Durban Central, Durban, 4000, South Africa"
-    }
+    "cached_at": 1771406729.759928,
+    "data": null
   },
   "nexus east apartments": {
-    "cached_at": 1771263674.789917,
+    "cached_at": 1771406730.3523881,
     "data": {
       "rating": 3.9,
       "review_count": 240,
@@ -162,7 +157,7 @@
     }
   },
   "park 17 apartments": {
-    "cached_at": 1771263675.5639591,
+    "cached_at": 1771406730.9392,
     "data": {
       "rating": 4.6,
       "review_count": 182,
@@ -171,16 +166,16 @@
     }
   },
   "parkside at round rock apartments": {
-    "cached_at": 1771263676.569201,
+    "cached_at": 1771406731.4789891,
     "data": {
       "rating": 3.9,
-      "review_count": 223,
+      "review_count": 222,
       "place_id": "ChIJkcLlpSzRRIYRQGZOXRDFlOA",
       "address": "5000 N Mays St, Round Rock, TX 78665, USA"
     }
   },
   "pearl lantana apartments": {
-    "cached_at": 1771263677.6151118,
+    "cached_at": 1771406732.0530639,
     "data": {
       "rating": 4.7,
       "review_count": 283,
@@ -189,7 +184,7 @@
     }
   },
   "ridian apartments": {
-    "cached_at": 1771263678.651499,
+    "cached_at": 1771406732.642224,
     "data": {
       "rating": 4.8,
       "review_count": 33,
@@ -198,7 +193,7 @@
     }
   },
   "slate apartments": {
-    "cached_at": 1771263679.746454,
+    "cached_at": 1771406733.274965,
     "data": {
       "rating": 3.9,
       "review_count": 12,
@@ -207,7 +202,7 @@
     }
   },
   "sloane apartments": {
-    "cached_at": 1771263681.488469,
+    "cached_at": 1771406733.847446,
     "data": {
       "rating": 4.7,
       "review_count": 86,
@@ -216,7 +211,7 @@
     }
   },
   "the station at riverfront park apartments": {
-    "cached_at": 1771263682.281587,
+    "cached_at": 1771406734.396079,
     "data": {
       "rating": 4,
       "review_count": 302,
@@ -225,7 +220,7 @@
     }
   },
   "stonewood apartments": {
-    "cached_at": 1771263683.3661702,
+    "cached_at": 1771406734.951616,
     "data": {
       "rating": 4.1,
       "review_count": 208,
@@ -234,7 +229,7 @@
     }
   },
   "ten50 apartments": {
-    "cached_at": 1771263684.364243,
+    "cached_at": 1771406735.483127,
     "data": {
       "rating": 4.6,
       "review_count": 62,
@@ -243,16 +238,16 @@
     }
   },
   "the alcott apartments": {
-    "cached_at": 1771263685.41249,
+    "cached_at": 1771406736.104353,
     "data": {
-      "rating": 4.6,
-      "review_count": 172,
-      "place_id": "ChIJa10GhAVx44kRxkc_IY4sMDc",
-      "address": "35 Lomasney Wy, Boston, MA 02114, USA"
+      "rating": 4.5,
+      "review_count": 79,
+      "place_id": "ChIJizlWb4fJxokRe4Lj789BUJU",
+      "address": "416 Spring Garden St, Philadelphia, PA 19123, USA"
     }
   },
   "the avant apartments": {
-    "cached_at": 1771263686.3769689,
+    "cached_at": 1771406736.618648,
     "data": {
       "rating": 4.3,
       "review_count": 258,
@@ -261,16 +256,16 @@
     }
   },
   "the hunter apartments": {
-    "cached_at": 1771263687.348228,
+    "cached_at": 1771406737.2035358,
     "data": {
-      "rating": 4.8,
-      "review_count": 16,
+      "rating": 4.6,
+      "review_count": 18,
       "place_id": "ChIJDb6jVmRFE4cRTwcpA5enAAg",
       "address": "225 E Cimarron St, Colorado Springs, CO 80903, USA"
     }
   },
   "the northern apartments": {
-    "cached_at": 1771263688.299529,
+    "cached_at": 1771406737.726186,
     "data": {
       "rating": 3.6,
       "review_count": 144,
@@ -279,7 +274,7 @@
     }
   },
   "thepearl apartments": {
-    "cached_at": 1771263689.446948,
+    "cached_at": 1771406738.352402,
     "data": {
       "rating": 4.4,
       "review_count": 13,
@@ -288,7 +283,7 @@
     }
   },
   "thequinci apartments": {
-    "cached_at": 1771263690.389366,
+    "cached_at": 1771406738.89905,
     "data": {
       "rating": 4.7,
       "review_count": 51,

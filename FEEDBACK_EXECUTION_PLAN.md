@@ -282,6 +282,8 @@ Effort: **S** = < 2 hrs, **M** = 2–8 hrs, **L** = 1–3 days, **XL** = 3+ days
 | Feb 18 | #41 | **Verified OK** — Former Residents section already demoted: collapsed by default, placed below evictions. | No change needed |
 | Feb 18 | #16 | **Fixed** — Subject property now always shown as highlighted top row in Market Comps table, using asking rents from consolidated-by-bedroom data. | `MarketCompsTable.tsx` |
 | Feb 18 | #31 | **Fixed** — Added Rnw% (Renewal Rate) column to Occupancy Forecast table. Color-coded: ≥50% green, ≥25% amber, <25% rose. | `DashboardV3.tsx` |
+| Feb 18 | — | **Fixed** — Funnel conversion rates now show prev period comparison (▲/▼ pp delta next to each rate). | `KPICard.tsx` |
+| Feb 18 | — | **Fixed** — Vacant count mismatch: ATR endpoint and availability-by-floorplan now include 'down' status units in vacant count, matching box score (authoritative). Also fixed drill-through filters for 'vacant' and 'atr'. | `routes.py` (3 queries) |
 
 ---
 

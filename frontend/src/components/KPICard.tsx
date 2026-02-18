@@ -204,47 +204,61 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
           </div>
         ))}
       </div>
-      {/* Conversion Rates */}
-      {(leads > 0 || tours > 0 || applications > 0) && (
+      {/* Conversion Rates with prior period comparison */}
+      {(leads > 0 || tours > 0 || applications > 0) && (() => {
+        const pL = priorLeads ?? 0;
+        const pT = priorTours ?? 0;
+        const pA = priorApplications ?? 0;
+        const pS = priorLeasesSigned ?? 0;
+        const hasPrior = pL > 0 || pT > 0;
+        const rateDelta = (cur: number, prior: number) => {
+          if (!hasPrior || prior === 0) return null;
+          const diff = cur - prior;
+          const pts = Math.round(diff);
+          if (pts === 0) return <span className="text-[9px] text-slate-400 ml-0.5">({prior}%)</span>;
+          return <span className={`text-[9px] font-medium ml-0.5 ${pts > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pts > 0 ? '▲' : '▼'}{Math.abs(pts)}pp</span>;
+        };
+        return (
         <div className="mt-3 pt-2 border-t border-slate-100 grid grid-cols-3 gap-x-3 gap-y-1">
           {leads > 0 && tours > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">Lead→Tour</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(tours / leads * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(tours / leads * 100)}%{rateDelta(Math.round(tours / leads * 100), pL > 0 && pT > 0 ? Math.round(pT / pL * 100) : 0)}</div>
             </div>
           )}
           {tours > 0 && applications > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">Tour→App</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / tours * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / tours * 100)}%{rateDelta(Math.round(applications / tours * 100), pT > 0 && pA > 0 ? Math.round(pA / pT * 100) : 0)}</div>
             </div>
           )}
           {applications > 0 && leasesSigned > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">App→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / applications * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / applications * 100)}%{rateDelta(Math.round(leasesSigned / applications * 100), pA > 0 && pS > 0 ? Math.round(pS / pA * 100) : 0)}</div>
             </div>
           )}
           {leads > 0 && applications > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">Lead→App</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / leads * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / leads * 100)}%{rateDelta(Math.round(applications / leads * 100), pL > 0 && pA > 0 ? Math.round(pA / pL * 100) : 0)}</div>
             </div>
           )}
           {tours > 0 && leasesSigned > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">Tour→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / tours * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / tours * 100)}%{rateDelta(Math.round(leasesSigned / tours * 100), pT > 0 && pS > 0 ? Math.round(pS / pT * 100) : 0)}</div>
             </div>
           )}
           {leads > 0 && leasesSigned > 0 && (
             <div className="text-center">
               <div className="text-[10px] text-slate-400">Lead→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / leads * 100)}%</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / leads * 100)}%{rateDelta(Math.round(leasesSigned / leads * 100), pL > 0 && pS > 0 ? Math.round(pS / pL * 100) : 0)}</div>
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
       {priorPeriodLabel && (priorLeads != null || priorTours != null) && (
         <div className="text-[10px] text-slate-400 text-right mt-2">vs {priorPeriodLabel}</div>
       )}

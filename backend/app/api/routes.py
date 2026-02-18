@@ -725,10 +725,10 @@ async def get_availability(property_id: str):
         uc.execute("""
             SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant,
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant,
                 SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
                 SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END) as preleased,
-                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')
                           AND (is_preleased IS NULL OR is_preleased != 1)
                     THEN 1 ELSE 0 END) as bucket_vacant,
                 SUM(CASE WHEN occupancy_status = 'notice' 
@@ -1698,8 +1698,8 @@ async def get_availability_by_floorplan(property_id: str):
             SELECT floorplan,
                    '' as floorplan_group,
                    COUNT(*) as total_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND is_preleased = 0 THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
                    SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
                    SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
                    SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
@@ -1987,11 +1987,11 @@ async def get_availability_units(property_id: str, floorplan: str = None, status
         if status:
             if status.lower() == 'atr':
                 where_extra += """ AND (
-                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
+                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
                     OR (u.occupancy_status = 'notice' AND (u.is_preleased IS NULL OR u.is_preleased != 1))
                 )"""
             elif status.lower() == 'vacant':
-                where_extra += " AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')"
+                where_extra += " AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')"
             elif status.lower() == 'notice':
                 where_extra += " AND u.occupancy_status = 'notice'"
             elif status.lower() == 'occupied':

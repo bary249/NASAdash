@@ -44,7 +44,7 @@ type SortDir = 'asc' | 'desc';
 interface Props {
   propertyId: string;
   propertyIds?: string[];
-  timeRange?: 'ytd' | 'mtd' | 'l30' | 'l7';
+  timeRange?: 'ytd' | 'mtd' | 'pm' | 'l30' | 'l7';
 }
 
 function SortIcon({ column, sortKey, sortDir }: { column: SortKey; sortKey: SortKey; sortDir: SortDir }) {

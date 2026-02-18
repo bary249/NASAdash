@@ -271,6 +271,11 @@ Effort: **S** = < 2 hrs, **M** = 2–8 hrs, **L** = 1–3 days, **XL** = 3+ days
 | Feb 18 | #39 | **Fixed** — Delinquency aging bars now computed from current residents only (was using report-level aggregate that included former residents). Aging bars now match Current Resident AR table totals. | `DelinquencySection.tsx` |
 | Feb 18 | #40 | **Fixed** — Renamed "Collections" to "Former Residents Balance" throughout delinquency tab. | `DelinquencySection.tsx` |
 | Feb 18 | #42 | **Investigated** — $0 evictions are for lease violations (not non-payment). Added note "(may include non-payment & lease violations)" to evictions section header. | `DelinquencySection.tsx` |
+| Feb 18 | #8 | **Fixed** — Added vacancy % next to vacant count on VacantKPICard. Color-coded: >10% rose, >5% amber, ≤5% slate. | `KPICard.tsx`, `DashboardV3.tsx` |
+| Feb 18 | #10 | **Fixed** — In-Place KPI card subtitle now shows delta % between asking and in-place rent (e.g. "Asking $1,850 (+3.2%)"). | `DashboardV3.tsx` |
+| Feb 18 | #27 | **Fixed** — Leasing Funnel card now shows all 6 conversion rates below the stages: Lead→Tour, Tour→App, App→Lease, Lead→App, Tour→Lease, Lead→Lease. | `KPICard.tsx` |
+| Feb 18 | #24 | **Fixed** — Added "Prev Month" period filter button between MTD and Last 30d. | `DashboardV3.tsx`, `MarketingSection.tsx` |
+| Feb 18 | #20 | **Fixed** — Reordered Overview tab sections: Bedroom → Availability → Market Comps (was Comps → Bedroom → Availability). | `DashboardV3.tsx` |
 
 ---
 

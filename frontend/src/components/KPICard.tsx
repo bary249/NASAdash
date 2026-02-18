@@ -204,6 +204,47 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
           </div>
         ))}
       </div>
+      {/* Conversion Rates */}
+      {(leads > 0 || tours > 0 || applications > 0) && (
+        <div className="mt-3 pt-2 border-t border-slate-100 grid grid-cols-3 gap-x-3 gap-y-1">
+          {leads > 0 && tours > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">Lead→Tour</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(tours / leads * 100)}%</div>
+            </div>
+          )}
+          {tours > 0 && applications > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">Tour→App</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / tours * 100)}%</div>
+            </div>
+          )}
+          {applications > 0 && leasesSigned > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">App→Lease</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / applications * 100)}%</div>
+            </div>
+          )}
+          {leads > 0 && applications > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">Lead→App</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / leads * 100)}%</div>
+            </div>
+          )}
+          {tours > 0 && leasesSigned > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">Tour→Lease</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / tours * 100)}%</div>
+            </div>
+          )}
+          {leads > 0 && leasesSigned > 0 && (
+            <div className="text-center">
+              <div className="text-[10px] text-slate-400">Lead→Lease</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / leads * 100)}%</div>
+            </div>
+          )}
+        </div>
+      )}
       {priorPeriodLabel && (priorLeads != null || priorTours != null) && (
         <div className="text-[10px] text-slate-400 text-right mt-2">vs {priorPeriodLabel}</div>
       )}
@@ -217,6 +258,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
 interface VacantKPICardProps {
   total: number;
   ready: number;
+  totalUnits?: number;
   agedCount?: number;
   timeLabel?: string;
   tooltip?: string;
@@ -224,7 +266,8 @@ interface VacantKPICardProps {
   refreshing?: boolean;
 }
 
-export function VacantKPICard({ total, ready, agedCount, timeLabel, tooltip, onClick, refreshing = false }: VacantKPICardProps) {
+export function VacantKPICard({ total, ready, totalUnits, agedCount, timeLabel, tooltip, onClick, refreshing = false }: VacantKPICardProps) {
+  const vacancyPct = totalUnits && totalUnits > 0 ? Math.round((total / totalUnits) * 1000) / 10 : null;
   return (
     <div
       onClick={onClick}
@@ -248,7 +291,14 @@ export function VacantKPICard({ total, ready, agedCount, timeLabel, tooltip, onC
         {tooltip && <InfoTooltip text={tooltip} />}
       </div>
 
-      <div className="text-3xl font-bold text-slate-900 mt-2">{total}</div>
+      <div className="flex items-baseline gap-2 mt-2">
+        <span className="text-3xl font-bold text-slate-900">{total}</span>
+        {vacancyPct !== null && (
+          <span className={`text-sm font-semibold ${vacancyPct > 10 ? 'text-rose-600' : vacancyPct > 5 ? 'text-amber-600' : 'text-slate-500'}`}>
+            ({vacancyPct}%)
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center gap-2 mt-2">
         <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">

@@ -117,7 +117,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
   const [propertyName, setPropertyName] = useState('');
   const [scrambleMode, setScrambleMode] = useState<ScrambleMode>('off');
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [timeRange, setTimeRange] = useState<'ytd' | 'mtd' | 'l30' | 'l7'>('mtd');
+  const [timeRange, setTimeRange] = useState<'ytd' | 'mtd' | 'pm' | 'l30' | 'l7'>('mtd');
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(new Set());
   // Lock owner group to the authenticated user's group — no manual switching
   const [selectedOwnerGroup, setSelectedOwnerGroup] = useState<string>(user?.owner_group || 'PHH');
@@ -433,6 +433,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
             {([
               { key: 'ytd' as const, label: 'YTD' },
               { key: 'mtd' as const, label: 'MTD' },
+              { key: 'pm' as const, label: 'Prev Month' },
               { key: 'l30' as const, label: 'Last 30d' },
               { key: 'l7' as const, label: 'Last 7d' },
             ]).map(t => (
@@ -452,7 +453,7 @@ export function DashboardV3({ initialPropertyId }: DashboardV3Props) {
 
           {/* Property Dashboard */}
           {effectivePropertyId ? (
-            <PropertyDataProvider propertyId={effectivePropertyId} propertyIds={activePropertyIds} timeframe={timeRange === 'mtd' ? 'cm' : timeRange === 'ytd' ? 'ytd' : timeRange === 'l30' ? 'l30' : 'l7'}>
+            <PropertyDataProvider propertyId={effectivePropertyId} propertyIds={activePropertyIds} timeframe={timeRange === 'mtd' ? 'cm' : timeRange === 'pm' ? 'pm' : timeRange === 'ytd' ? 'ytd' : timeRange === 'l30' ? 'l30' : 'l7'}>
               <PropertyDashboard
                 propertyId={effectivePropertyId}
                 propertyIds={activePropertyIds}
@@ -507,7 +508,7 @@ interface PropertyDashboardProps {
   marketComps: MarketComp[];
   activeTab: TabId;
   propertyInfo?: PropertyInfo | null;
-  timeRange?: 'ytd' | 'mtd' | 'l30' | 'l7';
+  timeRange?: 'ytd' | 'mtd' | 'pm' | 'l30' | 'l7';
   dynamicImageUrl?: string | null;
 }
 
@@ -567,7 +568,7 @@ const RENEWAL_DRILL_COLUMNS = [
 function PropertyDashboard({ propertyId, propertyIds, propertyName, originalPropertyName, pricing, marketComps, activeTab, propertyInfo, timeRange = 'mtd', dynamicImageUrl }: PropertyDashboardProps) {
   const { occupancy, funnel, priorFunnel, priorFunnelLabel, expirations, loading, refreshing: contextRefreshing, error, periodEnd } = usePropertyData();
 
-  const periodLabel = timeRange === 'ytd' ? 'YTD' : timeRange === 'mtd' ? 'MTD' : timeRange === 'l30' ? 'Last 30 days' : 'Last 7 days';
+  const periodLabel = timeRange === 'ytd' ? 'YTD' : timeRange === 'mtd' ? 'MTD' : timeRange === 'pm' ? 'Prev Month' : timeRange === 'l30' ? 'Last 30 days' : 'Last 7 days';
   const [periodRefreshing, setPeriodRefreshing] = useState(false);
   const isRefreshing = contextRefreshing || periodRefreshing;
 
@@ -616,6 +617,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       ? Math.ceil((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000)
       : timeRange === 'l30' ? 30
       : timeRange === 'l7' ? 7
+      : timeRange === 'pm' ? new Date(now.getFullYear(), now.getMonth(), 0).getDate()
       : Math.ceil((now.getTime() - new Date(now.getFullYear(), now.getMonth(), 1).getTime()) / 86400000) || 1; // mtd default
 
     // ATR: sum across properties (cached per property)
@@ -1125,10 +1127,18 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             <KPICard
               title="In-Place"
               value={`$${pricing?.total_in_place_rent?.toLocaleString() || '—'}`}
-              subtitle={`Asking $${pricing?.total_asking_rent?.toLocaleString() || '—'}`}
+              subtitle={(() => {
+                const ask = pricing?.total_asking_rent;
+                const inp = pricing?.total_in_place_rent;
+                const delta = ask && inp && inp > 0 ? Math.round((ask - inp) / inp * 1000) / 10 : null;
+                const askStr = ask ? `$${ask.toLocaleString()}` : '—';
+                return delta !== null
+                  ? `Asking ${askStr} (${delta >= 0 ? '+' : ''}${delta}%)`
+                  : `Asking ${askStr}`;
+              })()}
               timeLabel={asOfLabel}
               icon={<DollarSign className="w-4 h-4" />}
-              tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Source: RealPage Rent Roll."
+              tooltip="Weighted avg actual rent across occupied units (In-Place). Asking = avg market rent across all units. Delta % = (Asking − In-Place) ÷ In-Place × 100. Source: RealPage Rent Roll."
               refreshing={isRefreshing}
             />
             
@@ -1156,6 +1166,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             {/* Row 2 */}
             <VacantKPICard
               total={boxScoreOcc?.vacant_units ?? availByFp?.totals?.vacant ?? occupancy?.vacantUnits ?? 0}
+              totalUnits={boxScoreOcc?.total_units ?? occupancy?.totalUnits ?? 0}
               ready={boxScoreOcc?.vacant_ready ?? occupancy?.vacantReady ?? 0}
               agedCount={boxScoreOcc?.aged_vacancy_90_plus ?? occupancy?.agedVacancy90Plus}
               timeLabel={asOfLabel}
@@ -1210,13 +1221,13 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       {/* Tab-specific content */}
       {activeTab === 'overview' && (
         <>
-          <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
-
           {/* Consolidated by Bedroom Type */}
           <BedroomConsolidatedView propertyId={propertyId} propertyIds={propertyIds} />
 
           {/* ATR & Availability Section */}
           <AvailabilitySection propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
+
+          <MarketCompsTable comps={compsData} subjectProperty={propertyName} propertyId={propertyId} />
 
           {/* Occupancy Trend (historical box score snapshots) */}
           <OccupancyTrendSection propertyId={propertyId} propertyIds={propertyIds} />
@@ -1392,7 +1403,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         </div>
 
         {/* Lead Sources by Advertising Channel (merged from Marketing) */}
-        <MarketingSection propertyId={propertyId} propertyIds={propertyIds} timeRange={timeRange as 'ytd' | 'mtd' | 'l30' | 'l7'} />
+        <MarketingSection propertyId={propertyId} propertyIds={propertyIds} timeRange={timeRange as 'ytd' | 'mtd' | 'pm' | 'l30' | 'l7'} />
 
         {/* Availability by Floorplan (moved from overview) */}
         {availByFp && availByFp.floorplans.length > 0 && (

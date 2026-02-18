@@ -51,6 +51,30 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
   const [comps, setComps] = useState<MarketCompRow[]>(initialComps);
   const [loadingComps, setLoadingComps] = useState(false);
 
+  // Subject property rents from our own data
+  const [subjectRents, setSubjectRents] = useState<MarketCompRow | null>(null);
+
+  useEffect(() => {
+    if (!propertyId) return;
+    api.getConsolidatedByBedroom(propertyId)
+      .then(data => {
+        const beds = data.bedrooms || [];
+        const studio = beds.find(b => b.bedroom_type === 'Studio');
+        const one = beds.find(b => b.bedroom_type === '1BR');
+        const two = beds.find(b => b.bedroom_type === '2BR');
+        const three = beds.find(b => b.bedroom_type === '3BR');
+        setSubjectRents({
+          name: subjectProperty || 'Subject Property',
+          studioRent: studio?.avg_market_rent || undefined,
+          oneBedRent: one?.avg_market_rent || undefined,
+          twoBedRent: two?.avg_market_rent || undefined,
+          threeBedRent: three?.avg_market_rent || undefined,
+          isSubject: true,
+        });
+      })
+      .catch(() => {});
+  }, [propertyId, subjectProperty]);
+
   // Load submarkets on mount
   useEffect(() => {
     api.getSubmarkets()
@@ -150,12 +174,11 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
   const avgTwoBed = getAverage('twoBedRent');
   const avgThreeBed = getAverage('threeBedRent');
 
-  // Find subject property and move to top
-  const sortedComps = [...comps].sort((a, b) => {
-    if (a.isSubject) return -1;
-    if (b.isSubject) return 1;
-    return 0;
-  });
+  // Build final list: subject property on top (from our data), then ALN comps
+  const sortedComps = [
+    ...(subjectRents ? [subjectRents] : []),
+    ...comps.filter(c => !c.isSubject),
+  ];
 
   const getDeltaIndicator = (value?: number, avg?: number | null) => {
     if (!value || !avg) return null;

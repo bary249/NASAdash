@@ -1497,6 +1497,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                     <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Net <InfoTooltip text="Net = Move Ins − Move Outs." /></span></th>
                     <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Expirations <InfoTooltip text="Leases expiring this week." /></span></th>
                     <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Renewals <InfoTooltip text="Already renewed leases expiring this week." /></span></th>
+                    <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
                     <th className="pb-2 text-right"><span className="inline-flex items-center gap-0.5">Net Exp <InfoTooltip text="Expirations − Renewals." /></span></th>
                   </tr>
                 </thead>
@@ -1511,6 +1512,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                       <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
                       <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => openKpiDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
                       <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
+                      <td className={`py-2 pr-4 text-right font-medium ${w.lease_expirations > 0 ? (w.renewals / w.lease_expirations >= 0.5 ? 'text-emerald-600' : w.renewals / w.lease_expirations >= 0.25 ? 'text-amber-600' : 'text-rose-500') : 'text-slate-400'}`}>{w.lease_expirations > 0 ? `${Math.round(w.renewals / w.lease_expirations * 100)}%` : '—'}</td>
                       <td className={`py-2 text-right font-medium ${w.net_expirations > 0 ? 'text-amber-600' : w.net_expirations < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>{w.net_expirations > 0 ? w.net_expirations : w.net_expirations < 0 ? w.net_expirations : '—'}</td>
                     </tr>
                   ))}

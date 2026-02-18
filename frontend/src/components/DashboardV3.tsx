@@ -1494,7 +1494,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   ({renewalVsPriorPct >= 0 ? '+' : ''}${Math.round((avgRenewalRent - (renewalSummary.avg_prior_rent || 0)))}/unit)
                 </span>
               </div>
-              <span className="text-xs text-slate-400 ml-auto">{renewalCount} renewals</span>
+              <span className="text-xs text-slate-400 ml-auto">{renewalCount} renewals ({periodLabel})</span>
             </div>
           )}
 

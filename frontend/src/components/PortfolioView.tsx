@@ -451,11 +451,11 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                   { key: 'property' as SortKey, label: 'Property', align: 'left' },
                   { key: 'units' as SortKey, label: 'Units', align: 'center' },
                   { key: 'occupancy' as SortKey, label: 'Occupancy', align: 'center' },
+                  { key: 'vacant' as SortKey, label: 'Vacant', align: 'center' },
+                  { key: 'atr' as SortKey, label: 'ATR', align: 'center' },
                   { key: 'leased' as SortKey, label: 'Leased %', align: 'center' },
                   { key: 'expiring90' as SortKey, label: 'Expiring 90d', align: 'center' },
                   { key: 'renewals90' as SortKey, label: 'Renewals 90d', align: 'center' },
-                  { key: 'atr' as SortKey, label: 'ATR', align: 'center' },
-                  { key: 'vacant' as SortKey, label: 'Vacant', align: 'center' },
                 ]).map(col => (
                   <th
                     key={col.key}
@@ -536,6 +536,16 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3 text-center text-slate-600">
+                        {p.loading ? '...' : p.occupancy?.vacant_units ?? '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {p.loading ? '...' : p.atr ? (
+                          <span className={`font-semibold ${p.atr.atr > 5 ? 'text-rose-600' : p.atr.atr > 2 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                            {p.atr.atr} <span className="text-xs font-normal text-slate-400">({p.atr.atr_pct}%)</span>
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-center text-slate-600">
                         {p.loading ? '...' : p.occupancy ? `${p.occupancy.leased_percentage}%` : '—'}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -552,16 +562,6 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                             </span>
                           );
                         })()}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {p.loading ? '...' : p.atr ? (
-                          <span className={`font-semibold ${p.atr.atr > 5 ? 'text-rose-600' : p.atr.atr > 2 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                            {p.atr.atr} <span className="text-xs font-normal text-slate-400">({p.atr.atr_pct}%)</span>
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-center text-slate-600">
-                        {p.loading ? '...' : p.occupancy?.vacant_units ?? '—'}
                       </td>
                       <td className="px-5 py-4 text-center">
                         <button onClick={(e) => { e.stopPropagation(); onSelectProperty(p.property.id, p.property.name); }} title="View property detail">
@@ -594,6 +594,14 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                       <span className="font-semibold">{portfolioOccupancy}%</span>
                     </span>
                   </td>
+                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">{totals.vacantUnits}</td>
+                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">
+                    {(() => {
+                      const totalAtr = selectedProperties.reduce((sum, p) => sum + (p.atr?.atr ?? 0), 0);
+                      const atrPct = totals.totalUnits > 0 ? Math.round(totalAtr / totals.totalUnits * 1000) / 10 : 0;
+                      return <>{totalAtr} <span className="text-xs font-normal text-slate-400">({atrPct}%)</span></>;
+                    })()}
+                  </td>
                   <td className="px-5 py-4 text-center text-slate-500">—</td>
                   <td className="px-5 py-4 text-center text-venn-navy font-semibold">
                     {selectedProperties.reduce((sum, p) => sum + (p.expirations?.periods?.find(pr => pr.label === '90d')?.expirations ?? 0), 0)}
@@ -606,14 +614,6 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                       return <>{totalRenewals} <span className="text-xs font-normal text-slate-400">({pct}%)</span></>;
                     })()}
                   </td>
-                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">
-                    {(() => {
-                      const totalAtr = selectedProperties.reduce((sum, p) => sum + (p.atr?.atr ?? 0), 0);
-                      const atrPct = totals.totalUnits > 0 ? Math.round(totalAtr / totals.totalUnits * 1000) / 10 : 0;
-                      return <>{totalAtr} <span className="text-xs font-normal text-slate-400">({atrPct}%)</span></>;
-                    })()}
-                  </td>
-                  <td className="px-5 py-4 text-center text-venn-navy font-semibold">{totals.vacantUnits}</td>
                   <td className="px-5 py-4"></td>
                 </tr>
               )}

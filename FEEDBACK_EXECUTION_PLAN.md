@@ -276,6 +276,7 @@ Effort: **S** = < 2 hrs, **M** = 2–8 hrs, **L** = 1–3 days, **XL** = 3+ days
 | Feb 18 | #27 | **Fixed** — Leasing Funnel card now shows all 6 conversion rates below the stages: Lead→Tour, Tour→App, App→Lease, Lead→App, Tour→Lease, Lead→Lease. | `KPICard.tsx` |
 | Feb 18 | #24 | **Fixed** — Added "Prev Month" period filter button between MTD and Last 30d. | `DashboardV3.tsx`, `MarketingSection.tsx` |
 | Feb 18 | #20 | **Fixed** — Reordered Overview tab sections: Bedroom → Availability → Market Comps (was Comps → Bedroom → Availability). | `DashboardV3.tsx` |
+| Feb 18 | #5 | **Fixed** — Reordered portfolio table columns: Property → Units → Occupancy → Vacant → ATR → Leased% → Expiring 90d → Renewals 90d. Vacant/ATR now immediately after Occupancy for quick scanning. | `PortfolioView.tsx` |
 
 ---
 

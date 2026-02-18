@@ -1769,12 +1769,12 @@ async def get_consolidated_by_bedroom(property_id: str):
         
         # Aggregate unified_units by floorplan (derive bedroom count later)
         cursor.execute("""
-            SELECT '' as floorplan_group, floorplan,
+            SELECT '' as floorplan_group, COALESCE(NULLIF(floorplan, ''), '_unknown_') as floorplan,
                    COUNT(*) as total_units,
                    SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant_units,
                    SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND is_preleased = 0 THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
                    SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
                    SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model_units,
                    SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units,
@@ -1784,12 +1784,14 @@ async def get_consolidated_by_bedroom(property_id: str):
                    ROUND(AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END), 0) as avg_actual_rent
             FROM unified_units
             WHERE unified_property_id = ?
-              AND floorplan IS NOT NULL AND floorplan != ''
-            GROUP BY floorplan
+              AND occupancy_status != 'model'
+            GROUP BY COALESCE(NULLIF(floorplan, ''), '_unknown_')
         """, (property_id,))
         
         # Derive bedroom count from floorplan_group (e.g. "1x1" -> 1) or floorplan prefix (S=Studio, A=1BR, B=2BR, C=3BR)
         def _derive_bedrooms(fg: str, fp: str) -> int:
+            if fp == '_unknown_':
+                return -1  # Will be labeled "Other"
             # Try floorplan_group first (if it looks like NxN format)
             if fg and len(fg) >= 3 and fg[0].isdigit() and fg[1] == 'x':
                 return int(fg[0])
@@ -1809,7 +1811,7 @@ async def get_consolidated_by_bedroom(property_id: str):
             fp = row[1] or ""
             beds = _derive_bedrooms(fg, fp)
             
-            bed_label = "Studio" if beds == 0 else f"{beds}BR"
+            bed_label = "Other" if beds == -1 else ("Studio" if beds == 0 else f"{beds}BR")
             
             if bed_label not in bedroom_data:
                 bedroom_data[bed_label] = {
@@ -1853,14 +1855,13 @@ async def get_consolidated_by_bedroom(property_id: str):
             
             # Expirations by floorplan from unified_units (has floorplan + lease_end)
             cursor.execute(f"""
-                SELECT floorplan, COUNT(*) as expiring
+                SELECT COALESCE(NULLIF(floorplan, ''), '_unknown_') as fp, COUNT(*) as expiring
                 FROM unified_units
                 WHERE unified_property_id = ?
                   AND occupancy_status = 'occupied'
                   AND lease_end IS NOT NULL AND lease_end != ''
-                  AND floorplan IS NOT NULL AND floorplan != ''
                   AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
-                GROUP BY floorplan
+                GROUP BY fp
             """, (property_id,))
             for row in cursor.fetchall():
                 renewal_map[row[0]] = {"expiring": row[1], "renewed": 0}
@@ -1900,7 +1901,7 @@ async def get_consolidated_by_bedroom(property_id: str):
             "_market_rent_sum": 0, "_rent_count": 0, "_actual_rent_sum": 0,
         }
         
-        for bed_label in sorted(bedroom_data.keys(), key=lambda x: bedroom_data[x]["bedrooms"]):
+        for bed_label in sorted(bedroom_data.keys(), key=lambda x: bedroom_data[x]["bedrooms"] if bedroom_data[x]["bedrooms"] >= 0 else 99):
             bd = bedroom_data[bed_label]
             total = bd["total_units"]
             occ_pct = round(bd["occupied"] / total * 100, 1) if total > 0 else 0

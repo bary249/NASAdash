@@ -267,6 +267,10 @@ Effort: **S** = < 2 hrs, **M** = 2–8 hrs, **L** = 1–3 days, **XL** = 3+ days
 | Feb 18 | #18 | **Fixed** — Removed non-functional radius filter from Market Comps (ALN API uses submarket, not radius) | `MarketCompsTable.tsx` |
 | Feb 18 | #49 | **Fixed** — Reviews total mismatch: `review_power.total_reviews` now uses platform `review_count` instead of `reviews_fetched`. Added `reviews_analyzed` field for response tracking label. | `routes.py`, `ReputationOverview.tsx` |
 | Feb 18 | #1/#3 | **Verified OK** — Red flags are AI-generated from real property data (not mock). Contradictions are AI quality issues — prompt already has strict consistency rules. | No change needed |
+| Feb 18 | #22 | **Fixed** — Vacant count mismatch between KPI card (Box Score) and Bedroom table (unified_units). Root causes: 1) NULL floorplan units excluded from bedroom query, 2) down units counted differently. Fix: include NULL floorplan as "Other", count down units as vacant to match Box Score. | `routes.py` (consolidated-by-bedroom endpoint) |
+| Feb 18 | #39 | **Fixed** — Delinquency aging bars now computed from current residents only (was using report-level aggregate that included former residents). Aging bars now match Current Resident AR table totals. | `DelinquencySection.tsx` |
+| Feb 18 | #40 | **Fixed** — Renamed "Collections" to "Former Residents Balance" throughout delinquency tab. | `DelinquencySection.tsx` |
+| Feb 18 | #42 | **Investigated** — $0 evictions are for lease violations (not non-payment). Added note "(may include non-payment & lease violations)" to evictions section header. | `DelinquencySection.tsx` |
 
 ---
 

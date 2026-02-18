@@ -211,12 +211,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
     );
   }
 
-  const { delinquency_aging, evictions, collections } = data;
-  // Merge current into 0-30 bucket
-  const aging_0_30 = delinquency_aging.days_0_30 + delinquency_aging.current;
-  const totalAgingAbs = Math.abs(aging_0_30) + 
-                        Math.abs(delinquency_aging.days_31_60) + Math.abs(delinquency_aging.days_61_90) + 
-                        Math.abs(delinquency_aging.days_90_plus);
+  const { evictions, collections } = data;
   const collections_0_30 = (collections.days_0_30 || 0) + (collections.current || 0);
 
   // Split delinquent residents into current vs former
@@ -229,6 +224,17 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
 
   const currentTotal = currentResidents.reduce((s, r) => s + r.total_delinquent, 0);
   const formerTotal = formerResidents.reduce((s, r) => s + r.total_delinquent, 0);
+
+  // Compute aging from current residents only (so it matches the Current Resident AR table)
+  const aging_0_30 = currentResidents.reduce((s, r) => s + (r.days_30 || 0) + (r.current || 0), 0);
+  const aging_31_60 = currentResidents.reduce((s, r) => s + (r.days_60 || 0), 0);
+  const aging_61_90 = currentResidents.reduce((s, r) => {
+    // 61-90 = total - (0-30) - (31-60) - (90+)
+    const bucket = Math.max(0, r.total_delinquent - (r.days_30 || 0) - (r.current || 0) - (r.days_60 || 0) - (r.days_90_plus || 0));
+    return s + bucket;
+  }, 0);
+  const aging_90_plus = currentResidents.reduce((s, r) => s + (r.days_90_plus || 0), 0);
+  const totalAgingAbs = Math.abs(aging_0_30) + Math.abs(aging_31_60) + Math.abs(aging_61_90) + Math.abs(aging_90_plus);
 
   // Eviction units from resident_details
   const evictionUnits = data.resident_details
@@ -277,7 +283,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
         <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-medium text-amber-600 uppercase">Collections</span>
+            <span className="text-xs font-medium text-amber-600 uppercase">Former Residents Balance</span>
           </div>
           <div className="text-2xl font-bold text-amber-700">
             {formatCurrency(collections.total)}
@@ -302,19 +308,19 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
             />
             <AgingBar 
               label="31-60 Days" 
-              value={delinquency_aging.days_31_60} 
+              value={aging_31_60} 
               total={totalAgingAbs}
               color="bg-orange-400"
             />
             <AgingBar 
               label="61-90 Days" 
-              value={delinquency_aging.days_61_90} 
+              value={aging_61_90} 
               total={totalAgingAbs}
               color="bg-red-400"
             />
             <AgingBar 
               label="90+ Days" 
-              value={delinquency_aging.days_90_plus} 
+              value={aging_90_plus} 
               total={totalAgingAbs}
               color="bg-red-600"
             />
@@ -323,7 +329,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
 
         {/* Collections Aging */}
         <div className="bg-slate-50 rounded-xl p-4">
-          <h4 className="text-sm font-semibold text-slate-700 mb-4">Collections Aging (Former Residents)</h4>
+          <h4 className="text-sm font-semibold text-slate-700 mb-4">Former Residents Balance Aging</h4>
           <div className="space-y-3">
             <AgingBar 
               label="0-30 Days" 
@@ -363,6 +369,7 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-red-600" />
               <h4 className="text-sm font-semibold text-red-700">Active Evictions</h4>
+              <span className="text-[10px] text-red-400 font-normal">(may include non-payment & lease violations)</span>
             </div>
             {showEvictions ? (
               <ChevronUp className="w-4 h-4 text-red-500" />

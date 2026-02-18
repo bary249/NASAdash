@@ -49,6 +49,8 @@ def detect_report_type(df: pd.DataFrame) -> Optional[str]:
             return 'move_out_reasons'
         elif 'LEASE DETAILS' in row_text:
             return 'lease_details'
+        elif 'INCOME STATEMENT' in row_text:
+            return 'income_statement'
     
     return None
 
@@ -1629,6 +1631,145 @@ def parse_move_out_reasons(file_path: str, property_id: str = None) -> List[Dict
     return records
 
 
+def parse_income_statement(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
+    """Parse Income Statement Worksheet report (3836).
+    
+    HTML-as-Excel format. Uses pd.read_html() to extract tables.
+    Table layout: 3 tables
+      - Table 0: concatenated text (skip)
+      - Table 1: header (property name, timestamp, parameters)
+      - Table 2: main data — 3 columns: Description, Sign (+/-/=), Amount
+    
+    Returns list of dicts with gl_account_code, gl_account_name, section, amount, etc.
+    """
+    try:
+        dfs = pd.read_html(file_path)
+    except Exception as e:
+        return []
+    
+    if len(dfs) < 3:
+        return []
+    
+    # Extract property info from header table (table 1)
+    property_name = None
+    report_date = None
+    fiscal_period = None
+    try:
+        header_df = dfs[1]
+        for i in range(min(5, len(header_df))):
+            row_text = ' '.join(str(v) for v in header_df.iloc[i] if pd.notna(v))
+            if 'LLC' in row_text or 'Management' in row_text:
+                parts = row_text.split(' - ')
+                if len(parts) > 1:
+                    # Property name is after company name, before "Income Statement"
+                    prop_part = parts[1].strip()
+                    if 'Income Statement' in prop_part:
+                        property_name = prop_part.split('Income Statement')[0].strip()
+                    else:
+                        property_name = prop_part
+            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', row_text)
+            if date_match and not report_date:
+                report_date = date_match.group(1)
+            fp_match = re.search(r'Fiscal Period:\s*(\d{6})', row_text)
+            if fp_match:
+                fiscal_period = fp_match.group(1)
+    except Exception:
+        pass
+    
+    if not report_date:
+        report_date = datetime.now().strftime('%m/%d/%Y')
+    
+    # Parse main data table (table 2)
+    main_df = dfs[2]
+    records = []
+    current_section = None
+    current_category = None
+    
+    def safe_float(val):
+        """Parse amount strings like '285593.00', '(5.00)', '(162,214.41)'"""
+        if pd.isna(val):
+            return 0.0
+        s = str(val).strip().replace(',', '')
+        neg = False
+        if s.startswith('(') and s.endswith(')'):
+            neg = True
+            s = s[1:-1]
+        try:
+            v = float(s)
+            return -v if neg else v
+        except (ValueError, TypeError):
+            return 0.0
+    
+    for i in range(len(main_df)):
+        row = main_df.iloc[i]
+        col0 = str(row.iloc[0]).replace('\xa0', ' ').strip() if pd.notna(row.iloc[0]) else ''
+        col1 = str(row.iloc[1]).replace('\xa0', ' ').strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ''
+        col2 = str(row.iloc[2]).replace('\xa0', ' ').strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ''
+        
+        if not col0:
+            continue
+        
+        # Determine line type
+        is_total = col0.startswith('TOTAL ') or col0.startswith('NET ')
+        is_subtotal = col0.startswith('Total ') or col0.startswith('Net ') or col0.startswith('Potential ')
+        has_sign = col1 in ('+', '-', '=')
+        
+        # Section headers (no sign/amount): e.g. "INCOME", "POTENTIAL INCOME"
+        if not has_sign and col0.isupper() and not is_total:
+            current_section = col0
+            continue
+        
+        # Category headers: e.g. "A/R ACCOUNT 1200-0002 (A/R - TENANTS ):"
+        if not has_sign and not is_total and not is_subtotal:
+            current_category = col0
+            continue
+        
+        # Data row with sign and amount
+        if has_sign:
+            amount = safe_float(col2)
+            
+            # Extract GL account code if present: "5100-0001 - Market Rent"
+            gl_match = re.match(r'^(\d{4}-\d{4})\s*-\s*(.+)$', col0)
+            if gl_match:
+                gl_code = gl_match.group(1)
+                gl_name = gl_match.group(2).strip()
+                line_type = 'detail'
+            elif is_total:
+                gl_code = None
+                gl_name = col0
+                line_type = 'total'
+            elif is_subtotal:
+                gl_code = None
+                gl_name = col0
+                line_type = 'subtotal'
+            else:
+                # Balance sheet items like "1200-0002 - Beginning 0 to 30 Delinq"
+                bal_match = re.match(r'^(\d{4}-\d{4})\s*-\s*(.+)$', col0)
+                if bal_match:
+                    gl_code = bal_match.group(1)
+                    gl_name = bal_match.group(2).strip()
+                else:
+                    gl_code = None
+                    gl_name = col0
+                line_type = 'detail'
+            
+            records.append({
+                'property_id': property_id,
+                'property_name': property_name,
+                'report_date': report_date,
+                'fiscal_period': fiscal_period,
+                'section': current_section,
+                'category': current_category,
+                'gl_account_code': gl_code,
+                'gl_account_name': gl_name,
+                'sign': col1,
+                'amount': amount,
+                'line_type': line_type,
+            })
+    
+    return records
+
+
 def parse_lease_details(file_path: str, property_id: str = None) -> List[Dict[str, Any]]:
     """Parse Lease Details report (CSV format from RealPage).
     
@@ -1670,6 +1811,12 @@ def parse_lease_details(file_path: str, property_id: str = None) -> List[Dict[st
             'ledger_balance': clean_money(row.get('Ledger Balance')),
             'move_out_notice_type': clean_str(row.get('Move out notice type')),
             'move_out_reason': clean_str(row.get('Move out reason')),
+            'ad_source_1': clean_str(row.get('FirstAdSource') or row.get('1st Advertising Source')),
+            'ad_source_2': clean_str(row.get('SecondAdSource') or row.get('2nd Advertising Source')),
+            'lease_rent_variance': clean_money(row.get('leaseRentVariance') or row.get('Lease Rent Variance')),
+            'renewal_start_date': clean_str(row.get('RenewalStartDate') or row.get('Renewal Start Date')),
+            'renewal_end_date': clean_str(row.get('RenewalEndDate') or row.get('Renewal End Date')),
+            'reason_for_leasing': clean_str(row.get('ReasonForLeasing') or row.get('Reason for Leasing')),
         })
     
     return records
@@ -1690,6 +1837,12 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
     try:
         df = pd.read_excel(file_path, sheet_name=0, header=None)
     except Exception as e:
+        # HTML-as-Excel: pd.read_excel fails but pd.read_html works
+        if report_type_hint == 'income_statement':
+            records = parse_income_statement(file_path, property_id)
+            for r in records:
+                r['file_id'] = file_id
+            return {'report_type': 'income_statement', 'records': records, 'file_path': str(file_path), 'file_id': file_id}
         return {'error': str(e), 'report_type': None, 'records': []}
     
     report_type = detect_report_type(df)
@@ -1710,6 +1863,7 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
             'lost_rent_summary': 'lost_rent_summary',
             'move_out_reasons': 'move_out_reasons',
             'lease_details': 'lease_details',
+            'income_statement': 'income_statement',
         }
         report_type = hint_map.get(report_type_hint, report_type_hint)
     
@@ -1743,6 +1897,8 @@ def parse_report(file_path: str, property_id: str = None, file_id: str = None, r
         records = parse_move_out_reasons(file_path, property_id)
     elif report_type == 'lease_details':
         records = parse_lease_details(file_path, property_id)
+    elif report_type == 'income_statement':
+        records = parse_income_statement(file_path, property_id)
     else:
         records = []
     

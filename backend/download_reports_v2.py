@@ -176,6 +176,7 @@ TABLE_MAP = {
     "lost_rent_summary": "realpage_lost_rent_summary",
     "move_out_reasons": "realpage_move_out_reasons",
     "lease_details": "realpage_lease_details",
+    "income_statement": "realpage_income_statement",
 }
 
 
@@ -288,6 +289,7 @@ def import_downloaded(downloads):
         import_advertising_source, import_lost_rent_summary,
         import_move_out_reasons,
         import_lease_details,
+        import_income_statement,
         init_report_tables,
     )
 
@@ -312,6 +314,7 @@ def import_downloaded(downloads):
         "lost_rent_summary": import_lost_rent_summary,
         "move_out_reasons": import_move_out_reasons,
         "lease_details": import_lease_details,
+        "income_statement": import_income_statement,
     }
 
     total = 0

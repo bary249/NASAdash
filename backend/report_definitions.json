@@ -279,11 +279,32 @@
         "csv": "357"
       },
       "parameters": [
-        {"name": "CustomReportPickList", "value": "[{\"value\":\"LeaID\",\"filter\":null,\"label\":\"Lease id\",\"sort\":-1},{\"value\":\"fpName\",\"filter\":null,\"label\":\"Floor plan\",\"sort\":-1},{\"value\":\"OccupancyStatus\",\"filter\":null,\"label\":\"Occupancy status\",\"sort\":-1},{\"value\":\"leaBeginDate\",\"filter\":null,\"label\":\"Lease start date\",\"sort\":-1},{\"value\":\"leaEndDate\",\"filter\":null,\"label\":\"Lease end date\",\"sort\":-1},{\"value\":\"leaMoveInDate\",\"filter\":null,\"label\":\"Move-in date\",\"sort\":-1},{\"value\":\"leaMoveOutDate\",\"filter\":null,\"label\":\"Moved out date\",\"sort\":-1},{\"value\":\"leaAppliedDate\",\"filter\":null,\"label\":\"Applied date\",\"sort\":-1},{\"value\":\"leaLeaseApprovedDate\",\"filter\":null,\"label\":\"Lease approved date\",\"sort\":-1},{\"value\":\"leaNoticeOnDate\",\"filter\":null,\"label\":\"Notice given date\",\"sort\":-1},{\"value\":\"LeaseTerm\",\"filter\":null,\"label\":\"Lease term\",\"sort\":-1},{\"value\":\"leaseRent\",\"filter\":null,\"label\":\"Lease Rent\",\"sort\":-1},{\"value\":\"leaseRentTotal\",\"filter\":null,\"label\":\"Lease Total\",\"sort\":-1},{\"value\":\"LedgerBalance\",\"filter\":null,\"label\":\"Ledger Balance\",\"sort\":-1},{\"value\":\"MoveOutNoticeType\",\"filter\":null,\"label\":\"Move out notice type\",\"sort\":-1},{\"value\":\"moutName\",\"filter\":null,\"label\":\"Move out reason\",\"sort\":-1}]"}
+        {"name": "CustomReportPickList", "value": "[{\"value\":\"LeaID\",\"filter\":null,\"label\":\"Lease id\",\"sort\":-1},{\"value\":\"fpName\",\"filter\":null,\"label\":\"Floor plan\",\"sort\":-1},{\"value\":\"OccupancyStatus\",\"filter\":null,\"label\":\"Occupancy status\",\"sort\":-1},{\"value\":\"leaBeginDate\",\"filter\":null,\"label\":\"Lease start date\",\"sort\":-1},{\"value\":\"leaEndDate\",\"filter\":null,\"label\":\"Lease end date\",\"sort\":-1},{\"value\":\"leaMoveInDate\",\"filter\":null,\"label\":\"Move-in date\",\"sort\":-1},{\"value\":\"leaMoveOutDate\",\"filter\":null,\"label\":\"Moved out date\",\"sort\":-1},{\"value\":\"leaAppliedDate\",\"filter\":null,\"label\":\"Applied date\",\"sort\":-1},{\"value\":\"leaLeaseApprovedDate\",\"filter\":null,\"label\":\"Lease approved date\",\"sort\":-1},{\"value\":\"leaNoticeOnDate\",\"filter\":null,\"label\":\"Notice given date\",\"sort\":-1},{\"value\":\"LeaseTerm\",\"filter\":null,\"label\":\"Lease term\",\"sort\":-1},{\"value\":\"leaseRent\",\"filter\":null,\"label\":\"Lease Rent\",\"sort\":-1},{\"value\":\"leaseRentTotal\",\"filter\":null,\"label\":\"Lease Total\",\"sort\":-1},{\"value\":\"LedgerBalance\",\"filter\":null,\"label\":\"Ledger Balance\",\"sort\":-1},{\"value\":\"MoveOutNoticeType\",\"filter\":null,\"label\":\"Move out notice type\",\"sort\":-1},{\"value\":\"moutName\",\"filter\":null,\"label\":\"Move out reason\",\"sort\":-1},{\"value\":\"FirstAdSource\",\"filter\":null,\"label\":\"1st Advertising Source\",\"sort\":-1},{\"value\":\"SecondAdSource\",\"filter\":null,\"label\":\"2nd Advertising Source\",\"sort\":-1},{\"value\":\"leaseRentVariance\",\"filter\":null,\"label\":\"Lease Rent Variance\",\"sort\":-1},{\"value\":\"RenewalStartDate\",\"filter\":null,\"label\":\"Renewal Start Date\",\"sort\":-1},{\"value\":\"RenewalEndDate\",\"filter\":null,\"label\":\"Renewal End Date\",\"sort\":-1},{\"value\":\"ReasonForLeasing\",\"filter\":null,\"label\":\"Reason for Leasing\",\"sort\":-1}]"}
       ],
       "download_format": "csv",
       "status": "complete",
       "notes": "Unit-level lease details. Use CSV format (Excel produces HTML-as-xls). Columns configured via CustomReportPickList. Key for filling Vacant-Leased incoming lease_start gaps. Unit number resolved by joining lease_id to realpage_leases."
+    },
+    "income_statement": {
+      "report_id": 3836,
+      "report_key": "A5DFFF82-EEF3-4618-95E1-F5CEC2965295",
+      "name": "Income Statement Worksheet",
+      "formats": {
+        "xml": "-1",
+        "html": "66",
+        "excel": "67",
+        "csv": "359"
+      },
+      "download_format": "excel",
+      "parameters": [
+        {"name": "FiscalPeriod", "value": "{{fiscal_period}}"},
+        {"name": "ReportFormat", "value": "Income Statement by G/L"},
+        {"name": "SpecialAccountsStyle", "value": "Advanced"},
+        {"name": "SpecialStyleRentOnly", "value": "Yes"},
+        {"name": "UsePrepaidAllocation", "value": "1"}
+      ],
+      "status": "complete",
+      "notes": "Full revenue P&L by G/L account. HTML-as-Excel format (use pd.read_html). Sections: Potential Income (Market Rent + Other), Delinquency adjustments, Cash/Prepaid adjustments, Loss to Lease, Vacancy, Concessions. No expense data (OneSite Rents module only)."
     },
     "move_out_reasons": {
       "report_id": 3879,

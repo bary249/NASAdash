@@ -108,8 +108,8 @@ def build_payload(report_def, property_detail, date_offset=0, timeframe_tag=None
         "sourceId": "OS",
         "scheduledType": 1, "scheduledDate": "", "scheduledTime": "",
         "scheduleDateTime": None,
-        "reportFormat": report_def["formats"].get("excel", "3"),
-        "reportFormatName": "Excel",
+        "reportFormat": report_def["formats"].get(report_def.get("download_format", "excel"), "3"),
+        "reportFormatName": report_def.get("download_format", "Excel").upper() if report_def.get("download_format") else "Excel",
         "emaiTo": "",
         "properties": [property_detail["propertyId"]],
         "propertyDetailList": [property_detail],
@@ -188,7 +188,8 @@ def import_all(downloads):
         import_monthly_transaction_summary,
         import_make_ready, import_closed_make_ready,
         import_advertising_source, import_lost_rent_summary,
-        import_move_out_reasons,
+        import_move_out_reasons, import_lease_details,
+        import_income_statement,
         init_report_tables,
     )
     conn = sqlite3.connect(DB_PATH)
@@ -209,12 +210,15 @@ def import_all(downloads):
         "advertising_source": import_advertising_source,
         "lost_rent_summary": import_lost_rent_summary,
         "move_out_reasons": import_move_out_reasons,
+        "lease_details": import_lease_details,
+        "income_statement": import_income_statement,
     }
     total = 0
     for dl in downloads:
         if not dl.get("content"):
             continue
-        temp = SCRIPT_DIR / f"temp_{dl['file_id']}.xlsx"
+        ext = ".csv" if dl.get("report_def", {}).get("download_format") == "csv" else ".xlsx"
+        temp = SCRIPT_DIR / f"temp_{dl['file_id']}{ext}"
         temp.write_bytes(dl["content"])
         try:
             result = parse_report(str(temp), report_type_hint=dl["report_type"])

@@ -1,0 +1,64 @@
+<html>
+  <head>
+    <META http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Concessions Assigned to Residents</title>
+    <STYLE type="text/css">
+      @media screen, print
+      {
+      BODY { font: 9pt arial; }
+      DIV { font: 9pt arial; }
+      TABLE { font: 9pt arial; }
+      THEAD { display: table-header-group; }
+      HR { color: black; }
+      .Container { width: 100%; text-align: center; border: 0px; margin: 0px; padding: 0px; }
+      .PageHeader { width: 100%; border: 0px; margin: 0px; padding: 5px; }
+      .PH_left { width: 20%; text-align: left; vertical-align: top; }
+      .PH_center { width: 60%; text-align: center;  vertical-align: top; }
+      .PH_right { width: 20%; text-align: right; vertical-align: top; }
+      .CompanySite { font: 90%; }
+      .ReportTitle { font-weight: bold; text-transform: uppercase; }
+      .ReportSubTitle { font: 80%; }
+      .ParamList { text-align: left; }
+      .footnote { font: 90%; }
+      }
+    </STYLE>
+  </head>
+  <body>
+    <table class="Container">
+      <thead>
+        <tr>
+          <th>
+            <table class="PageHeader">
+              <tr>
+                <td class="PH_left">OneSite Rents v3.0<br>02/18/2026 07:18:56 AM</td>
+                <td class="PH_center">
+                  <b>
+                    <div class="CompanySite">Kairoi Management, LLC&nbsp;-&nbsp;Ridian</div>
+                    <div class="ReportTitle">Concessions Assigned to Residents</div>
+                    <div class="ReportSubTitle">
+													As of: 02/18/2026</div>
+                    <br>
+                  </b>
+                </td>
+                <td class="PH_right">120.080.342</td>
+              </tr>
+              <tr>
+                <td class="ParamList" colspan="3">
+                  <b>Parameters:</b>&nbsp;&nbsp;Resident Status: Applicant,Current resident,Former applicant,Former resident,Pending transfer,Renewed resident; Transaction Codes:ALL,PN  BEGBALPPD,PO  W/OADMIN,PO  LOSTDISTR,PO  W/O EXEMPT,PP  REFERRAL,PQ  AGENCY,PT  VACADMIN,PT  VACANCY,PT  VACDOWN,PT  CONSTRUCT,PV  LOST,PV  LOSTCOMM,PW  CONC/EMPLOYEE,PW  CONC/ONE-TIME,PW  DISCOUNT,PW  PEP,PW  CONC/MIL,PW  CONC/MONTHLY,PW  CONC/SALESTAX,PW  CONC/SHORTSTAY,PX  GTOL,PX  LTOL,PY  IDEP;</td>
+              </tr>
+            </table>
+          </th>
+        </tr>
+      </thead>
+      <tr>
+        <td>
+          <STYLE type="text/css">
+			@media screen, print
+			{
+			.ConcessionsAssignedToResidentsTable  { table-layout: fixed; border-collapse: collapse; padding: 0px; margin: 0px; width: 100% }
+			}
+		</STYLE><table class=''><tr><td style="text-align:left;">No results were returned for the selected parameters.</td></tr></table></td>
+      </tr>
+    </table>
+  </body>
+</html>

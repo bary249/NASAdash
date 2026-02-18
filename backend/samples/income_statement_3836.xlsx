@@ -1,0 +1,283 @@
+<html>
+  <head>
+    <META http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Income Statement Worksheet</title>
+<script type='text/javascript'  src='/components_cb/client/JSON2.min.js'></script>
+<script type='text/vbscript' src='/components/client/rpScriptingDictionary.vbs'></script>
+<script language="JScript">
+var TRColor = '#ddddff';
+var COLColor = '#ddffdd';
+var BothColor = '#ffffdd';
+var a_dCOLs = new Array();
+var aTables = new Array();
+var aTRs = new Array();
+var aTDs = new Array();
+var aTHs = new Array();
+var aTHClasses = new Array();
+var iTablesCount = 0;
+aTables[iTablesCount++] = 'LeaseVarianceTable';
+
+// Done with global var iTablesCount, mark it as "free'd" so that the JScript garbage collector knows it can be free'd
+iTablesCount = null;	
+
+function InitialLoad_onComplete() {
+	var oCurrTable;
+	
+	for ( var iTabPtr = 0; iTabPtr < aTables.length; iTabPtr++ ) {
+		oCurrTable = document.getElementById( aTables[iTabPtr] );
+
+		if ( oCurrTable != null && oCurrTable != undefined ) {
+			aTRs[iTabPtr] = oCurrTable.getElementsByTagName('TR');	// This includes the TR for the THEAD !
+			aTDs[iTabPtr] = oCurrTable.getElementsByTagName('TD');
+			aTHs[iTabPtr] = oCurrTable.getElementsByTagName('TH');
+
+			PopulateTHClasses(iTabPtr);
+			PopulateDCOLS(iTabPtr);
+		}
+	}
+
+	// Done with global vars aTHs and aTRs, mark them as "free'd" so that the JScript garbage collector knows they can be free'd
+	aTHs = null;
+	aTRs = null;
+}
+
+
+function PopulateTHClasses(iTabPtr) {
+	var sClass;
+	aTHClasses[iTabPtr] = new Array();
+	for (var iTHCount = 0; iTHCount < (aTHs[iTabPtr]).length; iTHCount++ ) {
+		sClass = (aTHs[iTabPtr][iTHCount]).getAttribute('className');
+		if ( sClass != undefined ) {
+			(aTHClasses[iTabPtr]).push(sClass);
+		}
+	}
+}
+
+// This fast algorithm is predicated on the TABLE being fully populated 
+// (no missing TDs due to missing nodes and/or node text in the source XML)
+// In other words, if the TABLE has N columns and M rows, there are N*M child TDs
+function PopulateDCOLS(iTabPtr) {
+	var sClass;
+	var iCols = (aTHs[iTabPtr]).length;
+	var iRows = (aTRs[iTabPtr]).length - 1;	// Account for the THEAD parent TR
+	var iTDsLength = (aTDs[iTabPtr]).length;
+	var iCurrPos;
+	
+	if ( a_dCOLs[iTabPtr] == undefined ) {
+		a_dCOLs[iTabPtr] = top.rpScriptingDictionary();
+	}
+	
+	for ( var iColPtr = 0; iColPtr < iCols; iColPtr++ ) {
+		sClass = aTHClasses[iTabPtr][iColPtr];
+		var aTempTDs = new Array();
+		
+		for ( var iRowPtr = 0; iRowPtr < iRows; iRowPtr++ ) {
+			iCurrPos = iRowPtr * iCols + iColPtr;
+			if ( iCurrPos < iTDsLength ) {	// Make certain we aren't pushing a non-existant aTDs index
+				aTempTDs.push(iCurrPos);
+			}
+		}
+		(a_dCOLs[iTabPtr]).Add(sClass, aTempTDs);
+	}
+}
+
+function ToggleHighlightTR(oMe) {
+	var bHighlighting;
+	var oTempTDs = oMe.children;
+	var iHighlighted = oMe.getAttribute('highlighted');
+	
+	if ( iHighlighted == undefined || iHighlighted == 0 ) {
+		oMe.setAttribute('highlighted', 1);
+		oMe.style.backgroundColor = TRColor;
+		bHighlighting = true;
+	}
+	else {
+		oMe.setAttribute('highlighted', 0);
+		oMe.style.backgroundColor = '';
+		bHighlighting = false;
+	}
+	
+	// Update individual TDs as needed
+	for ( var iTemp = 0; iTemp < oTempTDs.length; iTemp++ ) {
+		if ( !bHighlighting && oTempTDs[iTemp].getAttribute('highlighted') != 1 ) {
+			oTempTDs[iTemp].style.backgroundColor = '';
+		}
+		else if ( !bHighlighting && oTempTDs[iTemp].getAttribute('highlighted') == 1 ) {
+			oTempTDs[iTemp].style.backgroundColor = COLColor;
+		}
+		else if ( bHighlighting && oTempTDs[iTemp].getAttribute('highlighted') == 1 ) {
+			oTempTDs[iTemp].style.backgroundColor = BothColor;
+		}
+		// Implicit ELSE is to do nothing which lets TR backgroundColor set above show
+	}
+}
+
+function GetTablePosition( sTgtName ) {
+	var bFound = false;
+	var iPos = 0;
+
+	while ( !bFound && iPos < aTables.length ) {
+		if ( aTables[iPos] == sTgtName ) {
+			bFound = true;
+		}
+		else {
+			iPos++;
+		}
+	}
+	
+	if ( !bFound ) {
+		iPos = -1;
+	}
+	
+	return iPos;
+}
+
+function ColorColumn( iTabPtr, sClass, sColor, iHighlighted ) {
+	var aCOLs = (a_dCOLs[iTabPtr]).Item(sClass);
+	var currTD;
+	var iParentHighlighted;
+	
+	for ( var iColCount = 0; iColCount < aCOLs.length; iColCount++ ) {
+		currTD = aTDs[iTabPtr][aCOLs[iColCount]];
+		currTD.setAttribute('highlighted', iHighlighted);
+		iParentHighlighted = currTD.parentNode.getAttribute('highlighted');
+		if ( iHighlighted == 0 || iParentHighlighted == undefined || iParentHighlighted == 0 ) {
+			aTDs[iTabPtr][aCOLs[iColCount]].style.backgroundColor = sColor;
+		}
+		else {
+			aTDs[iTabPtr][aCOLs[iColCount]].style.backgroundColor = BothColor;
+		}
+	}
+}
+
+function ToggleHighlightCol(oMe) {
+	var iTabPtr = GetTablePosition( oMe.parentNode.parentNode.parentNode.className );
+
+	if ( iTabPtr != -1 ) {
+		var iHighlighted = oMe.getAttribute('highlighted');
+
+		if ( iHighlighted == undefined || iHighlighted == 0 ) {
+			oMe.setAttribute('highlighted', 1);
+			oMe.setAttribute('bgColor', COLColor);
+			ColorColumn( iTabPtr, oMe.getAttribute('className'), COLColor, 1 );
+		}
+		else {
+			oMe.setAttribute('highlighted', 0);
+			oMe.setAttribute('bgColor', '');
+			ColorColumn( iTabPtr, oMe.getAttribute('className'), '', 0 );
+		}
+	}
+}
+
+</script><STYLE type="text/css">
+	@media screen, print
+	{
+	BODY { font: 9pt arial; }
+	DIV { font: 9pt arial; }
+	TABLE { font: 9pt arial; }
+	THEAD { display: table-header-group; }
+	TH { font: bold; text-align: center; vertical-align: text-bottom; padding: 0px, 5px; margin: 0px; }
+	TD { vertical-align: text-top; padding: 0px, 5px; margin: 0px; }
+	TFOOT TD { font: bold; vertical-align: text-top; padding: 0px, 5px; margin: 0px; }
+	HR { color: black; }
+	.Container { width: 100%; text-align: center; border: 0px; margin: 0px; padding: 0px; }
+	.PageHeader { width: 100%; border: 0px; margin: 0px; padding: 2px; }
+	.PH_left { width: 20%; text-align: left; vertical-align: top; }
+	.PH_center { width: 60%; text-align: center;  vertical-align: top; }
+	.PH_right { width: 20%; text-align: right; vertical-align: top; }
+	.CompanySite { font: 90%; }
+	.ReportTitle { font-weight: bold; text-transform: uppercase; }
+	.ReportSubTitle { font: 80%; }
+	.ParamList { text-align: left; }
+	TR.oddTR { background: #ffffff; }
+	TR.evenTR { background: #f0f0f0; }
+	.DetailsHeader TH { border-bottom: thick black double; }
+	.DetailsFooter TD { border-top: 1px black solid; border-bottom: thin black solid; }
+	.SectionHeader { font: bold; }
+	.InlineSumHeader { font: italic; }
+	.InlineSumAmount { border-top: 1px silver solid; border-bottom: 1px silver solid; }
+	.InlineSumOther { border-bottom: 1px silver solid; }
+	.SubTotalAmount { border-top: 2px silver solid; border-bottom: 2px silver solid; }
+	.SubTotalOther { border-bottom: 2px silver solid; }
+	.TotalAmount { border-top: 2px black solid; border-bottom: 2px black solid; }
+	.TotalOther { border-bottom: 2px black solid; }
+	.GrandTotalAmount { border-top: thick black double; border-bottom: thick black double; }
+	.GrandTotalOther { border-bottom: thick black double; }
+	.RowCell { border-bottom: 1px silver solid; }
+	.HeaderAccent { background-color: silver; }
+	}
+
+</STYLE>
+</head><body><table class="Container"><thead><tr><th><table class="PageHeader"><tr><td class="PH_left">OneSite Rents v3.0<br>02/18/2026 07:18:55 AM</td><td class="PH_center"><b><div class="CompanySite">Kairoi Management, LLC&nbsp;-&nbsp;Ridian</div><div class="ReportTitle">Income Statement Worksheet</div><div class="ReportSubTitle">
+									As of: 02/18/2026</div><br></b></td><td class="PH_right">120.080.131</td></tr><tr><td class="ParamList" colspan="3"><b>Parameters:</b>&nbsp;&nbsp;Fiscal Period: 022026;  Report Format: Income Statement by G/L;  Special Accounts Style: Advanced;  Special Accounts for Rent, Cash and Default AR only? Yes;  Include Prepaid Allocations Data? Yes<hr></td></tr></table></th></tr></thead><tr><td style="text-align: left;"><STYLE type="text/css">
+  @media screen, print
+  {
+  .LeaseVarianceTable  { width: 100%; border: 0px; margin: 0px; padding: 2px, 3px; }
+  .LeaseVarianceTable > TR > TH { font: bold; text-align: left; vertical-align: text-bottom; padding: 0px, 2px; }
+  .LeaseVarianceTable > TR > TD { text-align: left; vertical-align: text-top; padding: 0px, 2px; }
+  
+        TH.LeaseVarianceAccount
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceAccount
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVarianceSign
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceSign
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVarianceAmount
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceAmount
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVarianceSubtotal
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceSubtotal
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVarianceTotal
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceTotal
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVarianceGrand_x0020_Total
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVarianceGrand_x0020_Total
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+        TH.LeaseVariancesectionID
+        {
+         text-align: left;  vertical-align: text-bottom; 
+        }
+        TD.LeaseVariancesectionID
+        {
+         text-align: left;  vertical-align: text-top; 
+        }
+      
+  }
+</STYLE><table class="LeaseVarianceTable" id="LeaseVarianceTable" ><thead><tr class="DetailsHeader"><th style="text-align:left;">Account</th><th>Sign</th><th>Amount</th></tr></thead><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;POTENTIAL&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;A/R&nbsp;ACCOUNT&nbsp;1200-0002&nbsp;(A/R&nbsp;-&nbsp;TENANTS&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;):&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MARKET&nbsp;RENT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(5100-0001)&nbsp;AND&nbsp;OTHER&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0001&nbsp;-&nbsp;Market&nbsp;Rent&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;285,593.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0001&nbsp;-&nbsp;Administrative&nbsp;Fees&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;1,750.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0003&nbsp;-&nbsp;Application&nbsp;Fees&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;176.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0006&nbsp;-&nbsp;Amenity&nbsp;Fees&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;848.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0060&nbsp;-&nbsp;Garage&nbsp;Fees&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;3,825.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0090&nbsp;-&nbsp;Late&nbsp;Fees&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;194.90</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0102&nbsp;-&nbsp;MOI/Renter&nbsp;s&nbsp;Insurance&nbsp;Fees&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;306.30</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5200-0120&nbsp;-&nbsp;Pet&nbsp;Rent&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;455.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0001&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Water&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;1,412.62</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0002&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Cable&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;3,188.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0003&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Trash&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;1,923.97</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0004&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Electric&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;33.94</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0007&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Pest&nbsp;Control&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;(5.00)</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5300-0008&nbsp;-&nbsp;Utilities&nbsp;Income&nbsp;-&nbsp;Admin&nbsp;Fee&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;303.45</td></tr><tr class='InlineSumHeader' ><td style='text-align:left;'class='InlineSumOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Total&nbsp;Potential&nbsp;A/R&nbsp;-&nbsp;TENANTS&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Income&nbsp;</td><td style='text-align:right;'class='InlineSumOther'>&nbsp;=</td><td style='text-align:right;'class='InlineSumAmount'>&nbsp;300,005.18</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1200-0002&nbsp;-&nbsp;Beginning&nbsp;0&nbsp;to&nbsp;30&nbsp;Delinq&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;881.19</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1200-0002&nbsp;-&nbsp;Ending&nbsp;0&nbsp;to&nbsp;30&nbsp;Delinq&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;2,991.17</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1200-0002&nbsp;-&nbsp;Ending&nbsp;31&nbsp;to&nbsp;60&nbsp;Delinq&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;88.77</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='SubTotalOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NET&nbsp;MARKET&nbsp;RENT&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(5100-0001)&nbsp;AND&nbsp;OTHER&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='SubTotalOther'>&nbsp;=</td><td style='text-align:right;'class='SubTotalAmount'>&nbsp;297,806.43</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CASH&nbsp;-&nbsp;OPERATING&nbsp;ACCOUNT&nbsp;&nbsp;(1100-0002)&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1200-0001&nbsp;-&nbsp;A/R&nbsp;-&nbsp;Rent&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(Beginning&nbsp;Prepaid)&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;47,411.39</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1200-0001&nbsp;-&nbsp;A/R&nbsp;-&nbsp;Rent&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(Ending&nbsp;Prepaid)&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;+</td><td style='text-align:right;'class='RowCell'>&nbsp;63,636.07</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='SubTotalOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NET&nbsp;CASH&nbsp;-&nbsp;OPERATING&nbsp;ACCOUNT&nbsp;&nbsp;(1100-0002)&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='SubTotalOther'>&nbsp;=</td><td style='text-align:right;'class='SubTotalAmount'>&nbsp;16,224.68</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PREPAID&nbsp;RENT&nbsp;(2200-0001)&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0200&nbsp;-&nbsp;Loss&nbsp;To&nbsp;Lease&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;1,951.00</td></tr><tr class='InlineSumHeader' ><td style='text-align:left;'class='InlineSumOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Potential&nbsp;Rent&nbsp;Income&nbsp;</td><td style='text-align:right;'class='InlineSumOther'>&nbsp;=</td><td style='text-align:right;'class='InlineSumAmount'>&nbsp;(1,951.00)</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0201&nbsp;-&nbsp;Vacancy&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;118,517.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0202&nbsp;-&nbsp;Concessions&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;38,389.41</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0203&nbsp;-&nbsp;Administrative/Down&nbsp;Units&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;2,363.00</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;5100-0204&nbsp;-&nbsp;Employee&nbsp;Units&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;994.00</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='SubTotalOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;NET&nbsp;PREPAID&nbsp;RENT&nbsp;(2200-0001)&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='SubTotalOther'>&nbsp;=</td><td style='text-align:right;'class='SubTotalAmount'>&nbsp;(162,214.41)</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='TotalOther'>&nbsp;&nbsp;TOTAL&nbsp;POTENTIAL&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='TotalOther'>&nbsp;=</td><td style='text-align:right;'class='TotalAmount'>&nbsp;151,816.70</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;BANK&nbsp;DEPOSITS&nbsp;(PZ)&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr><td style='text-align:left;'class='RowCell'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PZ&nbsp;-&nbsp;Ending&nbsp;0&nbsp;to&nbsp;30&nbsp;Delinq&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;-</td><td style='text-align:right;'class='RowCell'>&nbsp;6,337.66</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='TotalOther'>&nbsp;&nbsp;PLUS&nbsp;NET&nbsp;CHANGE&nbsp;TO&nbsp;PREPAID&nbsp;CASH&nbsp;</td><td style='text-align:right;'class='TotalOther'>&nbsp;=</td><td style='text-align:right;'class='TotalAmount'>&nbsp;(6,337.66)</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='GrandTotalOther'>TOTAL&nbsp;INCOME&nbsp;</td><td style='text-align:right;'class='GrandTotalOther'>&nbsp;=</td><td style='text-align:right;'class='GrandTotalAmount'>&nbsp;145,479.04</td></tr><tr><td colspan="3"><br><br><br><hr><br><br></td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='RowCell'>RENT/OTHER&nbsp;PAYMENTS&nbsp;NET&nbsp;BANK&nbsp;DEPOSITS&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td><td style='text-align:right;'class='RowCell'>&nbsp;</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='SubTotalOther'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;OPERATING&nbsp;DEPOSITS&nbsp;(1100-0002)&nbsp;DEPOSITS&nbsp;</td><td style='text-align:right;'class='SubTotalOther'>&nbsp;=</td><td style='text-align:right;'class='SubTotalAmount'>&nbsp;148,979.04</td></tr><tr class='SectionHeader' ><td style='text-align:left;'class='GrandTotalOther'>TOTAL&nbsp;RENT/OTHER&nbsp;PAYMENTS&nbsp;NET&nbsp;BANK&nbsp;DEPOSITS&nbsp;</td><td style='text-align:right;'class='GrandTotalOther'>&nbsp;=</td><td style='text-align:right;'class='GrandTotalAmount'>&nbsp;148,979.04</td></tr></table></td></tr></table></body></html>

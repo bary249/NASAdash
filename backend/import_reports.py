@@ -220,6 +220,12 @@ def init_report_tables(conn: sqlite3.Connection):
         ledger_balance REAL,
         move_out_notice_type TEXT,
         move_out_reason TEXT,
+        ad_source_1 TEXT,
+        ad_source_2 TEXT,
+        lease_rent_variance REAL,
+        renewal_start_date TEXT,
+        renewal_end_date TEXT,
+        reason_for_leasing TEXT,
         imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         file_id TEXT,
         UNIQUE(property_id, lease_id)
@@ -990,8 +996,12 @@ def import_lease_details(conn: sqlite3.Connection, records: List[Dict], file_nam
                  lease_start_date, lease_end_date, move_in_date, move_out_date,
                  applied_date, lease_approved_date, notice_given_date, lease_term,
                  lease_rent, lease_total, ledger_balance,
-                 move_out_notice_type, move_out_reason, file_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 move_out_notice_type, move_out_reason,
+                 ad_source_1, ad_source_2,
+                 lease_rent_variance,
+                 renewal_start_date, renewal_end_date,
+                 reason_for_leasing, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 r.get('property_id'), r.get('property_name'),
                 r.get('lease_id'), r.get('floorplan'), r.get('occupancy_status'),
@@ -1001,11 +1011,67 @@ def import_lease_details(conn: sqlite3.Connection, records: List[Dict], file_nam
                 r.get('notice_given_date'), r.get('lease_term'),
                 r.get('lease_rent'), r.get('lease_total'), r.get('ledger_balance'),
                 r.get('move_out_notice_type'), r.get('move_out_reason'),
+                r.get('ad_source_1'), r.get('ad_source_2'),
+                r.get('lease_rent_variance'),
+                r.get('renewal_start_date'), r.get('renewal_end_date'),
+                r.get('reason_for_leasing'),
                 file_id
             ))
             imported += 1
         except Exception as e:
             print(f"  Error inserting lease_details: {e}")
+    conn.commit()
+    return imported
+
+
+def import_income_statement(conn: sqlite3.Connection, records: List[Dict], file_name: str, file_id: str) -> int:
+    """Import Income Statement Worksheet records. Replaces existing data per property+fiscal_period."""
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_income_statement (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            property_name TEXT,
+            report_date TEXT,
+            fiscal_period TEXT,
+            section TEXT,
+            category TEXT,
+            gl_account_code TEXT,
+            gl_account_name TEXT,
+            sign TEXT,
+            amount REAL,
+            line_type TEXT,
+            imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            file_id TEXT
+        )
+    """)
+    if records:
+        pid = records[0].get('property_id')
+        fp = records[0].get('fiscal_period')
+        if pid and fp:
+            cursor.execute("DELETE FROM realpage_income_statement WHERE property_id = ? AND fiscal_period = ?", (pid, fp))
+        elif pid:
+            cursor.execute("DELETE FROM realpage_income_statement WHERE property_id = ?", (pid,))
+    imported = 0
+    for r in records:
+        try:
+            cursor.execute("""
+                INSERT INTO realpage_income_statement
+                (property_id, property_name, report_date, fiscal_period,
+                 section, category, gl_account_code, gl_account_name,
+                 sign, amount, line_type, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                r.get('property_id'), r.get('property_name'), r.get('report_date'),
+                r.get('fiscal_period'),
+                r.get('section'), r.get('category'),
+                r.get('gl_account_code'), r.get('gl_account_name'),
+                r.get('sign'), r.get('amount', 0.0), r.get('line_type'),
+                file_id
+            ))
+            imported += 1
+        except Exception as e:
+            print(f"  Error inserting income_statement: {e}")
     conn.commit()
     return imported
 

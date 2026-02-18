@@ -216,7 +216,7 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
           const diff = cur - prior;
           const pts = Math.round(diff);
           if (pts === 0) return <span className="text-[9px] text-slate-400 ml-0.5">({prior}%)</span>;
-          return <span className={`text-[9px] font-medium ml-0.5 ${pts > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pts > 0 ? '▲' : '▼'}{Math.abs(pts)}pp</span>;
+          return <span className={`text-[9px] font-medium ml-0.5 ${pts > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pts > 0 ? '▲' : '▼'}{Math.abs(pts)}%</span>;
         };
         return (
         <div className="mt-3 pt-2 border-t border-slate-100 grid grid-cols-3 gap-x-3 gap-y-1">

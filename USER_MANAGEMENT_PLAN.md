@@ -62,19 +62,18 @@ CREATE TABLE IF NOT EXISTS users (
 3. Backend sends email with reset link: `https://<netlify-url>/reset-password?token=xxx`
 4. User clicks link → enters new password → backend verifies token, updates `password_hash`
 
-**Email service options:**
-- **Resend** (free tier: 100 emails/day) — simplest, modern API, `pip install resend`
-- **SendGrid** (free tier: 100 emails/day)
-- **Railway doesn't have a built-in email service**, but Railway *can* host the backend that sends emails via any provider
+**Email provider: Resend** — Free tier: 3,000 emails/mo, 100/day, $0. `pip install resend`. Modern API, takes 5 min to set up.
 
-**Railway's role:** Railway hosts the backend API that handles the reset flow. It doesn't provide email natively, but the backend on Railway calls Resend/SendGrid to send the email. The reset link points to the Netlify frontend, which calls the Railway backend to complete the reset.
+**Railway's role:** Railway hosts the backend API that handles the reset flow. Backend on Railway calls Resend to send the email. The reset link points to the Netlify frontend, which calls the Railway backend to complete the reset.
 
-### Option B: Admin-initiated reset (simpler, Phase 1)
+### Option B: Admin-initiated reset (Phase 1 — no email needed)
 1. Admin clicks "Reset Password" next to a user in the admin panel
-2. Backend generates a temporary password and shows it to the admin (or emails it)
+2. Backend generates a temporary password and shows it to the admin
 3. User logs in with temp password → forced to set a new one on first login
 
-**Recommendation:** Start with **Option B** (quick, no email dependency), add **Option A** later.
+### Phasing:
+- **Phase 1:** Option B only (admin-initiated, no email dependency)
+- **Phase 2:** Option A added (self-service via Resend email)
 
 ### New endpoints
 ```
@@ -305,10 +304,10 @@ src/
 
 **Layout:** Chat drawer slides in from the right. Dashboard content shifts or overlays. Chat icon in the top nav bar shows unread badge count.
 
-#### Notifications
-- **In-app:** Unread badge on chat icon, toast notification for new messages
-- **Browser:** Push notification via service worker (optional Phase 2)
-- **Email digest:** Daily summary of unread messages (optional Phase 3, uses same email infra as password reset)
+#### Notifications (In-App Only)
+- **Unread badge** on chat icon in top nav
+- **Toast notification** for new messages when chat drawer is closed
+- No browser push or email digest for now
 
 ### Effort: **XL** (5-8 days — WebSocket infra, chat UI, reference system, share buttons)
 
@@ -378,8 +377,8 @@ This turns passive alerts into collaborative conversations.
 
 **Effort:** L (depends on chat being built first)
 
-### 6f. User Roles V2: Granular Permissions (Future)
-Beyond admin/user, consider:
+### 6f. User Roles V2: Granular Tab-Level Permissions ✅ CONFIRMED
+Beyond admin/user:
 - **Owner/Executive:** See financials, approve budgets
 - **Asset Manager:** Full operational access
 - **Property Manager:** Single-property access
@@ -459,14 +458,17 @@ CREATE TABLE IF NOT EXISTS user_tab_access (
 
 ---
 
-## Technical Decisions to Make
+## Technical Decisions ✅
 
-1. **Email provider for password reset & invites** — Resend vs SendGrid vs skip email entirely (admin-only resets)
-2. **Chat persistence** — SQLite on Railway volume is fine for now, but if chat volume grows, may need Postgres or a dedicated service
-3. **WebSocket on Railway** — Railway supports WebSockets natively. No special config needed. Just ensure the Netlify proxy passes WS connections (Netlify supports WebSocket proxying via `_redirects` or `netlify.toml`)
-4. **File sharing in chat** — Do we want users to attach screenshots/files? If yes, need object storage (Railway volume or S3)
-5. **Mobile/responsive chat** — The chat drawer should work on tablet. Full mobile app is a separate initiative
-6. **Data scope granularity** — Property-level is the plan. Tab-level (Phase 4) adds complexity. Confirm if needed before building
+| # | Decision | Answer |
+|---|----------|--------|
+| 1 | **Email provider** | **Resend** — Free tier (3,000 emails/mo, $0). More than enough for PW resets + invites. |
+| 2 | **File sharing in chat** | **No** — not for now. Text + dashboard references only. |
+| 3 | **Tab-level permissions** | **Yes** — Phase 4 will include granular tab access (e.g., PM can't see Financials). |
+| 4 | **Chat notifications** | **In-app only** for now. No browser push, no email digest. Unread badge + toast. |
+| 5 | **Chat persistence** | SQLite on Railway volume. Sufficient for current scale. |
+| 6 | **WebSocket on Railway** | Railway supports WS natively. Netlify proxy needs WS passthrough config. |
+| 7 | **Mobile/responsive chat** | Chat drawer should work on tablet. Full mobile app is separate. |
 
 ---
 

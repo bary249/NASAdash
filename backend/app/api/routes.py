@@ -2497,6 +2497,7 @@ async def get_reputation(property_id: str):
         "responded": 0,
         "not_responded": 0,
         "total_reviews": 0,
+        "reviews_analyzed": 0,
     }
     
     # Google Reviews (primary source)
@@ -2517,7 +2518,8 @@ async def get_reputation(property_id: str):
             review_power["needs_attention"] = google_data.get("needs_response", 0)
             review_power["responded"] = google_data.get("responded", 0)
             review_power["not_responded"] = google_data.get("not_responded", 0)
-            review_power["total_reviews"] = google_data.get("reviews_fetched", 0)
+            review_power["total_reviews"] = google_data.get("review_count", 0)
+            review_power["reviews_analyzed"] = google_data.get("reviews_fetched", 0)
     except Exception:
         pass
     
@@ -2539,7 +2541,8 @@ async def get_reputation(property_id: str):
             apt_not_responded = apt_data.get("not_responded", 0)
             review_power["responded"] += apt_responded
             review_power["not_responded"] += apt_not_responded
-            review_power["total_reviews"] += apt_data.get("reviews_fetched", 0)
+            review_power["total_reviews"] += apt_data.get("review_count", 0)
+            review_power["reviews_analyzed"] += apt_data.get("reviews_fetched", 0)
             review_power["needs_attention"] += apt_data.get("needs_response", 0)
             total_resp = review_power["responded"] + review_power["not_responded"]
             review_power["response_rate"] = round((review_power["responded"] / total_resp) * 100, 1) if total_resp > 0 else 0

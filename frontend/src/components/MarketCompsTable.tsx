@@ -26,16 +26,8 @@ interface MarketCompsTableProps {
   subjectProperty?: string;
   propertyId?: string;
   onSubmarketChange?: (submarket: string) => void;
-  onRadiusChange?: (radius: number) => void;
   onBedroomFilterChange?: (bedrooms: string[]) => void;
 }
-
-const RADIUS_OPTIONS = [
-  { value: 1, label: '1 mile' },
-  { value: 3, label: '3 miles' },
-  { value: 5, label: '5 miles' },
-  { value: 10, label: '10 miles' },
-];
 
 const BEDROOM_OPTIONS = [
   { value: 'studio', label: 'Studio' },
@@ -44,8 +36,7 @@ const BEDROOM_OPTIONS = [
   { value: '3br', label: '3 BR' },
 ];
 
-export function MarketCompsTable({ comps: initialComps, subjectProperty, propertyId, onSubmarketChange, onRadiusChange, onBedroomFilterChange }: MarketCompsTableProps) {
-  const [radius, setRadius] = useState(5);
+export function MarketCompsTable({ comps: initialComps, subjectProperty, propertyId, onSubmarketChange, onBedroomFilterChange }: MarketCompsTableProps) {
   const [selectedBedrooms, setSelectedBedrooms] = useState<string[]>(['studio', '1br', '2br', '3br']);
   const [showFilters, setShowFilters] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
@@ -131,11 +122,6 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
       );
       if (match) setSelectedSubmarket(match.id);
     }
-  };
-
-  const handleRadiusChange = (newRadius: number) => {
-    setRadius(newRadius);
-    onRadiusChange?.(newRadius);
   };
 
   const toggleBedroom = (bedroom: string) => {
@@ -252,26 +238,6 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
         {/* Filter panel */}
         {showFilters && (
           <div className="mt-3 pt-3 border-t border-slate-200 flex flex-wrap gap-4">
-            {/* Radius filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">Radius:</span>
-              <div className="flex gap-1">
-                {RADIUS_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => handleRadiusChange(opt.value)}
-                    className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                      radius === opt.value 
-                        ? 'bg-indigo-600 text-white' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Bedroom filter */}
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-500">Bedrooms:</span>

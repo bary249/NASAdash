@@ -207,7 +207,7 @@ function ReputationCard({ data, label }: { data: ReputationData; label?: string 
             )}
             <div className="text-center pt-2 border-t border-slate-200">
               <span className="text-xs text-slate-500">
-                Based on {review_power.total_reviews} fetched reviews
+                {review_power.total_reviews} total reviews ({review_power.responded + review_power.not_responded} analyzed)
               </span>
             </div>
           </div>

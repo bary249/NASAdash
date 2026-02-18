@@ -2522,15 +2522,42 @@ class TestBedroomRentConsistency:
                     f"{r['bedroom_type']}: renewal_pct {r['renewal_pct_90d']}% != expected {expected}%"
 
     def test_renewals_lte_expirations_per_bedroom(self, first_property):
-        """renewed_90d should generally not exceed expiring_90d.
-        Allow small excess — early renewals processed before the expiration
-        window can cause renewed > expiring in a given period."""
+        """renewed_90d must never exceed expiring_90d for any bedroom type."""
         bed = _get(f"{API}/{first_property}/consolidated-by-bedroom")
         errors = []
         for r in bed["bedrooms"]:
-            if r["renewed_90d"] > r["expiring_90d"] * 1.25 and r["renewed_90d"] - r["expiring_90d"] > 5:
-                errors.append(f"{r['bedroom_type']}: renewed({r['renewed_90d']}) >> expiring({r['expiring_90d']})")
-        assert not errors, "Renewal/expiration mismatch:\n" + "\n".join(errors)
+            if r["renewed_90d"] > r["expiring_90d"]:
+                errors.append(f"{r['bedroom_type']}: renewed({r['renewed_90d']}) > expiring({r['expiring_90d']})")
+        assert not errors, "Renewal > expiration:\n" + "\n".join(errors)
+
+    def test_renewals_lte_expirations_all_properties(self, property_ids):
+        """renewed_90d must never exceed expiring_90d for ANY property."""
+        errors = []
+        for pid in property_ids:
+            r = requests.get(f"{API}/{pid}/consolidated-by-bedroom", timeout=30)
+            if r.status_code != 200:
+                continue
+            bed = r.json()
+            for row in bed["bedrooms"]:
+                if row["renewed_90d"] > row["expiring_90d"]:
+                    errors.append(f"{pid}/{row['bedroom_type']}: renewed({row['renewed_90d']}) > expiring({row['expiring_90d']})")
+            t = bed["totals"]
+            if t["renewed_90d"] > t["expiring_90d"]:
+                errors.append(f"{pid}/TOTALS: renewed({t['renewed_90d']}) > expiring({t['expiring_90d']})")
+        assert not errors, "Renewal > expiration across properties:\n" + "\n".join(errors)
+
+    def test_bedroom_renewal_matches_expirations_endpoint(self, first_property):
+        """Bedroom 90d totals should match expirations endpoint 90d totals."""
+        bed = _get(f"{API}/{first_property}/consolidated-by-bedroom")
+        exp = _get(f"{API}/{first_property}/expirations")
+        p90 = next((p for p in exp["periods"] if p["label"] == "90d"), None)
+        if not p90:
+            pytest.skip("No 90d expirations")
+        bed_t = bed["totals"]
+        assert bed_t["expiring_90d"] == p90["expirations"], \
+            f"bedroom expiring_90d={bed_t['expiring_90d']} != expirations 90d={p90['expirations']}"
+        assert bed_t["renewed_90d"] == p90["renewals"], \
+            f"bedroom renewed_90d={bed_t['renewed_90d']} != expirations renewed={p90['renewals']}"
 
 
 # ===================================================================

@@ -1836,47 +1836,74 @@ def get_consolidated_by_bedroom(property_id: str):
                 bd["_actual_rent_sum"] += (row[13] or 0) * (row[3] or 0)
                 bd["_rent_count"] += row[2] or 0
         
-        # Get expiration data by floorplan from unified_units + unified_leases
+        # Get expiration + renewal data by floorplan
+        # Primary: Report 4156 (unified_lease_expirations) — has decision column
+        # Fallback: unified_units (expirations) + unified_leases (renewals)
         renewal_map = {}
-        total_renewed = 0
-        total_expiring_leases = 0
         try:
-            date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+            # Check if Report 4156 data exists
+            use_4156 = False
+            try:
+                cursor.execute("SELECT COUNT(*) FROM unified_lease_expirations WHERE unified_property_id = ?", (property_id,))
+                if (cursor.fetchone()[0] or 0) > 0:
+                    use_4156 = True
+            except Exception:
+                pass
             
-            # Expirations by floorplan from unified_units (has floorplan + lease_end)
-            cursor.execute(f"""
-                SELECT COALESCE(NULLIF(floorplan, ''), '_unknown_') as fp, COUNT(*) as expiring
-                FROM unified_units
-                WHERE unified_property_id = ?
-                  AND occupancy_status = 'occupied'
-                  AND lease_end IS NOT NULL AND lease_end != ''
-                  AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
-                GROUP BY fp
-            """, (property_id,))
-            for row in cursor.fetchall():
-                renewal_map[row[0]] = {"expiring": row[1], "renewed": 0}
-            
-            # Total renewals from unified_leases
-            le_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
-            cursor.execute(f"""
-                SELECT COUNT(*) as total_exp,
-                       SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
-                FROM unified_leases
-                WHERE unified_property_id = ?
-                  AND status = 'Current'
-                  AND lease_end IS NOT NULL AND lease_end != ''
-                  AND {le_expr} BETWEEN date('now') AND date('now', '+90 days')
-            """, (property_id,))
-            row = cursor.fetchone()
-            if row:
-                total_expiring_leases = row[0] or 0
-                total_renewed = row[1] or 0
-            
-            if total_expiring_leases > 0 and total_renewed > 0:
-                total_rr_exp = sum(v["expiring"] for v in renewal_map.values())
-                for fp_data in renewal_map.values():
-                    if total_rr_exp > 0:
-                        fp_data["renewed"] = round(fp_data["expiring"] * total_renewed / total_rr_exp)
+            if use_4156:
+                # Report 4156: floorplan + decision per lease
+                date_expr = "date(substr(ule.lease_end_date,7,4)||'-'||substr(ule.lease_end_date,1,2)||'-'||substr(ule.lease_end_date,4,2))"
+                cursor.execute(f"""
+                    SELECT COALESCE(NULLIF(uu.floorplan, ''), '_unknown_') as fp,
+                           COUNT(*) as expiring,
+                           SUM(CASE WHEN ule.decision = 'Renewed' THEN 1 ELSE 0 END) as renewed
+                    FROM unified_lease_expirations ule
+                    LEFT JOIN unified_units uu
+                        ON uu.unified_property_id = ule.unified_property_id
+                        AND uu.unit_number = ule.unit_number
+                    WHERE ule.unified_property_id = ?
+                      AND ule.lease_end_date IS NOT NULL AND ule.lease_end_date != ''
+                      AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
+                    GROUP BY fp
+                """, (property_id,))
+                for row in cursor.fetchall():
+                    renewal_map[row[0]] = {"expiring": row[1] or 0, "renewed": min(row[2] or 0, row[1] or 0)}
+            else:
+                # Fallback: unified_units for expirations, unified_leases for total renewed count
+                date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+                cursor.execute(f"""
+                    SELECT COALESCE(NULLIF(floorplan, ''), '_unknown_') as fp, COUNT(*) as expiring
+                    FROM unified_units
+                    WHERE unified_property_id = ?
+                      AND occupancy_status = 'occupied'
+                      AND lease_end IS NOT NULL AND lease_end != ''
+                      AND {date_expr} BETWEEN date('now') AND date('now', '+90 days')
+                    GROUP BY fp
+                """, (property_id,))
+                for row in cursor.fetchall():
+                    renewal_map[row[0]] = {"expiring": row[1], "renewed": 0}
+                
+                le_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+                cursor.execute(f"""
+                    SELECT COUNT(*) as total_exp,
+                           SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
+                    FROM unified_leases
+                    WHERE unified_property_id = ?
+                      AND status = 'Current'
+                      AND lease_end IS NOT NULL AND lease_end != ''
+                      AND {le_expr} BETWEEN date('now') AND date('now', '+90 days')
+                """, (property_id,))
+                row = cursor.fetchone()
+                total_expiring_leases = row[0] or 0 if row else 0
+                total_renewed = row[1] or 0 if row else 0
+                
+                if total_expiring_leases > 0 and total_renewed > 0:
+                    total_rr_exp = sum(v["expiring"] for v in renewal_map.values())
+                    for fp_data in renewal_map.values():
+                        if total_rr_exp > 0:
+                            fp_data["renewed"] = round(fp_data["expiring"] * total_renewed / total_rr_exp)
+                            # Cap at expirations — renewed can never exceed expiring
+                            fp_data["renewed"] = min(fp_data["renewed"], fp_data["expiring"])
         except Exception:
             pass
         

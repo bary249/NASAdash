@@ -179,7 +179,7 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                 <SortHeader label="In-Place" column="avg_in_place_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Delta" column="rent_delta" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Exp 90d" column="expiring_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
-                <SortHeader label="Rnw%" column="renewal_pct_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Rnw% 90d" column="renewal_pct_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
               </tr>
             </thead>
             <tbody>

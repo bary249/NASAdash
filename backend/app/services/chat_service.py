@@ -184,6 +184,24 @@ class ChatService:
         if rev_lines:
             sections.append(f"ONLINE REVIEWS:\n{rev_lines}")
         
+        # Vacancy aging
+        vac_aging = property_data.get("vacancy_aging", {})
+        if vac_aging:
+            va_lines = ""
+            buckets = vac_aging.get("aging_buckets", {})
+            va_lines += f"- 1-30 days: {buckets.get('1_to_30_days', 0)} units\n"
+            va_lines += f"- 31-60 days: {buckets.get('31_to_60_days', 0)} units\n"
+            va_lines += f"- 61-90 days: {buckets.get('61_to_90_days', 0)} units\n"
+            va_lines += f"- Over 90 days: {buckets.get('over_90_days', 0)} units\n"
+            va_lines += f"- Average days vacant: {vac_aging.get('avg_days_vacant', 0)}\n"
+            va_lines += f"- Max days vacant: {vac_aging.get('max_days_vacant', 0)}\n"
+            longest = vac_aging.get("longest_vacant_units", [])
+            if longest:
+                va_lines += "- Longest vacant units:\n"
+                for u in longest:
+                    va_lines += f"  Unit {u['unit']}: {u['days_vacant']} days (floorplan: {u.get('floorplan', 'N/A')}, market rent: ${u.get('market_rent', 0):,.0f})\n"
+            sections.append(f"VACANCY AGING:\n{va_lines}")
+
         # Move-out reasons
         move_out = property_data.get("move_out_reasons", [])
         if move_out:
@@ -368,6 +386,19 @@ You can help with occupancy analysis, pricing insights, leasing funnel efficienc
             if review_parts:
                 lines.append(f"  Reviews: {' | '.join(review_parts)}")
             
+            # Vacancy aging
+            vac_aging = prop.get("vacancy_aging", {})
+            if vac_aging:
+                buckets = vac_aging.get("aging_buckets", {})
+                over90 = buckets.get("over_90_days", 0)
+                avg_dv = vac_aging.get("avg_days_vacant", 0)
+                max_dv = vac_aging.get("max_days_vacant", 0)
+                lines.append(f"  Vacancy Aging: 1-30d: {buckets.get('1_to_30_days', 0)}, 31-60d: {buckets.get('31_to_60_days', 0)}, 61-90d: {buckets.get('61_to_90_days', 0)}, 90+d: {over90} | avg {avg_dv} days, max {max_dv} days")
+                longest = vac_aging.get("longest_vacant_units", [])
+                if longest:
+                    top_units = [f"Unit {u['unit']} ({u['days_vacant']}d)" for u in longest[:3]]
+                    lines.append(f"  Longest Vacant: {', '.join(top_units)}")
+
             # Move-out reasons
             if move_out:
                 reasons = [f"{r['category']} ({r['count']})" for r in move_out[:3]]

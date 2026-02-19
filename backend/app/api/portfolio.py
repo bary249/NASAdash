@@ -964,6 +964,56 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                 except Exception:
                     pass
                 
+                # Vacancy aging summary
+                try:
+                    conn_va = sqlite3.connect(UNIFIED_DB_PATH)
+                    cur_va = conn_va.cursor()
+                    cur_va.execute("""
+                        SELECT
+                            COUNT(*) as total_vacant,
+                            SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 1 AND 30 THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 31 AND 60 THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 61 AND 90 THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN CAST(days_vacant AS INTEGER) > 90 THEN 1 ELSE 0 END),
+                            MAX(CAST(days_vacant AS INTEGER)),
+                            ROUND(AVG(CAST(days_vacant AS INTEGER)), 1)
+                        FROM unified_units
+                        WHERE unified_property_id = ?
+                          AND status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND days_vacant IS NOT NULL AND days_vacant != '' AND CAST(days_vacant AS INTEGER) > 0
+                    """, (prop_id,))
+                    va_row = cur_va.fetchone()
+                    cur_va.execute("""
+                        SELECT unit_number, CAST(days_vacant AS INTEGER) as dv, floorplan, market_rent
+                        FROM unified_units
+                        WHERE unified_property_id = ?
+                          AND status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND days_vacant IS NOT NULL AND days_vacant != '' AND CAST(days_vacant AS INTEGER) > 0
+                        ORDER BY dv DESC LIMIT 5
+                    """, (prop_id,))
+                    va_top = cur_va.fetchall()
+                    conn_va.close()
+                    if va_row and va_row[0] > 0:
+                        prop_entry["vacancy_aging"] = {
+                            "total_vacant_with_days": va_row[0],
+                            "aging_buckets": {
+                                "1_to_30_days": va_row[1] or 0,
+                                "31_to_60_days": va_row[2] or 0,
+                                "61_to_90_days": va_row[3] or 0,
+                                "over_90_days": va_row[4] or 0,
+                            },
+                            "max_days_vacant": va_row[5] or 0,
+                            "avg_days_vacant": va_row[6] or 0,
+                            "longest_vacant_units": [
+                                {"unit": r[0], "days_vacant": r[1], "floorplan": r[2], "market_rent": r[3]}
+                                for r in va_top
+                            ],
+                        }
+                except Exception:
+                    pass
+                
                 properties_data.append(prop_entry)
                 
                 # Accumulate for portfolio totals

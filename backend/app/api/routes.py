@@ -562,10 +562,18 @@ def get_projected_occupancy(property_id: str):
     GET: Projected occupancy at 30, 60, and 90 days.
     
     Formula: current_occupied + scheduled_move_ins - expected_move_outs
+    
+    Key insight: lease expirations WITHOUT a notice or renewal are projected
+    as "will give notice" (projected_notices) and counted as expected move-outs.
+    
     Sources:
     - Current: unified_occupancy_metrics
     - Move-ins: box_score preleased_vacant (already signed leases on vacant units)
-    - Move-outs: lease expirations not yet renewed (from unified_leases)
+    - Move-outs: unified_lease_expirations (Report 4156, has decision column)
+      - Renewed → stays (not a move-out)
+      - Vacating → confirmed move-out (already on notice)
+      - Unknown/MTM → projected as "will give notice" (projected_notices)
+    - Fallback: unified_leases (no decision breakdown)
     """
     import sqlite3
     
@@ -574,87 +582,122 @@ def get_projected_occupancy(property_id: str):
         normalized_id = property_id.replace("kairoi-", "").replace("-", "_")
     
     try:
-        # Get current occupancy from unified
-        uni_conn = sqlite3.connect(str(UNIFIED_DB_PATH))
-        uc = uni_conn.cursor()
-        uc.execute("""
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        c = conn.cursor()
+        
+        # Get current occupancy
+        c.execute("""
             SELECT total_units, occupied_units, preleased_vacant, notice_units, physical_occupancy
             FROM unified_occupancy_metrics
             WHERE unified_property_id = ? OR unified_property_id = ?
             ORDER BY snapshot_date DESC LIMIT 1
         """, (property_id, normalized_id))
-        occ = uc.fetchone()
-        uni_conn.close()
-        
+        occ = c.fetchone()
         if not occ:
+            conn.close()
             raise HTTPException(status_code=404, detail="No occupancy data found")
         
         total_units = occ[0] or 0
         occupied = occ[1] or 0
-        preleased_vacant = occ[2] or 0  # Signed leases not yet moved in
+        preleased_vacant = occ[2] or 0
         on_notice = occ[3] or 0
         current_occ_pct = occ[4] or 0
         
-        # Get lease expirations by period from unified_leases
-        expiring_30 = 0
-        expiring_60 = 0
-        expiring_90 = 0
-        renewed_30 = 0
-        renewed_60 = 0
-        renewed_90 = 0
-        
+        # Try Report 4156 (unified_lease_expirations) — has decision column
+        use_4156 = False
         try:
-            lc = sqlite3.connect(str(UNIFIED_DB_PATH))
-            lcc = lc.cursor()
-            date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
-            
-            for days, label in [(30, '30'), (60, '60'), (90, '90')]:
-                lcc.execute(f"""
-                    SELECT COUNT(*) as expiring,
-                           SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
-                    FROM unified_leases
-                    WHERE unified_property_id = ?
-                      AND status IN ('Current', 'Current - Past')
-                      AND lease_end IS NOT NULL AND lease_end != ''
-                      AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
-                """, (property_id,))
-                row = lcc.fetchone()
-                if row:
-                    if label == '30':
-                        expiring_30, renewed_30 = row[0] or 0, row[1] or 0
-                    elif label == '60':
-                        expiring_60, renewed_60 = row[0] or 0, row[1] or 0
-                    else:
-                        expiring_90, renewed_90 = row[0] or 0, row[1] or 0
-            
-            lc.close()
+            c.execute("""
+                SELECT COUNT(*) FROM unified_lease_expirations
+                WHERE unified_property_id = ? OR unified_property_id = ?
+            """, (property_id, normalized_id))
+            if (c.fetchone()[0] or 0) > 0:
+                use_4156 = True
         except Exception:
             pass
         
-        # Calculate projections
-        # Net move-outs = expiring leases that haven't renewed (approximation)
-        def project(days_label, expiring, renewed):
-            not_renewed = max(0, expiring - renewed)
-            # Assume preleased_vacant move in within 30 days
-            scheduled_in = preleased_vacant if days_label == '30' else preleased_vacant
-            projected_occupied = occupied + scheduled_in - not_renewed
-            projected_occupied = max(0, min(total_units, projected_occupied))
-            projected_pct = round(projected_occupied / total_units * 100, 1) if total_units > 0 else 0
-            return {
-                "period": f"{days_label}d",
-                "projected_occupied": projected_occupied,
-                "projected_occupancy_pct": projected_pct,
-                "scheduled_move_ins": scheduled_in,
-                "expiring_leases": expiring,
-                "renewed_leases": renewed,
-                "expected_move_outs": not_renewed,
-            }
+        projections = []
+        data_source = "lease_expirations_report" if use_4156 else "unified_leases"
         
-        projections = [
-            project('30', expiring_30, renewed_30),
-            project('60', expiring_60, renewed_60),
-            project('90', expiring_90, renewed_90),
-        ]
+        if use_4156:
+            date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
+            
+            for days, label in [(30, '30'), (60, '60'), (90, '90')]:
+                c.execute(f"""
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN decision = 'Renewed' THEN 1 ELSE 0 END) as renewed,
+                        SUM(CASE WHEN decision = 'Vacating' THEN 1 ELSE 0 END) as vacating,
+                        SUM(CASE WHEN decision IN ('Unknown', 'MTM') THEN 1 ELSE 0 END) as undecided,
+                        SUM(CASE WHEN decision = 'Moved out' THEN 1 ELSE 0 END) as moved_out
+                    FROM unified_lease_expirations
+                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                      AND lease_end_date IS NOT NULL AND lease_end_date != ''
+                      AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
+                """, (property_id, normalized_id))
+                row = c.fetchone()
+                total_exp = row[0] or 0
+                renewed = row[1] or 0
+                vacating = row[2] or 0
+                undecided = row[3] or 0  # Unknown + MTM = projected notices
+                moved_out = row[4] or 0
+                
+                # Expected move-outs = vacating (confirmed) + undecided (projected)
+                expected_outs = vacating + undecided
+                scheduled_in = preleased_vacant
+                projected_occupied = occupied + scheduled_in - expected_outs
+                projected_occupied = max(0, min(total_units, projected_occupied))
+                projected_pct = round(projected_occupied / total_units * 100, 1) if total_units > 0 else 0
+                
+                projections.append({
+                    "period": f"{label}d",
+                    "projected_occupied": projected_occupied,
+                    "projected_occupancy_pct": projected_pct,
+                    "scheduled_move_ins": scheduled_in,
+                    "expiring_leases": total_exp,
+                    "renewed_leases": renewed,
+                    "vacating": vacating,
+                    "projected_notices": undecided,
+                    "expected_move_outs": expected_outs,
+                    "moved_out": moved_out,
+                })
+        else:
+            # Fallback: unified_leases (no decision breakdown)
+            date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
+            
+            for days, label in [(30, '30'), (60, '60'), (90, '90')]:
+                c.execute(f"""
+                    SELECT COUNT(*) as expiring,
+                           SUM(CASE WHEN next_lease_id IS NOT NULL AND next_lease_id != '' THEN 1 ELSE 0 END) as renewed
+                    FROM unified_leases
+                    WHERE (unified_property_id = ? OR unified_property_id = ?)
+                      AND status IN ('Current', 'Current - Past')
+                      AND lease_end IS NOT NULL AND lease_end != ''
+                      AND {date_expr} BETWEEN date('now') AND date('now', '+{days} days')
+                """, (property_id, normalized_id))
+                row = c.fetchone()
+                expiring = row[0] or 0
+                renewed = row[1] or 0
+                not_renewed = max(0, expiring - renewed)
+                
+                scheduled_in = preleased_vacant
+                projected_occupied = occupied + scheduled_in - not_renewed
+                projected_occupied = max(0, min(total_units, projected_occupied))
+                projected_pct = round(projected_occupied / total_units * 100, 1) if total_units > 0 else 0
+                
+                projections.append({
+                    "period": f"{label}d",
+                    "projected_occupied": projected_occupied,
+                    "projected_occupancy_pct": projected_pct,
+                    "scheduled_move_ins": scheduled_in,
+                    "expiring_leases": expiring,
+                    "renewed_leases": renewed,
+                    "vacating": 0,
+                    "projected_notices": not_renewed,
+                    "expected_move_outs": not_renewed,
+                    "moved_out": 0,
+                })
+        
+        conn.close()
         
         return {
             "property_id": property_id,
@@ -664,6 +707,7 @@ def get_projected_occupancy(property_id: str):
             "preleased_vacant": preleased_vacant,
             "on_notice": on_notice,
             "projections": projections,
+            "data_source": data_source,
         }
     except HTTPException:
         raise
@@ -725,18 +769,18 @@ def get_availability(property_id: str):
                     THEN 1 ELSE 0 END) as bucket_vacant,
                 SUM(CASE WHEN occupancy_status = 'notice' 
                           AND (is_preleased IS NULL OR is_preleased != 1)
-                          AND on_notice_date IS NOT NULL AND on_notice_date != ''
-                          AND date(on_notice_date) <= date('now', '+30 days')
+                          AND lease_end IS NOT NULL AND lease_end != ''
+                          AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2)) <= date('now', '+30 days')
                     THEN 1 ELSE 0 END) as notice_0_30,
                 SUM(CASE WHEN occupancy_status = 'notice'
                           AND (is_preleased IS NULL OR is_preleased != 1)
-                          AND on_notice_date IS NOT NULL AND on_notice_date != ''
-                          AND date(on_notice_date) BETWEEN date('now', '+31 days') AND date('now', '+60 days')
+                          AND lease_end IS NOT NULL AND lease_end != ''
+                          AND date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2)) BETWEEN date('now', '+31 days') AND date('now', '+60 days')
                     THEN 1 ELSE 0 END) as notice_30_60,
                 SUM(CASE WHEN occupancy_status = 'notice'
                           AND (is_preleased IS NULL OR is_preleased != 1)
-                          AND (on_notice_date IS NULL OR on_notice_date = ''
-                               OR date(on_notice_date) > date('now', '+60 days'))
+                          AND (lease_end IS NULL OR lease_end = ''
+                               OR date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2)) > date('now', '+60 days'))
                     THEN 1 ELSE 0 END) as notice_60_plus,
                 SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units
             FROM unified_units
@@ -797,11 +841,31 @@ def get_availability(property_id: str):
                 ORDER BY week_ending ASC
                 LIMIT 7
             """, (property_id, normalized_id))
+            proj_rows = pcc.fetchall()
+            
+            # Pre-query projected notices (Unknown + MTM lease expirations) per week
+            # These are leases expiring where the resident hasn't decided — projected as future ATR
+            le_date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
+            projected_notices_by_week = []
+            for row in proj_rows:
+                week_end_str = row[0]  # MM/DD/YYYY
+                try:
+                    we_iso = f"{week_end_str[6:10]}-{week_end_str[0:2]}-{week_end_str[3:5]}"
+                    pcc.execute(f"""
+                        SELECT COUNT(*) FROM unified_lease_expirations
+                        WHERE (unified_property_id = ? OR unified_property_id = ?)
+                          AND decision IN ('Unknown', 'MTM')
+                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
+                          AND {le_date_expr} BETWEEN date('now') AND date(?)
+                    """, (property_id, normalized_id, we_iso))
+                    projected_notices_by_week.append(pcc.fetchone()[0] or 0)
+                except Exception:
+                    projected_notices_by_week.append(0)
             
             cumulative_move_outs = 0
             cumulative_move_ins = 0
             
-            for row in pcc.fetchall():
+            for i, row in enumerate(proj_rows):
                 week_end, t_units, occ_end, occ_pct, mi, mo = row
                 t_units = t_units or total_units
                 mi = mi or 0
@@ -814,7 +878,9 @@ def get_availability(property_id: str):
                 # subtract preleased units not yet moved in
                 remaining_notice = max(0, on_notice - cumulative_move_outs)
                 remaining_preleased = max(0, preleased - cumulative_move_ins)
-                week_atr = max(0, projected_unoccupied - down_units + remaining_notice - remaining_preleased)
+                # Add projected notices: undecided lease expirations up to this week
+                week_projected_notices = projected_notices_by_week[i] if i < len(projected_notices_by_week) else 0
+                week_atr = max(0, projected_unoccupied - down_units + remaining_notice - remaining_preleased + week_projected_notices)
                 week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
                 trend_weeks.append({
                     "week_ending": week_end,
@@ -829,6 +895,7 @@ def get_availability(property_id: str):
                         "down": down_units,
                         "remaining_notice": remaining_notice,
                         "remaining_preleased": remaining_preleased,
+                        "projected_notices": week_projected_notices,
                         "scheduled_move_ins": mi,
                         "scheduled_move_outs": mo,
                     },
@@ -1490,16 +1557,39 @@ async def get_submarkets():
 @router.get("/properties/{property_id}/location")
 def get_property_location(property_id: str):
     """GET: Property location for market comps submarket matching."""
+    # Known property coordinates for distance calculation
+    PROPERTY_COORDS = {
+        "parkside": (30.5083, -97.6789),      # Round Rock, TX
+        "nexus_east": (30.2672, -97.7431),     # Austin, TX
+        "ridian": (33.4484, -112.0740),        # Phoenix, AZ
+        "discovery_kingwood": (30.0736, -95.1813),  # Kingwood, TX
+        "izzy": (32.7767, -96.7970),           # Dallas, TX
+        "station_riverfront": (39.7531, -105.0002),  # Denver, CO
+        "the_hunter": (33.7490, -84.3880),     # Atlanta, GA
+        "the_northern": (33.4484, -112.0740),  # Phoenix, AZ
+        "aspire_7th_grant": (39.7392, -104.9903),  # Denver, CO
+        "edison_rino": (39.7653, -104.9708),   # Denver, CO
+        "the_avant": (30.2672, -97.7431),      # Austin, TX
+        "the_alcott": (39.7392, -104.9903),    # Denver, CO
+        "slate": (30.2672, -97.7431),          # Austin, TX
+        "heights_interlocken": (39.9281, -105.1338),  # Broomfield, CO
+    }
     try:
         properties = occupancy_service.get_property_list()
         prop = next((p for p in properties if p.id == property_id), None)
+        
+        coords = PROPERTY_COORDS.get(property_id)
+        lat = coords[0] if coords else None
+        lon = coords[1] if coords else None
         
         if prop:
             return {
                 "property_id": prop.id,
                 "name": prop.name,
                 "city": prop.city or "Santa Monica",
-                "state": prop.state or "CA"
+                "state": prop.state or "CA",
+                "latitude": lat,
+                "longitude": lon,
             }
         
         # Fallback if property not found
@@ -1507,7 +1597,9 @@ def get_property_location(property_id: str):
             "property_id": property_id,
             "name": property_id,
             "city": "Santa Monica",
-            "state": "CA"
+            "state": "CA",
+            "latitude": lat,
+            "longitude": lon,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1522,13 +1614,17 @@ async def get_market_comps(
     max_units: Optional[int] = Query(None, description="Maximum number of units"),
     min_year_built: Optional[int] = Query(None, description="Minimum year built"),
     max_year_built: Optional[int] = Query(None, description="Maximum year built"),
+    property_class: Optional[str] = Query(None, description="Property class: A, B, C, or D"),
+    max_distance: Optional[float] = Query(None, description="Maximum distance in miles from subject property"),
+    subject_lat: Optional[float] = Query(None, description="Subject property latitude for distance calc"),
+    subject_lon: Optional[float] = Query(None, description="Subject property longitude for distance calc"),
     amenities: Optional[str] = Query(None, description="Comma-separated amenities: pool,fitness,clubhouse,gated,parking,washer_dryer,pet_friendly")
 ):
     """
     GET: Market comparable properties from ALN with filters.
     
     Returns properties in the same submarket with average rents and occupancy.
-    Supports filtering by building size, year built, and amenities.
+    Supports filtering by building size, year built, class, distance, and amenities.
     """
     try:
         amenities_list = [a.strip() for a in amenities.split(",")] if amenities else None
@@ -1540,7 +1636,11 @@ async def get_market_comps(
             max_units=max_units,
             min_year_built=min_year_built,
             max_year_built=max_year_built,
-            amenities=amenities_list
+            property_class=property_class,
+            amenities=amenities_list,
+            subject_lat=subject_lat,
+            subject_lon=subject_lon,
+            max_distance=max_distance,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2146,13 +2246,14 @@ def get_consolidated_by_bedroom(property_id: str):
 
 
 @router.get("/properties/{property_id}/availability-by-floorplan/units")
-def get_availability_units(property_id: str, floorplan: str = None, status: str = None):
+def get_availability_units(property_id: str, floorplan: str = None, status: str = None, bucket: str = None):
     """
     GET: Unit-level drill-down for availability by floorplan.
     
     Query params:
     - floorplan: Filter to specific floorplan
     - status: Filter to status (vacant, notice, occupied, preleased)
+    - bucket: Filter by availability bucket (0_30, 30_60, 60_plus)
     """
     import sqlite3
     
@@ -2212,6 +2313,30 @@ def get_availability_units(property_id: str, floorplan: str = None, status: str 
             else:
                 where_extra += " AND u.status = ?"
                 params.append(status)
+        
+        if bucket:
+            # Bucket by lease_end (MM/DD/YYYY → ISO date for comparison)
+            _le = "date(substr(u.lease_end,7,4)||'-'||substr(u.lease_end,1,2)||'-'||substr(u.lease_end,4,2))"
+            if bucket == '0_30':
+                # Vacant (non-preleased, non-down) + notice units with lease_end within 30 days
+                where_extra += f""" AND (u.status IS NULL OR u.status != 'down') AND (
+                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
+                    OR (u.occupancy_status = 'notice' AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+                        AND u.lease_end IS NOT NULL AND u.lease_end != ''
+                        AND {_le} <= date('now', '+30 days'))
+                )"""
+            elif bucket == '30_60':
+                # Notice units with lease_end 31-60 days out
+                where_extra += f""" AND u.occupancy_status = 'notice'
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+                    AND u.lease_end IS NOT NULL AND u.lease_end != ''
+                    AND {_le} BETWEEN date('now', '+31 days') AND date('now', '+60 days')"""
+            elif bucket == '60_plus':
+                # Notice units with lease_end beyond 60 days or no lease_end
+                where_extra += f""" AND u.occupancy_status = 'notice'
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+                    AND (u.lease_end IS NULL OR u.lease_end = ''
+                         OR {_le} > date('now', '+60 days'))"""
         
         # Enriched query:
         # - actual_rent: prefer in_place_rent → lease_expirations → current lease → market_rent (vacant only)
@@ -2490,6 +2615,30 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
             except (ValueError, TypeError):
                 pass
         
+        # Projected notices from Report 4156 (Unknown + MTM decisions)
+        projected_notice_units = []
+        try:
+            cursor.execute("""
+                SELECT unit_number, lease_end_date, floorplan, actual_rent, decision
+                FROM unified_lease_expirations
+                WHERE unified_property_id = ?
+                  AND decision IN ('Unknown', 'MTM')
+                  AND lease_end_date IS NOT NULL AND lease_end_date != ''
+            """, (property_id,))
+            for unit_num, date_str, fp, rent, decision in cursor.fetchall():
+                try:
+                    dt = datetime.strptime(date_str, "%m/%d/%Y")
+                    if dt >= today:
+                        projected_notice_units.append({
+                            "unit": unit_num, "date": date_str, "floorplan": fp,
+                            "rent": rent, "type": f"projected_notice_{decision.lower()}",
+                            "decision": decision,
+                        })
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+        
         # ---- Try unified_projected_occupancy first ----
         has_projected = False
         try:
@@ -2543,6 +2692,7 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
                         pass
                 return count
             
+            cumulative_proj_notices = 0
             for w, prow in enumerate(proj_rows[:weeks]):
                 week_ending = prow[0]
                 report_move_ins = prow[4] or 0   # from Projected Occupancy report
@@ -2561,21 +2711,31 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
                 renewal_count = count_units_in_week(renewal_units, ws_dt, we_dt)
                 # Notice count from rent_roll for drill-through
                 notice_count = count_units_in_week(notice_units, ws_dt, we_dt)
+                # Projected notices: undecided lease expirations (Unknown + MTM) in this week
+                proj_notice_count = count_units_in_week(projected_notice_units, ws_dt, we_dt)
+                cumulative_proj_notices += proj_notice_count
                 # Move-ins & move-outs from report (matches projected occ progression)
                 rr_movein_count = count_units_in_week(move_in_units, ws_dt, we_dt)
                 movein_count = rr_movein_count if rr_movein_count > 0 else report_move_ins
-                # Net matches visible table columns (move_ins - notice_outs)
-                net_change = movein_count - notice_count
+                # Net = move_ins - (confirmed notice outs + projected notice outs)
+                total_outs = notice_count + proj_notice_count
+                net_change = movein_count - total_outs
+                
+                # Adjust projected_occupied: subtract cumulative projected notices
+                # RealPage doesn't know about undecided expirations — we project them as move-outs
+                adjusted_occupied = max(0, occupied_end - cumulative_proj_notices)
+                adjusted_pct = round(adjusted_occupied / total_units * 100, 1) if total_units > 0 else 0
                 
                 forecast.append({
                     "week": w + 1,
                     "week_start": week_start_str,
                     "week_end": week_end_str,
-                    "projected_occupied": occupied_end,
-                    "projected_occupancy_pct": round(pct_end, 1),
+                    "projected_occupied": adjusted_occupied,
+                    "projected_occupancy_pct": adjusted_pct,
                     "scheduled_move_ins": movein_count,
                     "scheduled_move_outs": report_move_outs,
                     "notice_move_outs": notice_count,
+                    "projected_notices": proj_notice_count,
                     "lease_expirations": expiry_count,
                     "renewals": renewal_count,
                     "net_expirations": expiry_count - renewal_count,
@@ -2593,6 +2753,7 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
                 "notice_units": notice_units,
                 "move_in_units": move_in_units,
                 "expiration_units": expiration_units,
+                "projected_notice_units": projected_notice_units,
                 "data_source": "projected_occupancy_report",
             }
         
@@ -3196,6 +3357,58 @@ async def chat_with_ai(
         except Exception:
             pass
         
+        # Vacancy aging summary
+        try:
+            import sqlite3 as _sqlite3v
+            _connv = _sqlite3v.connect(str(UNIFIED_DB_PATH))
+            _curv = _connv.cursor()
+            _curv.execute("""
+                SELECT
+                    COUNT(*) as total_vacant,
+                    SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 1 AND 30 THEN 1 ELSE 0 END) as d1_30,
+                    SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 31 AND 60 THEN 1 ELSE 0 END) as d31_60,
+                    SUM(CASE WHEN CAST(days_vacant AS INTEGER) BETWEEN 61 AND 90 THEN 1 ELSE 0 END) as d61_90,
+                    SUM(CASE WHEN CAST(days_vacant AS INTEGER) > 90 THEN 1 ELSE 0 END) as d90_plus,
+                    MAX(CAST(days_vacant AS INTEGER)) as max_days,
+                    ROUND(AVG(CAST(days_vacant AS INTEGER)), 1) as avg_days
+                FROM unified_units
+                WHERE unified_property_id = ?
+                  AND status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                  AND (is_preleased IS NULL OR is_preleased != 1)
+                  AND days_vacant IS NOT NULL AND days_vacant != '' AND CAST(days_vacant AS INTEGER) > 0
+            """, (property_id,))
+            _vr = _curv.fetchone()
+            # Also get the worst offenders (top 5 longest vacant)
+            _curv.execute("""
+                SELECT unit_number, CAST(days_vacant AS INTEGER) as dv, floorplan, market_rent
+                FROM unified_units
+                WHERE unified_property_id = ?
+                  AND status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                  AND (is_preleased IS NULL OR is_preleased != 1)
+                  AND days_vacant IS NOT NULL AND days_vacant != '' AND CAST(days_vacant AS INTEGER) > 0
+                ORDER BY dv DESC LIMIT 5
+            """, (property_id,))
+            _top = _curv.fetchall()
+            _connv.close()
+            if _vr and _vr[0] > 0:
+                property_data["vacancy_aging"] = {
+                    "total_vacant_with_days": _vr[0],
+                    "aging_buckets": {
+                        "1_to_30_days": _vr[1] or 0,
+                        "31_to_60_days": _vr[2] or 0,
+                        "61_to_90_days": _vr[3] or 0,
+                        "over_90_days": _vr[4] or 0,
+                    },
+                    "max_days_vacant": _vr[5] or 0,
+                    "avg_days_vacant": _vr[6] or 0,
+                    "longest_vacant_units": [
+                        {"unit": r[0], "days_vacant": r[1], "floorplan": r[2], "market_rent": r[3]}
+                        for r in _top
+                    ],
+                }
+        except Exception:
+            pass
+
         # Move-out reasons
         try:
             import sqlite3 as _sqlite3m

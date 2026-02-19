@@ -614,7 +614,7 @@ function AvailByFloorplanTable({ floorplans, onRowClick }: { floorplans: AvailFp
   );
 }
 
-interface ForecastWeek { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; net_change: number; lease_expirations: number; renewals: number; net_expirations: number }
+interface ForecastWeek { week: number; week_start: string; week_end: string; projected_occupied: number; projected_occupancy_pct: number; scheduled_move_ins: number; notice_move_outs: number; projected_notices: number; net_change: number; lease_expirations: number; renewals: number; net_expirations: number }
 
 function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (type: string, param?: string, start?: string, end?: string) => void }) {
   const { sorted, sortKey, sortDir, toggleSort } = useSortable(weeks);
@@ -627,6 +627,7 @@ function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (ty
           <SortHeader label="Occ%" column="projected_occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Move Ins" column="scheduled_move_ins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Notice Outs" column="notice_move_outs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Proj. NTV <InfoTooltip text="Projected Notices: lease expirations where the resident hasn't renewed or given notice yet. Projected as future move-outs." /></span></th>
           <SortHeader label="Net" column="net_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Expirations" column="lease_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Renewals" column="renewals" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
@@ -642,6 +643,7 @@ function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (ty
             <td className="py-2 pr-4 text-right">{w.projected_occupancy_pct}%</td>
             <td className={`py-2 pr-4 text-right ${w.scheduled_move_ins > 0 ? 'text-emerald-600 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.scheduled_move_ins > 0 ? () => onDrill('forecast_moveins', undefined, w.week_start, w.week_end) : undefined}>{w.scheduled_move_ins || '—'}</td>
             <td className={`py-2 pr-4 text-right ${w.notice_move_outs > 0 ? 'text-rose-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.notice_move_outs > 0 ? () => onDrill('forecast_notice', undefined, w.week_start, w.week_end) : undefined}>{w.notice_move_outs || '—'}</td>
+            <td className={`py-2 pr-4 text-right ${(w.projected_notices || 0) > 0 ? 'text-amber-500 font-medium cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={(w.projected_notices || 0) > 0 ? () => onDrill('forecast_projected_notices', undefined, w.week_start, w.week_end) : undefined}>{w.projected_notices || '—'}</td>
             <td className={`py-2 pr-4 text-right font-medium ${w.net_change > 0 ? 'text-emerald-600' : w.net_change < 0 ? 'text-rose-500' : 'text-slate-400'}`}>{w.net_change > 0 ? `+${w.net_change}` : w.net_change || '—'}</td>
             <td className={`py-2 pr-4 text-right ${w.lease_expirations > 0 ? 'text-amber-600 cursor-pointer underline decoration-dotted' : 'text-slate-400'}`} onClick={w.lease_expirations > 0 ? () => onDrill('forecast_expirations', undefined, w.week_start, w.week_end) : undefined}>{w.lease_expirations || '—'}</td>
             <td className={`py-2 pr-4 text-right ${w.renewals > 0 ? 'text-emerald-600 font-medium' : 'text-slate-400'}`}>{w.renewals || '—'}</td>
@@ -818,7 +820,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         const maxWeeks = Math.max(...valid.map((r: any) => r.forecast.length));
         const merged: any[] = [];
         for (let w = 0; w < maxWeeks; w++) {
-          const base: any = { week: w + 1, week_start: '', week_end: '', projected_occupied: 0, projected_occupancy_pct: 0, scheduled_move_ins: 0, scheduled_move_outs: 0, notice_move_outs: 0, lease_expirations: 0, renewals: 0, net_expirations: 0, net_change: 0 };
+          const base: any = { week: w + 1, week_start: '', week_end: '', projected_occupied: 0, projected_occupancy_pct: 0, scheduled_move_ins: 0, scheduled_move_outs: 0, notice_move_outs: 0, projected_notices: 0, lease_expirations: 0, renewals: 0, net_expirations: 0, net_change: 0 };
           let totalUnits = 0;
           for (const r of valid as any[]) {
             const fw = r.forecast[w];
@@ -828,6 +830,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             base.scheduled_move_ins += fw.scheduled_move_ins || 0;
             base.scheduled_move_outs += fw.scheduled_move_outs || 0;
             base.notice_move_outs += fw.notice_move_outs || 0;
+            base.projected_notices += fw.projected_notices || 0;
             base.lease_expirations += fw.lease_expirations || 0;
             base.renewals += fw.renewals || 0;
             base.net_expirations += fw.net_expirations || 0;
@@ -836,7 +839,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           }
           base.projected_occupancy_pct = totalUnits > 0 ? Math.round(base.projected_occupied / totalUnits * 1000) / 10 : 0;
           // Recalculate derived fields to match visible columns
-          base.net_change = base.scheduled_move_ins - base.notice_move_outs;
+          base.net_change = base.scheduled_move_ins - base.notice_move_outs - base.projected_notices;
           base.net_expirations = base.lease_expirations - base.renewals;
           merged.push(base);
         }
@@ -909,12 +912,32 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     { key: 'floorplan', label: 'Floorplan' },
     { key: 'status', label: 'Status' },
     { key: 'sqft', label: 'SqFt', format: (v: unknown) => v ? String(v) : '—' },
-    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
     { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown, row?: any) => {
       if (!v) return '—';
       const formatted = `$${Number(v).toLocaleString()}`;
       return row?.rent_is_estimated ? `~${formatted}` : formatted;
     }, cellClassName: (_v: unknown, row?: any) => row?.rent_is_estimated ? 'text-gray-400 italic' : 'text-gray-900' },
+    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
+    { key: 'rent_delta', label: 'Δ $', format: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return '—';
+      const delta = actual - market;
+      return `${delta >= 0 ? '+' : ''}$${delta.toLocaleString()}`;
+    }, cellClassName: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return 'text-gray-400';
+      return actual >= market ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium';
+    }},
+    { key: 'rent_delta_pct', label: 'Δ %', format: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return '—';
+      const pct = ((actual - market) / market) * 100;
+      return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+    }, cellClassName: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return 'text-gray-400';
+      return actual >= market ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium';
+    }},
     { key: 'lease_end', label: 'Lease End' },
     { key: 'days_vacant', label: 'Days Vacant', format: (v: unknown) => v != null ? `${v}d` : '—' },
   ];
@@ -926,12 +949,32 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     { key: 'floorplan', label: 'Floorplan' },
     { key: 'status', label: 'Status' },
     { key: 'sqft', label: 'SqFt', format: (v: unknown) => v ? String(v) : '—' },
-    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
     { key: 'actual_rent', label: 'Actual Rent', format: (v: unknown, row?: any) => {
       if (!v) return '—';
       const formatted = `$${Number(v).toLocaleString()}`;
       return row?.rent_is_estimated ? `~${formatted}` : formatted;
     }, cellClassName: (_v: unknown, row?: any) => row?.rent_is_estimated ? 'text-gray-400 italic' : 'text-gray-900' },
+    { key: 'market_rent', label: 'Market Rent', format: (v: unknown) => v ? `$${Number(v).toLocaleString()}` : '—' },
+    { key: 'rent_delta', label: 'Δ $', format: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return '—';
+      const delta = actual - market;
+      return `${delta >= 0 ? '+' : ''}$${delta.toLocaleString()}`;
+    }, cellClassName: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return 'text-gray-400';
+      return actual >= market ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium';
+    }},
+    { key: 'rent_delta_pct', label: 'Δ %', format: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return '—';
+      const pct = ((actual - market) / market) * 100;
+      return `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+    }, cellClassName: (_v: unknown, row?: any) => {
+      const actual = Number(row?.actual_rent); const market = Number(row?.market_rent);
+      if (!actual || !market) return 'text-gray-400';
+      return actual >= market ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium';
+    }},
     { key: 'lease_end', label: 'Lease End', format: (_v: unknown, row?: any) => {
       // Only show lease_end for occupied (NTVL) units
       if (row?.status === 'Occupied-NTVL') return row?.lease_end || '—';
@@ -1009,6 +1052,14 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           propertyIds.map(id => api.getAvailabilityUnits(id, param || undefined).catch(() => ({ units: [], count: 0 })))
         );
         setKpiDrillData(results.flatMap((r: any) => r.units || []));
+      } else if (type === 'availability_bucket') {
+        const bucketLabels: Record<string, string> = { '0_30': 'Available 0–30 Days', '30_60': 'Available 30–60 Days', '60_plus': 'Available 60+ Days' };
+        setKpiDrillTitle(bucketLabels[param || ''] || 'Availability Bucket');
+        setKpiDrillColumns(UNIT_COLUMNS);
+        const results = await Promise.all(
+          propertyIds.map(id => api.getAvailabilityUnits(id, undefined, undefined, param).catch(() => ({ units: [], count: 0 })))
+        );
+        setKpiDrillData(results.flatMap((r: any) => r.units || []));
       } else if (type === 'availability_status') {
         const label = param === 'notice' ? 'Notice Units' : param === 'vacant' ? 'Vacant Units' : param === 'preleased' ? 'Pre-leased Units' : `${param} Units`;
         setKpiDrillTitle(label);
@@ -1050,6 +1101,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         setKpiDrillTitle(`Scheduled Move-In Units${weekLabel}`);
         setKpiDrillData(units);
         setKpiDrillColumns(FORECAST_UNIT_COLUMNS);
+      } else if (type === 'forecast_projected_notices') {
+        setKpiDrillTitle(`Projected Notices (Undecided Expirations)${weekLabel}`);
+        setKpiDrillColumns(FORECAST_UNIT_COLUMNS);
+        setKpiDrillData(filterUnitsByWeek(forecast?.projected_notice_units || [], weekStart, weekEnd));
       } else if (type === 'forecast_expirations') {
         setKpiDrillTitle(`Lease Expirations${weekLabel}`);
         setKpiDrillColumns(FORECAST_UNIT_COLUMNS);
@@ -1300,7 +1355,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   value={atrData ? String(atrData.atr) : '—'}
                   subtitle={atrData ? `${atrData.atr_pct}% of ${atrData.total_units} units` : ''}
                   icon={<Home className="w-4 h-4" />}
-                  tooltip="Actual-To-Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
+                  tooltip="Available To Rent = Vacant + On Notice − Pre-leased. Represents the true number of units that need to be filled. Source: RealPage Box Score."
                   refreshing={isRefreshing}
                 />
               </div>

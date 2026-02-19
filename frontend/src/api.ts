@@ -217,6 +217,10 @@ export const api = {
       maxUnits?: number;
       minYearBuilt?: number;
       maxYearBuilt?: number;
+      propertyClass?: string;
+      maxDistance?: number;
+      subjectLat?: number;
+      subjectLon?: number;
       amenities?: string[];
     }
   ): Promise<MarketCompsResponse> => {
@@ -226,6 +230,10 @@ export const api = {
     if (filters?.maxUnits) params.set('max_units', String(filters.maxUnits));
     if (filters?.minYearBuilt) params.set('min_year_built', String(filters.minYearBuilt));
     if (filters?.maxYearBuilt) params.set('max_year_built', String(filters.maxYearBuilt));
+    if (filters?.propertyClass) params.set('property_class', filters.propertyClass);
+    if (filters?.maxDistance) params.set('max_distance', String(filters.maxDistance));
+    if (filters?.subjectLat) params.set('subject_lat', String(filters.subjectLat));
+    if (filters?.subjectLon) params.set('subject_lon', String(filters.subjectLon));
     if (filters?.amenities && filters.amenities.length > 0) {
       params.set('amenities', filters.amenities.join(','));
     }
@@ -334,13 +342,14 @@ export const api = {
     totals: { total: number; vacant: number; notice: number; vacant_leased: number; vacant_not_leased: number; occupied: number; model: number; down: number };
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/availability-by-floorplan`),
 
-  getAvailabilityUnits: (propertyId: string, floorplan?: string, status?: string): Promise<{
+  getAvailabilityUnits: (propertyId: string, floorplan?: string, status?: string, bucket?: string): Promise<{
     units: { unit: string; floorplan: string; status: string; sqft: number; market_rent: number; actual_rent: number; lease_start: string; lease_end: string; move_in: string; move_out: string }[];
     count: number;
   }> => {
     const params = new URLSearchParams();
     if (floorplan) params.set('floorplan', floorplan);
     if (status) params.set('status', status);
+    if (bucket) params.set('bucket', bucket);
     const q = params.toString();
     return fetchJson(`${API_BASE}/properties/${propertyId}/availability-by-floorplan/units${q ? `?${q}` : ''}`);
   },

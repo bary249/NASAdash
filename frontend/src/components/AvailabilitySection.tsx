@@ -51,6 +51,7 @@ interface TrendWeek {
     unoccupied?: number;
     remaining_notice?: number;
     remaining_preleased?: number;
+    projected_notices?: number;
     scheduled_move_ins?: number;
     scheduled_move_outs?: number;
   };
@@ -201,7 +202,7 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
   if (error || !data) {
     return (
       <div className="venn-section">
-        <SectionHeader title="Availability & ATR" icon={Home} />
+        <SectionHeader title="Available To Rent Analysis" icon={Home} />
         <div className="text-center py-8 text-slate-500">
           {error || 'No availability data available'}
         </div>
@@ -216,9 +217,9 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
   return (
     <div className="venn-section">
       <SectionHeader
-        title="Availability & ATR"
+        title="Available To Rent Analysis"
         icon={Home}
-        description="Actual-To-Rent = Vacant + On Notice − Pre-leased − Down"
+        description="Available To Rent = Vacant + On Notice − Pre-leased − Down"
       />
 
       {/* ATR Summary Cards */}
@@ -266,38 +267,54 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
       {/* Availability Buckets */}
       <div className="grid md:grid-cols-2 gap-6 mb-6">
         <div className="bg-slate-50 rounded-xl p-4">
-          <h4 className="text-sm font-semibold text-slate-700 mb-4">Availability Buckets</h4>
+          <h4 className="text-sm font-semibold text-slate-700 mb-1">Availability Buckets</h4>
+          <p className="text-[11px] text-slate-400 mb-4">When units will become available — vacant units (now) + notice units by expected move-out date</p>
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-600">0–30 Days</span>
-              <span className="text-sm font-semibold text-slate-800">{data.buckets.available_0_30} units</span>
-            </div>
-            <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-400 rounded-full transition-all duration-500"
-                style={{ width: `${data.total_units > 0 ? (data.buckets.available_0_30 / data.total_units * 100) : 0}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-sm text-slate-600">30–60 Days</span>
-              <span className="text-sm font-semibold text-slate-800">{data.buckets.available_30_60} units</span>
-            </div>
-            <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-orange-400 rounded-full transition-all duration-500"
-                style={{ width: `${data.total_units > 0 ? (data.buckets.available_30_60 / data.total_units * 100) : 0}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between mt-2">
-              <span className="text-sm text-slate-600">60+ Days</span>
-              <span className="text-sm font-semibold text-slate-800">{data.buckets.available_60_plus || 0} units</span>
-            </div>
-            <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-red-400 rounded-full transition-all duration-500"
-                style={{ width: `${data.total_units > 0 ? ((data.buckets.available_60_plus || 0) / data.total_units * 100) : 0}%` }}
-              />
-            </div>
+            <button
+              className="w-full text-left hover:bg-slate-100 rounded-lg px-2 py-1 -mx-2 transition-colors cursor-pointer"
+              onClick={() => onDrillThrough?.('availability_bucket', '0_30')}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-600">0–30 Days</span>
+                <span className="text-sm font-semibold text-slate-800">{data.buckets.available_0_30} units</span>
+              </div>
+              <div className="h-3 bg-slate-200 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-blue-400 rounded-full transition-all duration-500"
+                  style={{ width: `${data.total_units > 0 ? (data.buckets.available_0_30 / data.total_units * 100) : 0}%` }}
+                />
+              </div>
+            </button>
+            <button
+              className="w-full text-left hover:bg-slate-100 rounded-lg px-2 py-1 -mx-2 transition-colors cursor-pointer"
+              onClick={() => onDrillThrough?.('availability_bucket', '30_60')}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-600">30–60 Days</span>
+                <span className="text-sm font-semibold text-slate-800">{data.buckets.available_30_60} units</span>
+              </div>
+              <div className="h-3 bg-slate-200 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-orange-400 rounded-full transition-all duration-500"
+                  style={{ width: `${data.total_units > 0 ? (data.buckets.available_30_60 / data.total_units * 100) : 0}%` }}
+                />
+              </div>
+            </button>
+            <button
+              className="w-full text-left hover:bg-slate-100 rounded-lg px-2 py-1 -mx-2 transition-colors cursor-pointer"
+              onClick={() => onDrillThrough?.('availability_bucket', '60_plus')}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-600">60+ Days</span>
+                <span className="text-sm font-semibold text-slate-800">{data.buckets.available_60_plus || 0} units</span>
+              </div>
+              <div className="h-3 bg-slate-200 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-red-400 rounded-full transition-all duration-500"
+                  style={{ width: `${data.total_units > 0 ? ((data.buckets.available_60_plus || 0) / data.total_units * 100) : 0}%` }}
+                />
+              </div>
+            </button>
             <div className="flex items-center justify-between pt-2 border-t border-slate-200 mt-2">
               <span className="text-sm font-semibold text-slate-700">Total Availability</span>
               <span className="text-sm font-bold text-blue-700">{data.availability_pct}%</span>
@@ -343,16 +360,24 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
                       {isCurrent ? 'Today' : week.week_ending}
                     </span>
                     <div className="flex-1 min-w-0">
-                      {isCurrent && f ? (
+                      {f ? (
                         <div className="flex items-center gap-0.5 text-[10px] font-mono">
-                          <span className="text-slate-600">{f.vacant}</span>
+                          <span className="text-slate-600">{isCurrent ? f.vacant : f.unoccupied ?? 0}</span>
                           <span className="text-slate-400">v</span>
-                          <span className="text-slate-400 mx-0.5">+</span>
-                          <span className="text-amber-600">{f.on_notice}</span>
-                          <span className="text-slate-400">n</span>
-                          <span className="text-slate-400 mx-0.5">−</span>
-                          <span className="text-emerald-600">{f.preleased}</span>
-                          <span className="text-slate-400">p</span>
+                          {(isCurrent ? (f.on_notice || 0) : (f.remaining_notice ?? 0)) > 0 && (
+                            <>
+                              <span className="text-slate-400 mx-0.5">+</span>
+                              <span className="text-amber-600">{isCurrent ? f.on_notice : f.remaining_notice}</span>
+                              <span className="text-slate-400">n</span>
+                            </>
+                          )}
+                          {(isCurrent ? (f.preleased || 0) : (f.remaining_preleased ?? 0)) > 0 && (
+                            <>
+                              <span className="text-slate-400 mx-0.5">−</span>
+                              <span className="text-emerald-600">{isCurrent ? f.preleased : f.remaining_preleased}</span>
+                              <span className="text-slate-400">p</span>
+                            </>
+                          )}
                           {(f.down || 0) > 0 && (
                             <>
                               <span className="text-slate-400 mx-0.5">−</span>
@@ -360,21 +385,13 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
                               <span className="text-slate-400">d</span>
                             </>
                           )}
-                        </div>
-                      ) : f ? (
-                        <div className="flex items-center gap-1">
-                          <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${
-                                week.atr_pct > data.atr_pct + 2 ? 'bg-red-400' :
-                                week.atr_pct < data.atr_pct - 2 ? 'bg-emerald-400' : 'bg-blue-400'
-                              }`}
-                              style={{ width: `${maxAtr > 0 ? (week.atr / maxAtr * 100) : 0}%` }}
-                            />
-                          </div>
-                          <span className="text-[9px] text-slate-400 shrink-0 font-mono" title={`unoccupied:${f.unoccupied ?? 0} +notice:${f.remaining_notice ?? 0} -preleased:${f.remaining_preleased ?? 0} -down:${f.down ?? 0}`}>
-                            {(f.remaining_notice ?? 0) > 0 ? `+${f.remaining_notice}n ` : ''}{(f.remaining_preleased ?? 0) > 0 ? `−${f.remaining_preleased}p` : ''}
-                          </span>
+                          {(f.projected_notices || 0) > 0 && (
+                            <>
+                              <span className="text-slate-400 mx-0.5">+</span>
+                              <span className="text-amber-500">{f.projected_notices}</span>
+                              <span className="text-slate-400">pn</span>
+                            </>
+                          )}
                         </div>
                       ) : (
                         <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
@@ -398,8 +415,7 @@ export function AvailabilitySection({ propertyId, propertyIds, onDrillThrough }:
               })}
               {/* Legend */}
               <div className="flex items-center gap-3 pt-2 border-t border-slate-200 mt-1">
-                <span className="text-[9px] text-slate-400">v=vacant n=notice p=preleased d=down</span>
-                <span className="text-[9px] text-slate-400 ml-auto">Projected: unoccupied+remaining n−remaining p−d</span>
+                <span className="text-[9px] text-slate-400">v=vacant n=notice p=preleased d=down pn=projected notices</span>
               </div>
             </div>
           ) : (

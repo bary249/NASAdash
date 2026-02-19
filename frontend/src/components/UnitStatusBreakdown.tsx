@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { BarChart3, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { BarChart3, ChevronDown, ChevronRight, ChevronUp, Info } from 'lucide-react';
 import { api } from '../api';
 
 interface StatusRow {
@@ -71,6 +71,13 @@ export function UnitStatusBreakdown({ propertyId, propertyIds, onDrillThrough }:
   const [data, setData] = useState<BreakdownData | null>(null);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [sortKey, setSortKey] = useState<'label' | 'count' | 'pct'>('count');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (key: 'label' | 'count' | 'pct') => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir(key === 'label' ? 'asc' : 'desc'); }
+  };
 
   useEffect(() => {
     if (!propertyId && (!propertyIds || propertyIds.length === 0)) return;
@@ -140,6 +147,19 @@ export function UnitStatusBreakdown({ propertyId, propertyIds, onDrillThrough }:
       .finally(() => setLoading(false));
   }, [propertyId, propertyIds]);
 
+  const sortedStatuses = useMemo(() => {
+    if (!data) return [];
+    const sorted = [...data.statuses];
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'label') cmp = a.label.localeCompare(b.label);
+      else if (sortKey === 'count') cmp = a.count - b.count;
+      else cmp = a.pct - b.pct;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return sorted;
+  }, [data, sortKey, sortDir]);
+
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-6 mt-6 animate-pulse">
@@ -193,14 +213,14 @@ export function UnitStatusBreakdown({ propertyId, propertyIds, onDrillThrough }:
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase">
-                    <th className="text-left py-2 pr-4">Status</th>
-                    <th className="text-right py-2 px-3">Units</th>
-                    <th className="text-right py-2 px-3">%</th>
+                    <SortTh label="Status" column="label" align="left" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="pr-4" />
+                    <SortTh label="Units" column="count" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-3" />
+                    <SortTh label="%" column="pct" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-3" />
                     <th className="py-2 pl-3 w-32"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {statuses.map(s => {
+                  {sortedStatuses.map(s => {
                     const drillKey = STATUS_DRILL_MAP[s.label];
                     return (
                       <tr
@@ -315,6 +335,33 @@ export function UnitStatusBreakdown({ propertyId, propertyIds, onDrillThrough }:
         </div>
       )}
     </div>
+  );
+}
+
+function SortTh({ label, column, align, sortKey, sortDir, onSort, className }: {
+  label: string;
+  column: 'label' | 'count' | 'pct';
+  align: 'left' | 'right';
+  sortKey: string;
+  sortDir: 'asc' | 'desc';
+  onSort: (key: 'label' | 'count' | 'pct') => void;
+  className?: string;
+}) {
+  const active = sortKey === column;
+  return (
+    <th
+      className={`py-2 ${className || ''} ${align === 'right' ? 'text-right' : 'text-left'} cursor-pointer select-none hover:text-slate-700 transition-colors`}
+      onClick={() => onSort(column)}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}
+        {active ? (
+          sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronDown className="w-3 h-3 opacity-0 group-hover:opacity-30" />
+        )}
+      </span>
+    </th>
   );
 }
 

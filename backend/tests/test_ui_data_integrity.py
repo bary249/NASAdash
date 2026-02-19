@@ -1852,7 +1852,7 @@ class TestMultiPropForecastAndAvailability:
     """Multi-property forecast NET calculation and availability drill-through."""
 
     def test_forecast_net_equals_move_ins_minus_notice_outs(self, first_property):
-        """Forecast NET must equal scheduled_move_ins - notice_move_outs for every week."""
+        """Forecast NET must equal scheduled_move_ins - notice_move_outs - projected_notices for every week."""
         r = requests.get(f"{API}/{first_property}/occupancy-forecast?weeks=12", timeout=30)
         if r.status_code != 200:
             pytest.skip("No forecast data")
@@ -1861,14 +1861,15 @@ class TestMultiPropForecastAndAvailability:
         for w in data.get("forecast", []):
             mi = w.get("scheduled_move_ins", 0)
             nmo = w.get("notice_move_outs", 0)
+            pn = w.get("projected_notices", 0)
             nc = w.get("net_change")
-            expected = mi - nmo
+            expected = mi - nmo - pn
             if nc != expected:
-                errors.append(f"Wk{w['week']}: net_change={nc} != move_ins({mi}) - notice_outs({nmo}) = {expected}")
+                errors.append(f"Wk{w['week']}: net_change={nc} != move_ins({mi}) - notice_outs({nmo}) - proj_notices({pn}) = {expected}")
         assert not errors, "Forecast NET mismatch:\n" + "\n".join(errors)
 
     def test_forecast_net_all_properties(self, property_ids):
-        """NET = move_ins - notice_outs for every property's forecast."""
+        """NET = move_ins - notice_outs - projected_notices for every property's forecast."""
         errors = []
         for pid in property_ids:
             r = requests.get(f"{API}/{pid}/occupancy-forecast?weeks=4", timeout=30)
@@ -1877,9 +1878,11 @@ class TestMultiPropForecastAndAvailability:
             for w in r.json().get("forecast", []):
                 mi = w.get("scheduled_move_ins", 0)
                 nmo = w.get("notice_move_outs", 0)
+                pn = w.get("projected_notices", 0)
                 nc = w.get("net_change")
-                if nc != mi - nmo:
-                    errors.append(f"{pid} Wk{w['week']}: net={nc} != {mi}-{nmo}={mi-nmo}")
+                expected = mi - nmo - pn
+                if nc != expected:
+                    errors.append(f"{pid} Wk{w['week']}: net={nc} != {mi}-{nmo}-{pn}={expected}")
         assert not errors, "Forecast NET mismatch across properties:\n" + "\n".join(errors)
 
     def test_multi_prop_forecast_sums(self, multi_property_ids):
@@ -1897,10 +1900,11 @@ class TestMultiPropForecastAndAvailability:
         for w in range(max_weeks):
             total_mi = sum(f["forecast"][w].get("scheduled_move_ins", 0) for f in forecasts)
             total_nmo = sum(f["forecast"][w].get("notice_move_outs", 0) for f in forecasts)
-            expected_net = total_mi - total_nmo
+            total_pn = sum(f["forecast"][w].get("projected_notices", 0) for f in forecasts)
+            expected_net = total_mi - total_nmo - total_pn
             total_net = sum(f["forecast"][w].get("net_change", 0) for f in forecasts)
             if total_net != expected_net:
-                errors.append(f"Wk{w+1}: summed net={total_net} != summed ins({total_mi})-outs({total_nmo})={expected_net}")
+                errors.append(f"Wk{w+1}: summed net={total_net} != summed ins({total_mi})-outs({total_nmo})-proj({total_pn})={expected_net}")
         assert not errors, "Multi-prop forecast sum mismatch:\n" + "\n".join(errors)
 
     def test_availability_drill_count_matches_table(self, multi_property_ids):

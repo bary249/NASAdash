@@ -240,12 +240,16 @@ export interface MarketComp {
   state: string;
   num_units: number;
   year_built?: number;
+  property_class?: string;  // A, B, C, D
   occupancy?: number;
   average_rent?: number;
   studio_rent?: number;
   one_bed_rent?: number;
   two_bed_rent?: number;
   three_bed_rent?: number;
+  latitude?: number;
+  longitude?: number;
+  distance_miles?: number;
 }
 
 export interface MarketCompsResponse {

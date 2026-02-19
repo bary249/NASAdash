@@ -15,6 +15,11 @@ interface MarketCompRow {
   oneBedRent?: number;
   twoBedRent?: number;
   threeBedRent?: number;
+  numUnits?: number;
+  yearBuilt?: number;
+  propertyClass?: string;
+  occupancy?: number;
+  distanceMiles?: number;
   isSubject?: boolean;
 }
 
@@ -38,6 +43,16 @@ const BEDROOM_OPTIONS = [
   { value: '3br', label: '3 BR' },
 ];
 
+const CLASS_OPTIONS = ['A', 'B', 'C', 'D'];
+const DISTANCE_OPTIONS = [
+  { value: 0, label: 'Any' },
+  { value: 1, label: '1 mi' },
+  { value: 3, label: '3 mi' },
+  { value: 5, label: '5 mi' },
+  { value: 10, label: '10 mi' },
+  { value: 25, label: '25 mi' },
+];
+
 export function MarketCompsTable({ comps: initialComps, subjectProperty, propertyId, onSubmarketChange, onBedroomFilterChange }: MarketCompsTableProps) {
   const [selectedBedrooms, setSelectedBedrooms] = useState<string[]>(['studio', '1br', '2br', '3br']);
   const [showFilters, setShowFilters] = useState(false);
@@ -46,8 +61,15 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
   // Location/submarket state
   const [submarkets, setSubmarkets] = useState<Submarket[]>([]);
   const [selectedSubmarket, setSelectedSubmarket] = useState('');
-  const [propertyLocation, setPropertyLocation] = useState<{ city: string; state: string } | null>(null);
+  const [propertyLocation, setPropertyLocation] = useState<{ city: string; state: string; latitude?: number; longitude?: number } | null>(null);
   const [loadingSubmarkets, setLoadingSubmarkets] = useState(true);
+  
+  // Filters
+  const [minYearBuilt, setMinYearBuilt] = useState<number | undefined>(undefined);
+  const [maxYearBuilt, setMaxYearBuilt] = useState<number | undefined>(undefined);
+  const [selectedClass, setSelectedClass] = useState<string>('');
+  const [maxDistance, setMaxDistance] = useState<number>(0);
+  const [filterVersion, setFilterVersion] = useState(0); // bump to trigger refetch
   
   // Comps data - managed internally, fetched when submarket changes
   const [comps, setComps] = useState<MarketCompRow[]>(initialComps);
@@ -96,12 +118,12 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
       });
   }, []);
 
-  // Load property location
+  // Load property location (with lat/lon from unified_properties)
   useEffect(() => {
     if (!propertyId) return;
     api.getPropertyLocation(propertyId)
       .then(loc => {
-        setPropertyLocation({ city: loc.city, state: loc.state });
+        setPropertyLocation({ city: loc.city, state: loc.state, latitude: (loc as any).latitude, longitude: (loc as any).longitude });
         // Auto-select matching submarket
         const match = submarkets.find(s => 
           s.name.toLowerCase().includes(loc.city.toLowerCase())
@@ -111,12 +133,22 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
       .catch(() => {});
   }, [propertyId, submarkets]);
 
-  // Fetch comps when submarket changes
+  // Fetch comps when submarket or filters change
   useEffect(() => {
     if (!selectedSubmarket) return;
     
     setLoadingComps(true);
-    api.getMarketComps(selectedSubmarket, subjectProperty, 10)
+    const filters: Record<string, any> = {};
+    if (minYearBuilt) filters.minYearBuilt = minYearBuilt;
+    if (maxYearBuilt) filters.maxYearBuilt = maxYearBuilt;
+    if (selectedClass) filters.propertyClass = selectedClass;
+    if (maxDistance > 0 && propertyLocation?.latitude && propertyLocation?.longitude) {
+      filters.maxDistance = maxDistance;
+      filters.subjectLat = propertyLocation.latitude;
+      filters.subjectLon = propertyLocation.longitude;
+    }
+    
+    api.getMarketComps(selectedSubmarket, subjectProperty, 20, filters)
       .then(result => {
         const mappedComps = result.comps.map(c => ({
           name: c.property_name,
@@ -124,6 +156,11 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
           oneBedRent: c.one_bed_rent,
           twoBedRent: c.two_bed_rent,
           threeBedRent: c.three_bed_rent,
+          numUnits: c.num_units,
+          yearBuilt: c.year_built,
+          propertyClass: c.property_class,
+          occupancy: c.occupancy,
+          distanceMiles: c.distance_miles,
           isSubject: c.property_name === subjectProperty,
         }));
         setComps(mappedComps);
@@ -133,7 +170,17 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
         setComps(initialComps);
         setLoadingComps(false);
       });
-  }, [selectedSubmarket, subjectProperty]);
+  }, [selectedSubmarket, subjectProperty, filterVersion]);
+
+  const applyFilters = () => setFilterVersion(v => v + 1);
+  const clearFilters = () => {
+    setMinYearBuilt(undefined);
+    setMaxYearBuilt(undefined);
+    setSelectedClass('');
+    setMaxDistance(0);
+    setFilterVersion(v => v + 1);
+  };
+  const activeFilterCount = [minYearBuilt, maxYearBuilt, selectedClass || undefined, maxDistance || undefined].filter(Boolean).length;
 
   const handleSubmarketChange = (submarket: string) => {
     setSelectedSubmarket(submarket);
@@ -220,11 +267,14 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
-              showFilters ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
+              showFilters || activeFilterCount > 0 ? 'bg-indigo-100 text-indigo-700' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
             <Filter className="w-3.5 h-3.5" />
             Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 text-[10px] bg-indigo-600 text-white rounded-full">{activeFilterCount}</span>
+            )}
           </button>
         </div>
 
@@ -264,25 +314,63 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
 
         {/* Filter panel */}
         {showFilters && (
-          <div className="mt-3 pt-3 border-t border-slate-200 flex flex-wrap gap-4">
-            {/* Bedroom filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">Bedrooms:</span>
-              <div className="flex gap-1">
-                {BEDROOM_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => toggleBedroom(opt.value)}
-                    className={`px-2 py-1 text-xs rounded-md transition-colors ${
-                      selectedBedrooms.includes(opt.value) 
-                        ? 'bg-indigo-600 text-white' 
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+          <div className="mt-3 pt-3 border-t border-slate-200 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {/* Year Built */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase mb-1">Built After</label>
+                <input type="number" placeholder="e.g. 2010" value={minYearBuilt ?? ''}
+                  onChange={e => setMinYearBuilt(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500"
+                />
               </div>
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase mb-1">Built Before</label>
+                <input type="number" placeholder="e.g. 2024" value={maxYearBuilt ?? ''}
+                  onChange={e => setMaxYearBuilt(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              {/* Class */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase mb-1">Class</label>
+                <div className="flex gap-1">
+                  {CLASS_OPTIONS.map(cls => (
+                    <button key={cls} onClick={() => setSelectedClass(selectedClass === cls ? '' : cls)}
+                      className={`px-2.5 py-1.5 text-xs rounded-md transition-colors font-medium ${
+                        selectedClass === cls ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}>{cls}</button>
+                  ))}
+                </div>
+              </div>
+              {/* Distance */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase mb-1">Max Distance</label>
+                <select value={maxDistance} onChange={e => setMaxDistance(Number(e.target.value))}
+                  className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500">
+                  {DISTANCE_OPTIONS.map(d => (
+                    <option key={d.value} value={d.value}>{d.label}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Bedrooms */}
+              <div>
+                <label className="block text-[10px] font-medium text-slate-500 uppercase mb-1">Bedrooms</label>
+                <div className="flex gap-1">
+                  {BEDROOM_OPTIONS.map(opt => (
+                    <button key={opt.value} onClick={() => toggleBedroom(opt.value)}
+                      className={`px-2 py-1.5 text-xs rounded-md transition-colors ${
+                        selectedBedrooms.includes(opt.value) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}>{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={applyFilters}
+                className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors">Apply</button>
+              <button onClick={clearFilters}
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">Clear</button>
             </div>
           </div>
         )}
@@ -299,10 +387,15 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
           <thead>
             <tr className="border-b border-slate-100">
               <SortHeader label="Property" column="name" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} />
-              <SortHeader label="Studio" column="studioRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
-              <SortHeader label="1BR" column="oneBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
-              <SortHeader label="2BR" column="twoBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
-              <SortHeader label="3BR" column="threeBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="Units" column="numUnits" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="Year" column="yearBuilt" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              <SortHeader label="Class" column="propertyClass" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="center" />
+              <SortHeader label="Occ%" column="occupancy" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
+              {selectedBedrooms.includes('studio') && <SortHeader label="Studio" column="studioRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />}
+              {selectedBedrooms.includes('1br') && <SortHeader label="1BR" column="oneBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />}
+              {selectedBedrooms.includes('2br') && <SortHeader label="2BR" column="twoBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />}
+              {selectedBedrooms.includes('3br') && <SortHeader label="3BR" column="threeBedRent" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />}
+              <SortHeader label="Dist." column="distanceMiles" sortKey={compSortKey} sortDir={compSortDir} onSort={toggleCompSort} align="right" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
@@ -330,21 +423,47 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-2.5 text-right font-medium text-slate-700">
-                  {formatCurrency(comp.studioRent)}
-                  {comp.isSubject && getDeltaIndicator(comp.studioRent, avgStudio)}
+                <td className="px-4 py-2.5 text-right text-slate-600">{comp.numUnits ?? '—'}</td>
+                <td className="px-4 py-2.5 text-right text-slate-600">{comp.yearBuilt ?? '—'}</td>
+                <td className="px-4 py-2.5 text-center">
+                  {comp.propertyClass ? (
+                    <span className={`inline-block px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                      comp.propertyClass === 'A' ? 'bg-emerald-100 text-emerald-700' :
+                      comp.propertyClass === 'B' ? 'bg-blue-100 text-blue-700' :
+                      comp.propertyClass === 'C' ? 'bg-amber-100 text-amber-700' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>{comp.propertyClass}</span>
+                  ) : '—'}
                 </td>
-                <td className="px-4 py-2.5 text-right font-medium text-slate-700">
-                  {formatCurrency(comp.oneBedRent)}
-                  {comp.isSubject && getDeltaIndicator(comp.oneBedRent, avgOneBed)}
+                <td className="px-4 py-2.5 text-right text-slate-600">
+                  {comp.occupancy ? `${comp.occupancy.toFixed(1)}%` : '—'}
                 </td>
-                <td className="px-4 py-2.5 text-right font-medium text-slate-700">
-                  {formatCurrency(comp.twoBedRent)}
-                  {comp.isSubject && getDeltaIndicator(comp.twoBedRent, avgTwoBed)}
-                </td>
-                <td className="px-4 py-2.5 text-right font-medium text-slate-700">
-                  {formatCurrency(comp.threeBedRent)}
-                  {comp.isSubject && getDeltaIndicator(comp.threeBedRent, avgThreeBed)}
+                {selectedBedrooms.includes('studio') && (
+                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                    {formatCurrency(comp.studioRent)}
+                    {comp.isSubject && getDeltaIndicator(comp.studioRent, avgStudio)}
+                  </td>
+                )}
+                {selectedBedrooms.includes('1br') && (
+                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                    {formatCurrency(comp.oneBedRent)}
+                    {comp.isSubject && getDeltaIndicator(comp.oneBedRent, avgOneBed)}
+                  </td>
+                )}
+                {selectedBedrooms.includes('2br') && (
+                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                    {formatCurrency(comp.twoBedRent)}
+                    {comp.isSubject && getDeltaIndicator(comp.twoBedRent, avgTwoBed)}
+                  </td>
+                )}
+                {selectedBedrooms.includes('3br') && (
+                  <td className="px-4 py-2.5 text-right font-medium text-slate-700">
+                    {formatCurrency(comp.threeBedRent)}
+                    {comp.isSubject && getDeltaIndicator(comp.threeBedRent, avgThreeBed)}
+                  </td>
+                )}
+                <td className="px-4 py-2.5 text-right text-slate-500 text-xs">
+                  {comp.distanceMiles != null ? `${comp.distanceMiles} mi` : '—'}
                 </td>
               </tr>
             ))}

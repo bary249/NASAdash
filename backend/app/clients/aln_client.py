@@ -31,6 +31,7 @@ class ALNClient:
         max_units: Optional[int] = None,
         min_year_built: Optional[int] = None,
         max_year_built: Optional[int] = None,
+        property_class: Optional[str] = None,
         amenities: Optional[list] = None
     ) -> dict:
         """
@@ -50,6 +51,8 @@ class ALNClient:
             filters.append(f"Property/YearBuilt ge {min_year_built}")
         if max_year_built:
             filters.append(f"Property/YearBuilt le {max_year_built}")
+        if property_class:
+            filters.append(f"Property/Class eq '{property_class}'")
         
         # Amenity filters - ALN uses specific boolean fields
         if amenities:
@@ -69,7 +72,7 @@ class ALNClient:
         params = {
             "apikey": self.api_key,
             "$top": top,
-            "$expand": "PhoneNumbers,Addresses"
+            "$expand": "PhoneNumbers,Addresses,FloorPlans($select=Bedrooms,Rent)"
         }
         
         if filters:

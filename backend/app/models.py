@@ -220,12 +220,16 @@ class MarketComp(BaseModel):
     state: str
     num_units: int
     year_built: Optional[int] = None
+    property_class: Optional[str] = None  # A, B, C, D
     occupancy: Optional[float] = None
     average_rent: Optional[float] = None
     studio_rent: Optional[float] = None
     one_bed_rent: Optional[float] = None
     two_bed_rent: Optional[float] = None
     three_bed_rent: Optional[float] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    distance_miles: Optional[float] = None  # Distance from subject property
 
 
 class MarketCompsResponse(BaseModel):

@@ -404,6 +404,18 @@ CREATE TABLE IF NOT EXISTS realpage_box_score (
     UNIQUE(property_id, report_date, floorplan)
 );
 
+-- Floorplan Bedrooms Lookup - Derived from box_score floorplan_group (e.g. "2x2")
+CREATE TABLE IF NOT EXISTS realpage_floorplan_bedrooms (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    property_id TEXT NOT NULL,
+    floorplan TEXT NOT NULL,
+    bedrooms INTEGER NOT NULL,
+    bathrooms REAL NOT NULL,
+    floorplan_group TEXT,
+    derived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(property_id, floorplan)
+);
+
 -- Rent Roll Report - Unit-level current status
 CREATE TABLE IF NOT EXISTS realpage_rent_roll (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

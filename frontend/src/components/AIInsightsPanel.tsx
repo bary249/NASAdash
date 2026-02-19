@@ -103,8 +103,9 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
     try {
       const result = await api.sendChatMessage(pid, question, []);
       return result.response || 'No answer available.';
-    } catch {
-      return 'Failed to recalculate answer.';
+    } catch (err) {
+      console.error('[AI-Insights] Failed to recalculate saved answer:', err);
+      return '';
     }
   }, []);
 
@@ -121,7 +122,7 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
 
       const results = await Promise.all(fetchIds.map(id =>
         refresh
-          ? fetch(`/api/v2/properties/${id}/ai-insights?refresh=1`).then(r => r.json()).catch(() => null)
+          ? api.refreshAIInsights(id).catch(() => null)
           : api.getAIInsights(id).catch(() => null)
       ));
       const valid = results.filter(Boolean) as Array<{ property_name?: string; alerts?: { severity: string; title: string; fact: string; risk: string; action: string }[]; qna?: { question: string; answer: string }[]; error?: string }>;
@@ -153,6 +154,15 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
       // Load saved questions — use cached answers on normal load, only re-call LLM on refresh
       const savedQs = loadSavedQuestions();
       const cachedAnswers = loadSavedAnswers();
+      // Purge stale error messages from cache so they get retried
+      let cacheWasCleaned = false;
+      for (const k of Object.keys(cachedAnswers)) {
+        if (cachedAnswers[k] === 'Failed to recalculate answer.' || cachedAnswers[k] === '') {
+          delete cachedAnswers[k];
+          cacheWasCleaned = true;
+        }
+      }
+      if (cacheWasCleaned) saveSavedAnswers(cachedAnswers);
       const needsRecalc = refresh ? savedQs : savedQs.filter(q => !cachedAnswers[q]);
       const savedQna: QnA[] = savedQs.map(q => ({
         question: q,
@@ -168,9 +178,9 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
       if (needsRecalc.length > 0) {
         const primaryId = effectiveIds[0];
         const answers = await Promise.all(needsRecalc.map(q => recalcSavedAnswer(q, primaryId)));
-        // Update cached answers
+        // Update cached answers — only cache successful ones
         const updatedCache = { ...cachedAnswers };
-        needsRecalc.forEach((q, i) => { updatedCache[q] = answers[i]; });
+        needsRecalc.forEach((q, i) => { if (answers[i]) updatedCache[q] = answers[i]; });
         saveSavedAnswers(updatedCache);
         setQna(prev => prev.map(item => {
           if (!item.saved) return item;
@@ -341,8 +351,10 @@ export function AIInsightsPanel({ propertyId, propertyIds }: AIInsightsPanelProp
                           <Loader2 className="w-3 h-3 animate-spin" />
                           Recalculating answer...
                         </div>
-                      ) : (
+                      ) : item.answer ? (
                         <p className="text-[11px] text-slate-700 leading-relaxed whitespace-pre-wrap">{item.answer}</p>
+                      ) : (
+                        <p className="text-[11px] text-slate-400 italic">Answer unavailable — click refresh to retry</p>
                       )}
                     </div>
                   )}

@@ -129,11 +129,12 @@ class TestAvailability:
     """Availability buckets, ATR math, and drill-through counts."""
 
     def test_atr_formula(self, first_property):
-        """ATR = vacant + on_notice - preleased."""
+        """ATR = vacant + on_notice - preleased - down_units."""
         avail = _get(f"{API}/{first_property}/availability")
-        expected_atr = avail["vacant"] + avail["on_notice"] - avail["preleased"]
+        down = avail.get("down_units", 0)
+        expected_atr = avail["vacant"] + avail["on_notice"] - avail["preleased"] - down
         assert avail["atr"] == expected_atr, \
-            f"ATR mismatch: {avail['atr']} != {avail['vacant']}+{avail['on_notice']}-{avail['preleased']}={expected_atr}"
+            f"ATR mismatch: {avail['atr']} != {avail['vacant']}+{avail['on_notice']}-{avail['preleased']}-{down}={expected_atr}"
 
     def test_availability_buckets_sum(self, first_property):
         """0-30 + 30-60 + 60+ == total bucket count."""
@@ -1376,8 +1377,12 @@ class TestMultiPropertyAvailabilitySums:
             total_vacant += avail["vacant"]
             total_notice += avail["on_notice"]
             total_preleased += avail["preleased"]
-        assert total_atr == total_vacant + total_notice - total_preleased, \
-            f"Summed ATR {total_atr} != {total_vacant}+{total_notice}-{total_preleased}"
+        total_down = 0
+        for pid in multi_property_ids:
+            avail = _get(f"{API}/{pid}/availability")
+            total_down += avail.get("down_units", 0)
+        assert total_atr == total_vacant + total_notice - total_preleased - total_down, \
+            f"Summed ATR {total_atr} != {total_vacant}+{total_notice}-{total_preleased}-{total_down}"
 
 
 class TestMultiPropertyDrillThroughMerge:
@@ -2087,17 +2092,66 @@ class TestCrossComponentConsistency:
                 errors.append(f"{pid}: occupancy vacant={occ_v} != availability vacant={avail_v} (diff={abs(occ_v-avail_v)})")
         assert not errors, f"Vacant mismatch across properties:\n" + "\n".join(errors)
 
+    def test_vacant_consistent_all_endpoints(self, property_ids):
+        """Vacant count must match across ALL endpoints that report it:
+        occupancy, availability, unit-status-breakdown, floorplan totals, bedroom totals."""
+        errors = []
+        for pid in property_ids:
+            sources = {}
+            # 1. Occupancy endpoint
+            r = requests.get(f"{API}/{pid}/occupancy", timeout=30)
+            if r.status_code == 200:
+                sources["occupancy"] = r.json()["vacant_units"]
+            # 2. Availability endpoint
+            r = requests.get(f"{API}/{pid}/availability", timeout=30)
+            if r.status_code == 200:
+                sources["availability"] = r.json()["vacant"]
+            # 3. Unit status breakdown
+            r = requests.get(f"{API}/{pid}/unit-status-breakdown", timeout=30)
+            if r.status_code == 200:
+                sources["breakdown"] = r.json()["subtotals"]["vacant"]["count"]
+            # 4. Floorplan totals
+            r = requests.get(f"{API}/{pid}/availability-by-floorplan", timeout=30)
+            if r.status_code == 200:
+                sources["floorplan"] = r.json()["totals"]["vacant"]
+            # 5. Bedroom totals
+            r = requests.get(f"{API}/{pid}/consolidated-by-bedroom", timeout=30)
+            if r.status_code == 200:
+                sources["bedroom"] = r.json()["totals"]["vacant"]
+
+            if len(sources) < 2:
+                continue
+            vals = list(sources.values())
+            if max(vals) - min(vals) > 5:
+                errors.append(f"{pid}: {sources}")
+        assert not errors, f"Vacant mismatch across endpoints:\n" + "\n".join(errors)
+
+    def test_atr_consistent_all_endpoints(self, property_ids):
+        """ATR must match between availability and unit-status-breakdown."""
+        errors = []
+        for pid in property_ids:
+            avail_r = requests.get(f"{API}/{pid}/availability", timeout=30)
+            bd_r = requests.get(f"{API}/{pid}/unit-status-breakdown", timeout=30)
+            if avail_r.status_code != 200 or bd_r.status_code != 200:
+                continue
+            avail_atr = avail_r.json()["atr"]
+            bd_atr = bd_r.json()["subtotals"]["atr"]["count"]
+            if avail_atr != bd_atr:
+                errors.append(f"{pid}: availability ATR={avail_atr} != breakdown ATR={bd_atr}")
+        assert not errors, f"ATR mismatch across endpoints:\n" + "\n".join(errors)
+
     def test_atr_formula_all_properties(self, property_ids):
-        """ATR = vacant + on_notice - preleased for ALL properties."""
+        """ATR = vacant + on_notice - preleased - down_units for ALL properties."""
         errors = []
         for pid in property_ids:
             r = requests.get(f"{API}/{pid}/availability", timeout=30)
             if r.status_code != 200:
                 continue
             a = r.json()
-            expected = a["vacant"] + a["on_notice"] - a["preleased"]
+            down = a.get("down_units", 0)
+            expected = a["vacant"] + a["on_notice"] - a["preleased"] - down
             if a["atr"] != expected:
-                errors.append(f"{pid}: ATR={a['atr']} != {a['vacant']}+{a['on_notice']}-{a['preleased']}={expected}")
+                errors.append(f"{pid}: ATR={a['atr']} != {a['vacant']}+{a['on_notice']}-{a['preleased']}-{down}={expected}")
         assert not errors, f"ATR formula broken:\n" + "\n".join(errors)
 
 
@@ -2441,13 +2495,13 @@ class TestMultiPropertyCrossConsistency:
     """Summed per-property KPIs must match portfolio-level KPIs."""
 
     def test_portfolio_atr_matches_sum(self, multi_property_ids):
-        """Sum of per-property ATR == sum of per-property (vacant+notice-preleased)."""
+        """Sum of per-property ATR == sum of per-property (vacant+notice-preleased-down)."""
         total_atr = 0
         total_formula = 0
         for pid in multi_property_ids:
             a = _get(f"{API}/{pid}/availability")
             total_atr += a["atr"]
-            total_formula += a["vacant"] + a["on_notice"] - a["preleased"]
+            total_formula += a["vacant"] + a["on_notice"] - a["preleased"] - a.get("down_units", 0)
         assert total_atr == total_formula, \
             f"Multi-prop ATR sum {total_atr} != formula sum {total_formula}"
 
@@ -2638,6 +2692,204 @@ class TestWatchlistDashboardConsistency:
             if abs(wl_vacant - dash_vacant) > 3:
                 errors.append(f"{pid}: watchlist vacant={wl_vacant} != dashboard vacant={dash_vacant}")
         assert not errors, "Watchlist vacant mismatch:\n" + "\n".join(errors)
+
+
+# ===================================================================
+# 25. OCCUPANCY vs VACANT CROSS-CONSISTENCY
+# ===================================================================
+
+class TestOccupancyVacantCrossConsistency:
+    """Occupancy % must reconcile with (total - vacant) / total.
+    Catches drift when physical_occupancy (box score) and vacant count
+    (unified_units) come from different sources with different definitions."""
+
+    def test_occupancy_pct_matches_units_minus_vacant_all_properties(self, property_ids):
+        """For every property: physical_occupancy ≈ (total - vacant) / total * 100.
+        A mismatch means the occupancy % and vacant count use different data sources."""
+        errors = []
+        for pid in property_ids:
+            r = requests.get(f"{API}/{pid}/occupancy", timeout=30)
+            if r.status_code != 200:
+                continue
+            occ = r.json()
+            total = occ.get("total_units", 0)
+            vacant = occ.get("vacant_units", 0)
+            reported_pct = occ.get("physical_occupancy", 0)
+            if total == 0:
+                continue
+            expected_pct = round((total - vacant) / total * 100, 2)
+            if abs(reported_pct - expected_pct) > 0.5:
+                errors.append(
+                    f"{pid}: occupancy={reported_pct}% but (total({total})-vacant({vacant}))/total="
+                    f"{expected_pct}% (diff={abs(reported_pct - expected_pct):.2f}pp)"
+                )
+        assert not errors, \
+            "Occupancy % ≠ (units-vacant)/units — sources out of sync:\n" + "\n".join(errors)
+
+    def test_portfolio_occupancy_pct_matches_units_minus_vacant(self, property_ids):
+        """Portfolio-level: aggregated occupancy % ≈ (total - vacant) / total * 100."""
+        ids_str = ",".join(property_ids)
+        r = requests.get(f"{PORTFOLIO}/occupancy?property_ids={ids_str}", timeout=30)
+        if r.status_code != 200:
+            pytest.skip("Portfolio occupancy endpoint unavailable")
+        p = r.json()
+        total = p.get("total_units", 0)
+        vacant = p.get("vacant_units", 0)
+        reported_pct = p.get("physical_occupancy", 0)
+        if total == 0:
+            pytest.skip("No units")
+        expected_pct = round((total - vacant) / total * 100, 2)
+        assert abs(reported_pct - expected_pct) < 0.5, \
+            f"Portfolio: occupancy={reported_pct}% but (total({total})-vacant({vacant}))/total=" \
+            f"{expected_pct}% (diff={abs(reported_pct - expected_pct):.2f}pp)"
+
+
+# ===================================================================
+# 26. UNIT STATUS BREAKDOWN — SUBTOTALS & DRILL-THROUGH
+# ===================================================================
+
+class TestUnitStatusBreakdown:
+    """Verify unit-status-breakdown subtotals are internally consistent
+    and that drill-through record counts match every displayed number."""
+
+    def test_status_rows_sum_to_total(self, first_property):
+        """Sum of all status row counts must equal total_units."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        row_sum = sum(s["count"] for s in bd["statuses"])
+        assert row_sum == bd["total_units"], \
+            f"Status rows sum={row_sum} != total_units={bd['total_units']}"
+
+    def test_vacant_subtotal_equals_vacant_rows(self, first_property):
+        """Vacant subtotal = Vacant-Unrented + Vacant-Leased + Down."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        status_map = {s["label"]: s["count"] for s in bd["statuses"]}
+        expected = (status_map.get("Vacant - Unrented", 0)
+                    + status_map.get("Vacant - Leased", 0)
+                    + status_map.get("Admin/Down", 0))
+        assert bd["subtotals"]["vacant"]["count"] == expected, \
+            f"Vacant subtotal={bd['subtotals']['vacant']['count']} != " \
+            f"Unrented({status_map.get('Vacant - Unrented',0)})+Leased({status_map.get('Vacant - Leased',0)})+Down({status_map.get('Admin/Down',0)})={expected}"
+
+    def test_notice_subtotal_equals_notice_rows(self, first_property):
+        """Notice subtotal = Notice-Unrented + Notice-Rented."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        status_map = {s["label"]: s["count"] for s in bd["statuses"]}
+        expected = status_map.get("Notice - Unrented", 0) + status_map.get("Notice - Rented", 0)
+        assert bd["subtotals"]["notice"]["count"] == expected, \
+            f"Notice subtotal={bd['subtotals']['notice']['count']} != expected={expected}"
+
+    def test_preleased_subtotal_equals_leased_rows(self, first_property):
+        """Preleased = Vacant-Leased + Notice-Rented."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        status_map = {s["label"]: s["count"] for s in bd["statuses"]}
+        expected = status_map.get("Vacant - Leased", 0) + status_map.get("Notice - Rented", 0)
+        assert bd["subtotals"]["preleased"]["count"] == expected, \
+            f"Preleased subtotal={bd['subtotals']['preleased']['count']} != expected={expected}"
+
+    def test_ready_plus_not_ready_equals_vacant_unrented(self, first_property):
+        """Ready + Not Ready = Vacant - Unrented (excludes leased and down)."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        status_map = {s["label"]: s["count"] for s in bd["statuses"]}
+        ready = bd["subtotals"]["ready"]["count"]
+        not_ready = bd["subtotals"]["not_ready"]["count"]
+        vacant_unrented = status_map.get("Vacant - Unrented", 0)
+        assert ready + not_ready == vacant_unrented, \
+            f"Ready({ready})+NotReady({not_ready})={ready+not_ready} != VacantUnrented({vacant_unrented})"
+
+    def test_atr_formula(self, first_property):
+        """ATR = vacant + notice - preleased - down."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        s = bd["subtotals"]
+        status_map = {st["label"]: st["count"] for st in bd["statuses"]}
+        down = status_map.get("Admin/Down", 0)
+        expected = max(0, s["vacant"]["count"] + s["notice"]["count"] - s["preleased"]["count"] - down)
+        assert s["atr"]["count"] == expected, \
+            f"ATR={s['atr']['count']} != vacant({s['vacant']['count']})+notice({s['notice']['count']})-preleased({s['preleased']['count']})-down({down})={expected}"
+
+    def test_pct_values_are_valid(self, first_property):
+        """All pct values must be 0-100 and match count/total*100."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        total = bd["total_units"]
+        if total == 0:
+            return
+        for s in bd["statuses"]:
+            expected_pct = round(s["count"] / total * 100, 1)
+            assert abs(s["pct"] - expected_pct) < 0.2, \
+                f"Status '{s['label']}': pct={s['pct']} != expected {expected_pct}"
+        for key, sub in bd["subtotals"].items():
+            expected_pct = round(sub["count"] / total * 100, 1)
+            assert abs(sub["pct"] - expected_pct) < 0.2, \
+                f"Subtotal '{key}': pct={sub['pct']} != expected {expected_pct}"
+
+
+class TestUnitStatusDrillThrough:
+    """Drill-through record counts must match the unit-status-breakdown numbers exactly."""
+
+    DRILL_FILTERS = [
+        ("vacant", "vacant"),
+        ("ready", "ready"),
+        ("not_ready", "not_ready"),
+        ("notice", "notice"),
+        ("preleased", "preleased"),
+        ("atr", "atr"),
+    ]
+
+    STATUS_FILTERS = [
+        ("Occupied", "occupied"),
+        ("Vacant - Unrented", "vacant_unrented"),
+        ("Vacant - Leased", "vacant_leased"),
+        ("Notice - Unrented", "notice_unrented"),
+        ("Notice - Rented", "notice_rented"),
+        ("Admin/Down", "down"),
+    ]
+
+    @pytest.mark.parametrize("subtotal_key,filter_name", DRILL_FILTERS)
+    def test_subtotal_drill_count_matches(self, first_property, subtotal_key, filter_name):
+        """Drill-through for each subtotal must return exactly the displayed count."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        expected = bd["subtotals"][subtotal_key]["count"]
+        drill = _get(f"{API}/{first_property}/availability-by-floorplan/units?status={filter_name}")
+        actual = drill["count"]
+        assert actual == expected, \
+            f"Subtotal '{subtotal_key}'={expected} but drill ?status={filter_name} returned {actual}"
+
+    @pytest.mark.parametrize("status_label,filter_name", STATUS_FILTERS)
+    def test_status_row_drill_count_matches(self, first_property, status_label, filter_name):
+        """Drill-through for each status row must return exactly the displayed count."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        status_map = {s["label"]: s["count"] for s in bd["statuses"]}
+        expected = status_map.get(status_label, 0)
+        drill = _get(f"{API}/{first_property}/availability-by-floorplan/units?status={filter_name}")
+        actual = drill["count"]
+        assert actual == expected, \
+            f"Status '{status_label}'={expected} but drill ?status={filter_name} returned {actual}"
+
+    def test_all_statuses_drill_sum_equals_total(self, first_property):
+        """Sum of all individual status drill-throughs must equal total units."""
+        bd = _get(f"{API}/{first_property}/unit-status-breakdown")
+        total_expected = bd["total_units"]
+        filters = ["occupied", "vacant_unrented", "vacant_leased",
+                    "notice_unrented", "notice_rented", "model", "down"]
+        total_drill = 0
+        for f in filters:
+            drill = _get(f"{API}/{first_property}/availability-by-floorplan/units?status={f}")
+            total_drill += drill["count"]
+        assert total_drill == total_expected, \
+            f"Sum of status drills={total_drill} != total_units={total_expected}"
+
+    def test_drill_across_all_properties(self, property_ids):
+        """For every property, ATR drill-through count must match ATR subtotal."""
+        errors = []
+        for pid in property_ids:
+            r1 = requests.get(f"{API}/{pid}/unit-status-breakdown", timeout=30)
+            r2 = requests.get(f"{API}/{pid}/availability-by-floorplan/units?status=atr", timeout=30)
+            if r1.status_code != 200 or r2.status_code != 200:
+                continue
+            expected = r1.json()["subtotals"]["atr"]["count"]
+            actual = r2.json()["count"]
+            if actual != expected:
+                errors.append(f"{pid}: ATR subtotal={expected} but drill returned {actual}")
+        assert not errors, "ATR drill-through mismatch:\n" + "\n".join(errors)
 
 
 # ===================================================================

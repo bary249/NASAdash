@@ -78,15 +78,15 @@ function SortableHeader({ label, active, dir, onClick, align = 'left' }: {
 }) {
   return (
     <th
-      className={`px-3 py-2 text-slate-500 font-medium cursor-pointer select-none hover:text-slate-700 transition-colors ${align === 'right' ? 'text-right' : ''} ${label === 'Unit' || label === 'Turn Status' ? 'px-4' : ''}`}
+      className={`group px-3 py-2 text-slate-500 font-medium cursor-pointer select-none hover:text-slate-700 hover:bg-slate-100/50 transition-colors ${align === 'right' ? 'text-right' : ''} ${label === 'Unit' || label === 'Turn Status' ? 'px-4' : ''}`}
       onClick={onClick}
     >
       <span className="inline-flex items-center gap-1">
         {label}
         {active ? (
-          dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+          dir === 'asc' ? <ChevronUp className="w-3 h-3 text-slate-700" /> : <ChevronDown className="w-3 h-3 text-slate-700" />
         ) : (
-          <ChevronDown className="w-3 h-3 opacity-0 group-hover:opacity-30" />
+          <ChevronDown className="w-3 h-3 opacity-20 group-hover:opacity-50" />
         )}
       </span>
     </th>
@@ -150,14 +150,33 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
   const pipeline = data?.pipeline || [];
   const completed = data?.completed || [];
 
+  const parseDate = (s: string): number => {
+    if (!s) return 0;
+    const parts = s.split('/');
+    if (parts.length === 3) {
+      const [m, d, y] = parts.map(Number);
+      const year = y < 100 ? 2000 + y : y;
+      return new Date(year, m - 1, d).getTime();
+    }
+    const t = Date.parse(s);
+    return isNaN(t) ? 0 : t;
+  };
+
+  const DATE_KEYS = new Set(['date_vacated', 'date_due', 'date_closed']);
+
   const sortedPipeline = useMemo(() => {
     if (!pipeline.length) return pipeline;
     return [...pipeline].sort((a, b) => {
       const av = a[pipeSortKey];
       const bv = b[pipeSortKey];
       let cmp = 0;
-      if (typeof av === 'string' && typeof bv === 'string') cmp = av.localeCompare(bv);
-      else cmp = (Number(av) || 0) - (Number(bv) || 0);
+      if (DATE_KEYS.has(pipeSortKey)) {
+        cmp = parseDate(String(av || '')) - parseDate(String(bv || ''));
+      } else if (typeof av === 'string' && typeof bv === 'string') {
+        cmp = av.localeCompare(bv);
+      } else {
+        cmp = (Number(av) || 0) - (Number(bv) || 0);
+      }
       return pipeSortDir === 'asc' ? cmp : -cmp;
     });
   }, [pipeline, pipeSortKey, pipeSortDir]);
@@ -168,8 +187,13 @@ export default function MaintenanceSection({ propertyId, propertyIds }: Props) {
       const av = a[compSortKey];
       const bv = b[compSortKey];
       let cmp = 0;
-      if (typeof av === 'string' && typeof bv === 'string') cmp = av.localeCompare(bv);
-      else cmp = (Number(av) || 0) - (Number(bv) || 0);
+      if (DATE_KEYS.has(compSortKey)) {
+        cmp = parseDate(String(av || '')) - parseDate(String(bv || ''));
+      } else if (typeof av === 'string' && typeof bv === 'string') {
+        cmp = av.localeCompare(bv);
+      } else {
+        cmp = (Number(av) || 0) - (Number(bv) || 0);
+      }
       return compSortDir === 'asc' ? cmp : -cmp;
     });
   }, [completed, compSortKey, compSortDir]);

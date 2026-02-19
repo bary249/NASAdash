@@ -35,10 +35,12 @@ import { OccupancyTrendSection } from './OccupancyTrendSection';
 import { BedroomConsolidatedView } from './BedroomConsolidatedView';
 import { WatchpointsPanel } from './WatchpointsPanel';
 import { ResidentRiskSection } from './ResidentRiskSection';
+import { UnitStatusBreakdown } from './UnitStatusBreakdown';
 import FinancialsSection from './FinancialsSection';
 import IncomeStatementSection from './IncomeStatementSection';
 import MarketingSection from './MarketingSection';
 import MaintenanceSection from './MaintenanceSection';
+import MakeReadySection from './MakeReadySection';
 import MoveOutReasonsSection from './MoveOutReasonsSection';
 import { WatchListTab } from './WatchListTab';
 import { DrillThroughModal } from './DrillThroughModal';
@@ -1118,6 +1120,33 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           const avgR = Math.round(tRenewal / rows.length);
           setKpiDrillSummary({ unit: `Total (${rows.length})`, prior_rent: avgP, renewal_rent: avgR, delta: avgR - avgP, delta_pct: avgP > 0 ? Math.round((avgR - avgP) / avgP * 1000) / 10 : 0, lease_end: '', new_lease_start: '' });
         } else { setKpiDrillSummary(undefined); }
+      } else if (type.startsWith('breakdown_')) {
+        // Unit Status Breakdown drill-through
+        const BREAKDOWN_MAP: Record<string, { label: string; filter: string; cols: typeof UNIT_COLUMNS }> = {
+          breakdown_vacant: { label: 'Total Vacant (incl. Leased)', filter: 'vacant', cols: VACANT_COLUMNS },
+          breakdown_ready: { label: 'Vacant & Ready', filter: 'ready', cols: VACANT_COLUMNS },
+          breakdown_not_ready: { label: 'Vacant Not Ready', filter: 'not_ready', cols: VACANT_COLUMNS },
+          breakdown_notice: { label: 'Total On Notice', filter: 'notice', cols: NOTICE_COLUMNS },
+          breakdown_preleased: { label: 'Pre-leased Units', filter: 'preleased', cols: PRELEASED_COLUMNS },
+          breakdown_atr: { label: 'ATR Units', filter: 'atr', cols: UNIT_COLUMNS },
+          breakdown_occupied: { label: 'Occupied Units', filter: 'occupied', cols: UNIT_COLUMNS },
+          breakdown_vacant_unrented: { label: 'Vacant - Unrented', filter: 'vacant_unrented', cols: VACANT_COLUMNS },
+          breakdown_vacant_leased: { label: 'Vacant - Leased', filter: 'vacant_leased', cols: PRELEASED_COLUMNS },
+          breakdown_notice_unrented: { label: 'Notice - Unrented', filter: 'notice_unrented', cols: NOTICE_COLUMNS },
+          breakdown_notice_rented: { label: 'Notice - Rented', filter: 'notice_rented', cols: NOTICE_COLUMNS },
+          breakdown_model: { label: 'Model Units', filter: 'model', cols: UNIT_COLUMNS },
+          breakdown_down: { label: 'Admin/Down Units', filter: 'down', cols: UNIT_COLUMNS },
+        };
+        const cfg = BREAKDOWN_MAP[type];
+        if (cfg) {
+          setKpiDrillTitle(cfg.label);
+          setKpiDrillColumns(cfg.cols);
+          const results = await Promise.all(
+            propertyIds.map(id => api.getAvailabilityUnits(id, undefined, cfg.filter).catch(() => ({ units: [], count: 0 })))
+          );
+          setKpiDrillData(results.flatMap((r: any) => r.units || []));
+        }
+        setKpiDrillSummary(undefined);
       } else {
         setKpiDrillSummary(undefined);
       }
@@ -1363,6 +1392,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         <>
           {/* Consolidated by Bedroom Type */}
           <BedroomConsolidatedView propertyId={propertyId} propertyIds={propertyIds} />
+
+          {/* Unit Status Breakdown */}
+          <UnitStatusBreakdown propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
 
           {/* ATR & Availability Section */}
           <AvailabilitySection propertyId={propertyId} propertyIds={propertyIds} onDrillThrough={openKpiDrill} />
@@ -1742,7 +1774,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
       )}
 
       {activeTab === 'maintenance' && (
-        <MaintenanceSection propertyId={propertyId} propertyIds={propertyIds} />
+        <>
+          <MakeReadySection propertyId={propertyId} propertyIds={propertyIds} />
+          <MaintenanceSection propertyId={propertyId} propertyIds={propertyIds} />
+        </>
       )}
 
       {activeTab === 'rentable' && (

@@ -379,6 +379,18 @@ export const api = {
     prior_month?: { atr: number; atr_pct: number; snapshot_date: string } | null;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/availability`),
 
+  getUnitStatusBreakdown: (propertyId: string): Promise<{
+    property_id: string;
+    total_units: number;
+    statuses: { label: string; count: number; pct: number }[];
+    subtotals: {
+      vacant: { label: string; count: number; pct: number; breakdown: string };
+      ready: { label: string; count: number; pct: number; description: string };
+      notice: { label: string; count: number; pct: number; breakdown: string };
+      atr: { label: string; count: number; pct: number; formula: string };
+    };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/unit-status-breakdown`),
+
   getOccupancySnapshots: (propertyId: string): Promise<{
     property_id: string;
     snapshots: { date: string; total_units: number; occupied: number; vacant: number; occupancy_pct: number; leased_pct: number; on_notice: number; preleased: number }[];
@@ -447,6 +459,16 @@ export const api = {
     error?: string;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/ai-insights`),
 
+  refreshAIInsights: (propertyId: string): Promise<{
+    alerts: { severity: string; title: string; fact: string; risk: string; action: string }[];
+    qna: { question: string; answer: string }[];
+    error?: string;
+  }> => {
+    // Bust the client-side fetchJson cache for this property's AI insights
+    invalidateCache(`/properties/${propertyId}/ai-insights`);
+    return fetchJson(`${API_BASE}/properties/${propertyId}/ai-insights?refresh=1`);
+  },
+
   // Financials (Monthly Transaction Summary)
   getFinancials: (propertyId: string): Promise<{
     property_id: string;
@@ -483,6 +505,14 @@ export const api = {
     completed: { unit: string; num_work_orders: number; date_closed: string; amount_charged: number }[];
     summary: { units_in_pipeline: number; avg_days_vacant: number; overdue_count: number; completed_this_period: number };
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/maintenance`),
+
+  // Make Ready Status (not-ready vs ready units with pipeline data)
+  getMakeReadyStatus: (propertyId: string): Promise<{
+    property_id: string;
+    not_ready: { unit: string; floorplan: string; sqft: number; market_rent: number; days_vacant: number; date_vacated: string; date_due: string; days_until_ready: number | null; work_orders: number; in_pipeline: boolean; lost_rent: number; status: string }[];
+    ready: { unit: string; floorplan: string; sqft: number; market_rent: number; days_vacant: number; date_vacated: string; date_due: string; days_until_ready: number | null; work_orders: number; in_pipeline: boolean; lost_rent: number; made_ready_date: string }[];
+    summary: { total_vacant_unrented: number; ready_count: number; not_ready_count: number; in_progress: number; overdue: number; not_started: number; total_lost_rent: number };
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/make-ready-status`),
 
   // Lost Rent Summary (unit-level loss-to-lease)
   getLostRent: (propertyId: string): Promise<{

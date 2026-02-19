@@ -716,11 +716,12 @@ def get_availability(property_id: str):
         uc.execute("""
             SELECT 
                 COUNT(*) as total,
-                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant,
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant,
                 SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
                 SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END) as preleased,
-                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')
+                SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
                           AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND (status IS NULL OR status != 'down')
                     THEN 1 ELSE 0 END) as bucket_vacant,
                 SUM(CASE WHEN occupancy_status = 'notice' 
                           AND (is_preleased IS NULL OR is_preleased != 1)
@@ -736,9 +737,10 @@ def get_availability(property_id: str):
                           AND (is_preleased IS NULL OR is_preleased != 1)
                           AND (on_notice_date IS NULL OR on_notice_date = ''
                                OR date(on_notice_date) > date('now', '+60 days'))
-                    THEN 1 ELSE 0 END) as notice_60_plus
+                    THEN 1 ELSE 0 END) as notice_60_plus,
+                SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units
             FROM unified_units
-            WHERE unified_property_id = ? OR unified_property_id = ?
+            WHERE (unified_property_id = ? OR unified_property_id = ?)
         """, (property_id, normalized_id))
         urow = uc.fetchone()
         uni_conn.close()
@@ -746,9 +748,10 @@ def get_availability(property_id: str):
         vacant = (urow[1] or 0) if urow else 0
         on_notice = (urow[2] or 0) if urow else 0
         preleased = (urow[3] or 0) if urow else 0
+        down_units = (urow[8] or 0) if urow else 0
         
-        # ATR from same source as buckets — always consistent
-        atr = max(0, vacant + on_notice - preleased)
+        # ATR excludes Admin/Down units (they're vacant but not available to rent)
+        atr = max(0, vacant + on_notice - preleased - down_units)
         atr_pct = round(atr / total_units * 100, 1) if total_units > 0 else 0
         availability_pct = atr_pct
         
@@ -758,8 +761,29 @@ def get_availability(property_id: str):
         avail_60_plus = (urow[7] or 0) if urow else 0
         
         # --- 7-week availability trend from unified_projected_occupancy ---
+        # Uses ATR formula: projected_unoccupied - down_units
+        # projected_unoccupied = total_units - occupied_end (from RealPage Projected Occupancy report)
+        # down_units assumed stable across projection window
         trend_weeks = []
         trend_direction = "flat"
+        
+        # Insert "Today" row with actual formula components
+        today_str = datetime.now().strftime("%m/%d/%Y")
+        trend_weeks.append({
+            "week_ending": today_str,
+            "atr": atr,
+            "atr_pct": atr_pct,
+            "occupancy_pct": round(occupied / total_units * 100, 1) if total_units > 0 else 0,
+            "move_ins": 0,
+            "move_outs": 0,
+            "is_current": True,
+            "formula": {
+                "vacant": vacant,
+                "on_notice": on_notice,
+                "preleased": preleased,
+                "down": down_units,
+            },
+        })
         
         try:
             pc = sqlite3.connect(str(UNIFIED_DB_PATH))
@@ -774,23 +798,45 @@ def get_availability(property_id: str):
                 LIMIT 7
             """, (property_id, normalized_id))
             
+            cumulative_move_outs = 0
+            cumulative_move_ins = 0
+            
             for row in pcc.fetchall():
                 week_end, t_units, occ_end, occ_pct, mi, mo = row
                 t_units = t_units or total_units
-                week_atr = max(0, (t_units or 0) - (occ_end or 0))
+                mi = mi or 0
+                mo = mo or 0
+                cumulative_move_outs += mo
+                cumulative_move_ins += mi
+                
+                projected_unoccupied = max(0, (t_units or 0) - (occ_end or 0))
+                # Blended ATR: add back notice units not yet moved out,
+                # subtract preleased units not yet moved in
+                remaining_notice = max(0, on_notice - cumulative_move_outs)
+                remaining_preleased = max(0, preleased - cumulative_move_ins)
+                week_atr = max(0, projected_unoccupied - down_units + remaining_notice - remaining_preleased)
                 week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
                 trend_weeks.append({
                     "week_ending": week_end,
                     "atr": week_atr,
                     "atr_pct": week_atr_pct,
                     "occupancy_pct": occ_pct or 0,
-                    "move_ins": mi or 0,
-                    "move_outs": mo or 0,
+                    "move_ins": mi,
+                    "move_outs": mo,
+                    "is_current": False,
+                    "formula": {
+                        "unoccupied": projected_unoccupied,
+                        "down": down_units,
+                        "remaining_notice": remaining_notice,
+                        "remaining_preleased": remaining_preleased,
+                        "scheduled_move_ins": mi,
+                        "scheduled_move_outs": mo,
+                    },
                 })
             pc.close()
             
-            if len(trend_weeks) >= 2:
-                first_atr = trend_weeks[0]["atr_pct"]
+            if len(trend_weeks) >= 3:
+                first_atr = trend_weeks[1]["atr_pct"]
                 last_atr = trend_weeks[-1]["atr_pct"]
                 if last_atr > first_atr + 1:
                     trend_direction = "increasing"
@@ -836,6 +882,7 @@ def get_availability(property_id: str):
             "vacant": vacant,
             "on_notice": on_notice,
             "preleased": preleased,
+            "down_units": down_units,
             "atr": atr,
             "atr_pct": atr_pct,
             "availability_pct": availability_pct,
@@ -859,6 +906,125 @@ def get_availability(property_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get availability: {str(e)}")
+
+
+@router.get("/properties/{property_id}/unit-status-breakdown")
+def get_unit_status_breakdown(property_id: str):
+    """Unit status breakdown with every status bucket and subtotals."""
+    import sqlite3
+    normalized_id = property_id.replace("-", "_").lower()
+
+    try:
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT
+                COUNT(*) as total_units,
+                SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied,
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+                          AND (status IS NULL OR status != 'down')
+                          AND (is_preleased IS NULL OR is_preleased != 1) THEN 1 ELSE 0 END) as vacant_unrented,
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+                          AND is_preleased = 1 THEN 1 ELSE 0 END) as vacant_leased,
+                SUM(CASE WHEN occupancy_status = 'notice'
+                          AND (is_preleased IS NULL OR is_preleased != 1) THEN 1 ELSE 0 END) as notice_unrented,
+                SUM(CASE WHEN occupancy_status = 'notice'
+                          AND is_preleased = 1 THEN 1 ELSE 0 END) as notice_rented,
+                SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model,
+                SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down,
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END) as vacant_total,
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+                          AND (status IS NULL OR status != 'down')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND made_ready_date IS NOT NULL AND made_ready_date != '' THEN 1 ELSE 0 END) as vacant_ready_to_move_in,
+                SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as notice_total,
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END) as preleased_total,
+                SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+                          AND (status IS NULL OR status != 'down')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                          AND (made_ready_date IS NULL OR made_ready_date = '') THEN 1 ELSE 0 END) as vacant_not_ready_count
+            FROM unified_units
+            WHERE (unified_property_id = ? OR unified_property_id = ?)
+        """, (property_id, normalized_id))
+        row = c.fetchone()
+        conn.close()
+
+        if not row or not row[0]:
+            raise HTTPException(status_code=404, detail="No unit data found")
+
+        total = row[0]
+        occupied = row[1]
+        vacant_unrented = row[2]
+        vacant_leased = row[3]
+        notice_unrented = row[4]
+        notice_rented = row[5]
+        model = row[6]
+        down = row[7]
+        vacant_total = row[8]
+        vacant_ready = row[9]
+        notice_total = row[10]
+        preleased_total = row[11]
+        vacant_not_ready = row[12]
+
+        # ATR = vacant + notice - preleased - down
+        atr = max(0, vacant_total + notice_total - preleased_total - down)
+
+        return {
+            "property_id": property_id,
+            "total_units": total,
+            "statuses": [
+                {"label": "Occupied", "count": occupied, "pct": round(occupied / total * 100, 1) if total else 0},
+                {"label": "Vacant - Unrented", "count": vacant_unrented, "pct": round(vacant_unrented / total * 100, 1) if total else 0},
+                {"label": "Vacant - Leased", "count": vacant_leased, "pct": round(vacant_leased / total * 100, 1) if total else 0},
+                {"label": "Notice - Unrented", "count": notice_unrented, "pct": round(notice_unrented / total * 100, 1) if total else 0},
+                {"label": "Notice - Rented", "count": notice_rented, "pct": round(notice_rented / total * 100, 1) if total else 0},
+                {"label": "Model", "count": model, "pct": round(model / total * 100, 1) if total else 0},
+                {"label": "Admin/Down", "count": down, "pct": round(down / total * 100, 1) if total else 0},
+            ],
+            "subtotals": {
+                "vacant": {
+                    "label": "Total Vacant (incl. Leased)",
+                    "count": vacant_total,
+                    "pct": round(vacant_total / total * 100, 1) if total else 0,
+                    "breakdown": f"{vacant_unrented} unrented + {vacant_leased} leased + {down} down"
+                },
+                "ready": {
+                    "label": "Vacant & Ready",
+                    "count": vacant_ready,
+                    "pct": round(vacant_ready / total * 100, 1) if total else 0,
+                    "description": "Vacant, not leased, with make-ready complete"
+                },
+                "not_ready": {
+                    "label": "Vacant Not Ready",
+                    "count": vacant_not_ready,
+                    "pct": round(vacant_not_ready / total * 100, 1) if total else 0,
+                    "description": "Vacant, not leased, make-ready in progress"
+                },
+                "notice": {
+                    "label": "Total On Notice",
+                    "count": notice_total,
+                    "pct": round(notice_total / total * 100, 1) if total else 0,
+                    "breakdown": f"{notice_unrented} unrented + {notice_rented} rented"
+                },
+                "preleased": {
+                    "label": "Pre-leased",
+                    "count": preleased_total,
+                    "pct": round(preleased_total / total * 100, 1) if total else 0,
+                    "breakdown": f"{vacant_leased} vacant-leased + {notice_rented} notice-rented"
+                },
+                "atr": {
+                    "label": "Available to Rent (ATR)",
+                    "count": atr,
+                    "pct": round(atr / total * 100, 1) if total else 0,
+                    "formula": f"{vacant_total} vacant + {notice_total} notice - {preleased_total} preleased - {down} down"
+                },
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get unit status breakdown: {str(e)}")
 
 
 @router.get("/properties/{property_id}/occupancy-snapshots")
@@ -1688,8 +1854,8 @@ def get_availability_by_floorplan(property_id: str):
             SELECT floorplan,
                    '' as floorplan_group,
                    COUNT(*) as total_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
                    SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
                    SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
                    SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
@@ -1762,9 +1928,9 @@ def get_consolidated_by_bedroom(property_id: str):
             SELECT '' as floorplan_group, COALESCE(NULLIF(floorplan, ''), '_unknown_') as floorplan,
                    COUNT(*) as total_units,
                    SUM(CASE WHEN occupancy_status = 'occupied' THEN 1 ELSE 0 END) as occupied_units,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') THEN 1 ELSE 0 END) as vacant_units,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
                    SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
-                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
+                   SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
                    SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END) as on_notice,
                    SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model_units,
                    SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units,
@@ -2003,18 +2169,46 @@ def get_availability_units(property_id: str, floorplan: str = None, status: str 
             params.append(floorplan)
         if status:
             if status.lower() == 'atr':
-                where_extra += """ AND (
-                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
+                where_extra += """ AND (u.status IS NULL OR u.status != 'down') AND (
+                    (u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (u.is_preleased IS NULL OR u.is_preleased != 1))
                     OR (u.occupancy_status = 'notice' AND (u.is_preleased IS NULL OR u.is_preleased != 1))
                 )"""
             elif status.lower() == 'vacant':
-                where_extra += " AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')"
+                where_extra += " AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')"
             elif status.lower() == 'notice':
                 where_extra += " AND u.occupancy_status = 'notice'"
             elif status.lower() == 'occupied':
                 where_extra += " AND u.occupancy_status = 'occupied'"
             elif status.lower() == 'preleased':
                 where_extra += " AND u.is_preleased = 1"
+            elif status.lower() == 'ready':
+                # Vacant, not leased, not down, make-ready complete (has made_ready_date)
+                where_extra += """ AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                    AND (u.status IS NULL OR u.status != 'down')
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+                    AND u.made_ready_date IS NOT NULL AND u.made_ready_date != ''"""
+            elif status.lower() == 'not_ready':
+                # Vacant, not leased, not down, make-ready NOT complete
+                where_extra += """ AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                    AND (u.status IS NULL OR u.status != 'down')
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+                    AND (u.made_ready_date IS NULL OR u.made_ready_date = '')"""
+            elif status.lower() == 'vacant_unrented':
+                where_extra += """ AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                    AND (u.status IS NULL OR u.status != 'down')
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)"""
+            elif status.lower() == 'vacant_leased':
+                where_extra += """ AND u.occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
+                    AND u.is_preleased = 1"""
+            elif status.lower() == 'notice_unrented':
+                where_extra += """ AND u.occupancy_status = 'notice'
+                    AND (u.is_preleased IS NULL OR u.is_preleased != 1)"""
+            elif status.lower() == 'notice_rented':
+                where_extra += " AND u.occupancy_status = 'notice' AND u.is_preleased = 1"
+            elif status.lower() == 'model':
+                where_extra += " AND u.status = 'model'"
+            elif status.lower() == 'down':
+                where_extra += " AND u.status = 'down'"
             else:
                 where_extra += " AND u.status = ?"
                 params.append(status)
@@ -3164,9 +3358,10 @@ def _gather_current_metrics(property_id: str) -> dict:
             SELECT
                 SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END),
                 SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END)
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END)
             FROM unified_units
-            WHERE unified_property_id = ? OR unified_property_id = ?
+            WHERE (unified_property_id = ? OR unified_property_id = ?)
         """, (property_id, _norm))
         _urow = _c.fetchone()
         _conn.close()
@@ -3174,7 +3369,8 @@ def _gather_current_metrics(property_id: str) -> dict:
             vacant = _urow[0] or 0
             on_notice = _urow[1] or 0
             preleased = _urow[2] or 0
-            atr = max(0, vacant + on_notice - preleased)
+            down = _urow[3] or 0
+            atr = max(0, vacant + on_notice - preleased - down)
             metrics["atr"] = atr
             metrics["atr_pct"] = round(atr / total_u * 100, 1) if total_u > 0 else 0
     except Exception:
@@ -3591,6 +3787,120 @@ async def get_maintenance(property_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get maintenance data: {str(e)}")
+
+
+@router.get("/properties/{property_id}/make-ready-status")
+async def get_make_ready_status(property_id: str):
+    """Make-ready status: all vacant unrented units with pipeline join.
+    
+    Cross-references unified_units (not-ready / ready) with
+    unified_maintenance (open pipeline) to show estimated ready dates.
+    """
+    import sqlite3
+    from datetime import datetime, date
+
+    try:
+        conn = sqlite3.connect(str(UNIFIED_DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        today = date.today()
+
+        # All vacant, non-leased, non-down units
+        cursor.execute("""
+            SELECT u.unit_number, u.floorplan, u.sqft, u.market_rent,
+                   u.days_vacant, u.made_ready_date, u.occupancy_status,
+                   m.date_vacated  AS mr_date_vacated,
+                   m.date_due      AS mr_date_due,
+                   m.num_work_orders AS mr_work_orders,
+                   m.days_vacant   AS mr_days_vacant
+            FROM unified_units u
+            LEFT JOIN unified_maintenance m
+              ON m.unified_property_id = u.unified_property_id
+              AND CAST(m.unit AS TEXT) = CAST(u.unit_number AS TEXT)
+              AND m.record_type = 'open'
+            WHERE u.unified_property_id = ?
+              AND u.occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+              AND (u.status IS NULL OR u.status != 'down')
+              AND (u.is_preleased IS NULL OR u.is_preleased != 1)
+            ORDER BY u.made_ready_date IS NOT NULL, u.days_vacant DESC
+        """, (property_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        not_ready = []
+        ready = []
+        total_lost_rent = 0.0
+
+        for row in rows:
+            has_ready_date = row["made_ready_date"] is not None and row["made_ready_date"] != ""
+            days_vacant = row["days_vacant"] or 0
+            market_rent = row["market_rent"] or 0
+            daily_rent = market_rent / 30 if market_rent else 0
+            lost_rent = round(daily_rent * max(days_vacant, 0), 0)
+            total_lost_rent += lost_rent
+
+            # Calculate days until ready from date_due
+            days_until_ready = None
+            date_due = row["mr_date_due"] or ""
+            if date_due:
+                for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
+                    try:
+                        due = datetime.strptime(date_due, fmt).date()
+                        days_until_ready = (due - today).days
+                        break
+                    except ValueError:
+                        continue
+
+            unit_data = {
+                "unit": row["unit_number"],
+                "floorplan": row["floorplan"] or "",
+                "sqft": row["sqft"] or 0,
+                "market_rent": market_rent,
+                "days_vacant": days_vacant,
+                "date_vacated": row["mr_date_vacated"] or "",
+                "date_due": date_due,
+                "days_until_ready": days_until_ready,
+                "work_orders": row["mr_work_orders"] or 0,
+                "in_pipeline": row["mr_date_due"] is not None,
+                "lost_rent": lost_rent,
+            }
+
+            if has_ready_date:
+                unit_data["made_ready_date"] = row["made_ready_date"]
+                ready.append(unit_data)
+            else:
+                # Determine status for not-ready units
+                if row["mr_date_due"] is not None:
+                    if days_until_ready is not None and days_until_ready < 0:
+                        unit_data["status"] = "overdue"
+                    else:
+                        unit_data["status"] = "in_progress"
+                else:
+                    unit_data["status"] = "not_started"
+                not_ready.append(unit_data)
+
+        overdue = sum(1 for u in not_ready if u.get("status") == "overdue")
+        in_progress = sum(1 for u in not_ready if u.get("status") == "in_progress")
+        not_started = sum(1 for u in not_ready if u.get("status") == "not_started")
+
+        return {
+            "property_id": property_id,
+            "not_ready": not_ready,
+            "ready": ready,
+            "summary": {
+                "total_vacant_unrented": len(not_ready) + len(ready),
+                "ready_count": len(ready),
+                "not_ready_count": len(not_ready),
+                "in_progress": in_progress,
+                "overdue": overdue,
+                "not_started": not_started,
+                "total_lost_rent": round(total_lost_rent, 0),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get make-ready status: {str(e)}")
 
 
 # =========================================================================

@@ -112,7 +112,7 @@ class PortfolioService:
                     c2.execute("""
                         SELECT COUNT(*) FROM unified_units
                         WHERE unified_property_id = ?
-                          AND occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready', 'down')
+                          AND occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready')
                     """, (property_id,))
                     uu_row = c2.fetchone()
                     conn2.close()

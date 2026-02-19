@@ -309,7 +309,7 @@ export function VacantKPICard({ total, ready, totalUnits, agedCount, timeLabel, 
         <span className="text-3xl font-bold text-slate-900">{total}</span>
         {vacancyPct !== null && (
           <span className={`text-sm font-semibold ${vacancyPct > 10 ? 'text-rose-600' : vacancyPct > 5 ? 'text-amber-600' : 'text-slate-500'}`}>
-            ({vacancyPct}%)
+            ({vacancyPct}% vacancy rate)
           </span>
         )}
       </div>

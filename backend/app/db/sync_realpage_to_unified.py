@@ -96,6 +96,150 @@ def get_unified_conn():
     return sqlite3.connect(UNIFIED_DB_PATH)
 
 
+def _parse_bedbath_from_code(floorplan: str):
+    """Fallback: parse bed/bath from floorplan code when box_score group is missing.
+    
+    Common Kairoi/RealPage naming conventions:
+      S*, ST*, STUDIO*, Studio*, Midrise S* = Studio (0 bed, 1 bath)
+      A*, 1B*, 1BD*, 1BM*, 1x1 = 1 bed, 1 bath
+      B*, 2B*, 2BD*, 2A*, 2x2 = 2 bed, 2 bath
+      C*, 3B*, 3BD*, 3A*, 3B* = 3 bed, 2 bath (default)
+      TH-2* = 2 bed, 2.5 bath (townhome)
+      TH-3* = 3 bed, 3 bath (townhome)
+    Returns (beds, baths) or None if can't determine.
+    """
+    import re
+    fp = floorplan.strip()
+    fp_upper = fp.upper()
+    
+    # Studio patterns
+    if (fp_upper.startswith('S') and not fp_upper.startswith('SLATE')) or \
+       fp_upper.startswith('ST ') or fp_upper.startswith('STUDIO') or \
+       'STUDIO' in fp_upper or fp_upper.startswith('MIDRISE S'):
+        # S1, S1r, S2, ST A, STUDIO A, etc.
+        # But not S-1 which at some properties is a different naming
+        if re.match(r'^S\d', fp_upper) or re.match(r'^S1[a-z]', fp, re.IGNORECASE) or \
+           fp_upper.startswith('ST ') or fp_upper.startswith('STUDIO') or \
+           fp_upper.startswith('MIDRISE S'):
+            return (0, 1.0)
+    
+    # Explicit bed count prefix: "1B", "2B", "3B", "1BD", "2BD", etc.
+    m = re.match(r'^(\d)[Bb][Dd]?\b', fp)
+    if m:
+        beds = int(m.group(1))
+        baths = float(beds)  # assume beds=baths as default
+        return (beds, baths)
+    
+    # Townhome patterns: TH-2, TH-3
+    m = re.match(r'^TH[-_]?(\d)', fp_upper)
+    if m:
+        beds = int(m.group(1))
+        baths = beds + 0.5 if beds == 2 else float(beds)
+        return (beds, baths)
+    
+    # Letter prefix: A=1bed, B=2bed, C=3bed
+    if re.match(r'^A[\d.]', fp_upper):
+        return (1, 1.0)
+    if re.match(r'^B[\d.]', fp_upper):
+        return (2, 2.0)
+    if re.match(r'^C[\d.]', fp_upper):
+        return (3, 2.0)
+    
+    return None
+
+
+def derive_floorplan_bedrooms():
+    """Derive bed/bath counts from box_score floorplan_group into realpage_floorplan_bedrooms.
+    
+    Raw layer only (realpage_raw.db → realpage_raw.db).
+    Strategy:
+      1. Parse box_score floorplan_group "NxM" format (authoritative)
+      2. Fallback: parse floorplan code for any remaining unmatched floorplans
+    """
+    print("\n🛏️  Deriving floorplan bed/bath from box_score...")
+    
+    rp_conn = get_realpage_conn()
+    cursor = rp_conn.cursor()
+    
+    # Create table if not exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realpage_floorplan_bedrooms (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            property_id TEXT NOT NULL,
+            floorplan TEXT NOT NULL,
+            bedrooms INTEGER NOT NULL,
+            bathrooms REAL NOT NULL,
+            floorplan_group TEXT,
+            derived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(property_id, floorplan)
+        )
+    """)
+    
+    # Step 1: Parse box_score floorplan_group (authoritative source)
+    cursor.execute("""
+        SELECT DISTINCT property_id, floorplan, floorplan_group
+        FROM realpage_box_score
+        WHERE floorplan_group IS NOT NULL AND floorplan_group != ''
+    """)
+    
+    count = 0
+    resolved = set()  # (property_id, floorplan) pairs already resolved
+    for row in cursor.fetchall():
+        property_id, floorplan, group = row
+        
+        # Parse "NxM" format, skip "Total" rows
+        if not group or group.startswith("Total"):
+            continue
+        
+        parts = group.lower().replace(" ", "").split("x")
+        if len(parts) != 2:
+            continue
+        
+        try:
+            beds = int(float(parts[0]))
+            baths = float(parts[1])
+        except (ValueError, IndexError):
+            continue
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO realpage_floorplan_bedrooms
+            (property_id, floorplan, bedrooms, bathrooms, floorplan_group, derived_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (property_id, floorplan, beds, baths, group, datetime.now().isoformat()))
+        count += 1
+        resolved.add((property_id, floorplan))
+    
+    # Step 2: Fallback — parse floorplan code for unmatched floorplans
+    cursor.execute("""
+        SELECT DISTINCT site_id, floorplan_name
+        FROM realpage_units
+        WHERE site_id IS NOT NULL AND floorplan_name IS NOT NULL AND floorplan_name != ''
+    """)
+    
+    fallback_count = 0
+    for row in cursor.fetchall():
+        property_id, floorplan = row
+        if (property_id, floorplan) in resolved:
+            continue
+        
+        result = _parse_bedbath_from_code(floorplan)
+        if result:
+            beds, baths = result
+            cursor.execute("""
+                INSERT OR REPLACE INTO realpage_floorplan_bedrooms
+                (property_id, floorplan, bedrooms, bathrooms, floorplan_group, derived_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (property_id, floorplan, beds, baths, f"parsed:{floorplan}", datetime.now().isoformat()))
+            fallback_count += 1
+            resolved.add((property_id, floorplan))
+    
+    rp_conn.commit()
+    rp_conn.close()
+    
+    print(f"  ✅ Derived bed/bath for {count} floorplans (box_score) + {fallback_count} (code parsing)")
+    return count + fallback_count
+
+
 def sync_properties():
     """Sync properties from RealPage to unified.
     Sources: box_score, rent_roll, and realpage_units (API data)."""
@@ -517,7 +661,8 @@ def sync_units_from_rent_roll():
             continue  # Skip any other unrecognized status
         
         # Set occupancy_status from status (API enrichment may override for vacant)
-        occupancy_status = status  # occupied, vacant, notice, model, down
+        # Down units are physically vacant (not ready) — status tracks them separately
+        occupancy_status = "vacant_not_ready" if status == "down" else status
         
         uni_cursor.execute("""
             INSERT OR REPLACE INTO unified_units
@@ -538,13 +683,13 @@ def sync_units_from_rent_roll():
     
     # --- Enrich unified_units with API data (made_ready_date, available_date, available) ---
     # The rent roll report doesn't include these fields, but realpage_units (API) does
-    print("  📡 Enriching units with API data (made_ready_date, available)...")
+    print("  📡 Enriching units with API data (market_rent, made_ready_date, available)...")
     enriched = 0
     
     # Build lookup: (property_id, unit_number) -> API fields
     rp_cursor.execute("""
         SELECT site_id, unit_number, made_ready_date, available_date, available, 
-               on_notice_date, vacant, exclude_from_occupancy
+               on_notice_date, vacant, exclude_from_occupancy, market_rent
         FROM realpage_units
         WHERE site_id IS NOT NULL
     """)
@@ -559,6 +704,7 @@ def sync_units_from_rent_roll():
             "on_notice_date": arow[5],
             "vacant": arow[6],  # 'T' or 'F'
             "excluded": arow[7],
+            "market_rent": arow[8],  # API market_rent = Venn UI price
         }
     
     uni_cursor_r = uni_conn.cursor()
@@ -585,15 +731,52 @@ def sync_units_from_rent_roll():
                 if api_data["vacant"] == "T":
                     occupancy_status = "vacant_ready" if api_data["available"] == "T" else "vacant_not_ready"
                 
+                # API market_rent is authoritative (matches Venn UI / Snowflake ASKED_RENT)
+                api_market_rent = api_data.get("market_rent")
                 uni_cursor.execute("""
                     UPDATE unified_units 
                     SET made_ready_date = ?, available_date = ?, on_notice_date = ?,
                         excluded_from_occupancy = ?,
-                        occupancy_status = COALESCE(?, occupancy_status)
+                        occupancy_status = COALESCE(?, occupancy_status),
+                        market_rent = COALESCE(?, market_rent)
                     WHERE unified_property_id = ? AND pms_unit_id = ?
-                """, (made_ready, avail_date, on_notice, is_excluded, occupancy_status, unified_id, unit_num))
+                """, (made_ready, avail_date, on_notice, is_excluded, occupancy_status, api_market_rent, unified_id, unit_num))
                 if uni_cursor.rowcount > 0:
                     enriched += 1
+    
+    # --- Enrich bedrooms/bathrooms from realpage_floorplan_bedrooms (raw layer) ---
+    print("  🛏️  Enriching units with bed/bath from floorplan lookup...")
+    bedbath_enriched = 0
+    try:
+        rp_cursor.execute("""
+            SELECT property_id, floorplan, bedrooms, bathrooms
+            FROM realpage_floorplan_bedrooms
+        """)
+        fp_lookup = {}  # (property_id, floorplan) -> (beds, baths)
+        for r in rp_cursor.fetchall():
+            fp_lookup[(r[0], r[1])] = (r[2], r[3])
+        
+        for property_id, mapping in PROPERTY_MAPPING.items():
+            unified_id = mapping["unified_id"]
+            uni_cursor_r.execute(
+                "SELECT pms_unit_id, floorplan FROM unified_units WHERE unified_property_id = ?",
+                (unified_id,)
+            )
+            for unit_num, floorplan in uni_cursor_r.fetchall():
+                bedbath = fp_lookup.get((property_id, floorplan))
+                if bedbath:
+                    beds, baths = bedbath
+                    uni_cursor.execute("""
+                        UPDATE unified_units SET bedrooms = ?, bathrooms = ?
+                        WHERE unified_property_id = ? AND pms_unit_id = ?
+                    """, (beds, baths, unified_id, unit_num))
+                    if uni_cursor.rowcount > 0:
+                        bedbath_enriched += 1
+        
+        uni_conn.commit()
+    except Exception as e:
+        print(f"  ⚠️  Bed/bath enrichment: {e}")
+    print(f"  ✅ Enriched {bedbath_enriched} units with bed/bath")
     
     # --- Enrich in_place_rent from lease data ---
     # Leases use API unit_id as pms_unit_id; need realpage_units to map unit_id → unit_number
@@ -1934,6 +2117,9 @@ def run_full_sync():
     print("RealPage → Unified Database Sync")
     print("=" * 60)
     print(f"Started at: {datetime.now().isoformat()}")
+    
+    # Raw layer derivations (realpage_raw.db → realpage_raw.db)
+    bedbath_count = derive_floorplan_bedrooms()
     
     # Core metrics (existing)
     property_count = sync_properties()

@@ -1153,7 +1153,8 @@ async def _gather_portfolio_metrics(owner_group: str) -> dict:
             SELECT
                 SUM(CASE WHEN occupancy_status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END),
                 SUM(CASE WHEN occupancy_status = 'notice' THEN 1 ELSE 0 END),
-                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END)
+                SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END)
             FROM unified_units WHERE unified_property_id IN ({ph})
         """, group_props)
         urow = c.fetchone()
@@ -1161,7 +1162,8 @@ async def _gather_portfolio_metrics(owner_group: str) -> dict:
             vacant = urow[0] or 0
             on_notice = urow[1] or 0
             preleased = urow[2] or 0
-            atr = max(0, vacant + on_notice - preleased)
+            down = urow[3] or 0
+            atr = max(0, vacant + on_notice - preleased - down)
             metrics["atr"] = atr
             if occ and occ[0]:
                 metrics["atr_pct"] = round(atr / occ[0] * 100, 1)

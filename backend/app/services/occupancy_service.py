@@ -200,12 +200,31 @@ class OccupancyService:
             else:
                 conn.close()
                 vacant_units = row[2] or 0
-                vacant_ready = row[10] or 0
-                vacant_not_ready = row[11] or 0
                 notice_break = row[12] or 0
-                # Fallback: if no vacant_ready data, use total vacant
-                if vacant_ready == 0 and vacant_not_ready == 0 and vacant_units > 0:
-                    vacant_ready = vacant_units
+                # Always compute vacant_ready/not_ready from unified_units
+                # (same source as unit-status-breakdown) for consistency
+                vacant_ready = 0
+                vacant_not_ready = 0
+                try:
+                    conn2 = sqlite3.connect(str(UNIFIED_DB_PATH))
+                    c2 = conn2.cursor()
+                    c2.execute("""
+                        SELECT
+                            SUM(CASE WHEN made_ready_date IS NOT NULL AND made_ready_date != '' THEN 1 ELSE 0 END),
+                            SUM(CASE WHEN made_ready_date IS NULL OR made_ready_date = '' THEN 1 ELSE 0 END)
+                        FROM unified_units
+                        WHERE unified_property_id = ?
+                          AND occupancy_status IN ('vacant','vacant_ready','vacant_not_ready')
+                          AND (status IS NULL OR status != 'down')
+                          AND (is_preleased IS NULL OR is_preleased != 1)
+                    """, (property_id,))
+                    rr = c2.fetchone()
+                    conn2.close()
+                    if rr:
+                        vacant_ready = rr[0] or 0
+                        vacant_not_ready = rr[1] or 0
+                except Exception:
+                    pass
                 return OccupancyMetrics(
                     property_id=property_id,
                     property_name=property_name,
@@ -1180,6 +1199,9 @@ class OccupancyService:
                     })
                 
                 # --- Monthly periods ---
+                # Use 4156 when it has data; fall back to unified_leases
+                # for months beyond the report's coverage window.
+                lease_date_expr = "date(substr(lease_end,7,4)||'-'||substr(lease_end,1,2)||'-'||substr(lease_end,4,2))"
                 for m_label, m_start, m_end in month_ranges:
                     cursor.execute(f"""
                         SELECT 
@@ -1202,6 +1224,23 @@ class OccupancyService:
                     unknown = row[3] or 0
                     mtm = row[4] or 0
                     moved_out = row[5] or 0
+                    
+                    # Fall back to unified_leases if 4156 has no data for this month
+                    if total == 0:
+                        cursor.execute(f"""
+                            SELECT 
+                                COUNT(*) as expirations,
+                                SUM(CASE WHEN status = 'Current - Future' THEN 1 ELSE 0 END) as signed_renewals
+                            FROM unified_leases 
+                            WHERE unified_property_id = ?
+                                AND status IN ('Current', 'Current - Future')
+                                AND lease_end IS NOT NULL AND lease_end != ''
+                                AND {lease_date_expr} BETWEEN ? AND ?
+                        """, (property_id, m_start, m_end))
+                        fb_row = cursor.fetchone()
+                        total = fb_row[0] or 0
+                        renewed = fb_row[1] or 0
+                    
                     renewal_pct = round((renewed / total * 100), 1) if total > 0 else 0
                     
                     periods.append({

@@ -1,9 +1,9 @@
 name: Refresh RealPage Data
 
 on:
-  schedule:
-    # Run every 6 hours (UTC): 00:00, 06:00, 12:00, 18:00
-    - cron: '0 */6 * * *'
+  # schedule:  # TEMPORARILY DISABLED — re-enable by uncommenting these 3 lines
+  #   # Run every 6 hours (UTC): 00:00, 06:00, 12:00, 18:00
+  #   - cron: '0 */6 * * *'
   workflow_dispatch: # Manual trigger from GitHub UI
 
 # PHH property IDs (Nexus East + Parkside) — restrict ETL until full portfolio is needed

@@ -5,9 +5,8 @@
  * Shows P&L summary (gross rent → collections) plus transaction detail.
  */
 import { useState, useEffect } from 'react';
-import { DollarSign, ChevronDown, ChevronUp } from 'lucide-react';
-import { useSortable } from '../hooks/useSortable';
-import { SortHeader } from './SortHeader';
+import { DollarSign, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
+import { DrillThroughModal } from './DrillThroughModal';
 import { SectionHeader } from './SectionHeader';
 import { api } from '../api';
 
@@ -101,68 +100,7 @@ function formatPeriod(fp: string): string {
   return `${names[parseInt(mo, 10) - 1] || mo} ${yr}`;
 }
 
-function TransactionTable({ items, title }: { items: TransactionItem[]; title: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const totalThisMonth = items.reduce((sum, i) => sum + i.this_month, 0);
-  const baseItems = expanded ? items : items.filter(i => Math.abs(i.this_month) > 0).slice(0, 5);
-  const { sorted: displayItems, sortKey, sortDir, toggleSort } = useSortable(baseItems);
-  if (items.length === 0) return null;
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-700">{title}</span>
-          <span className="text-[10px] text-slate-400">{items.length} items</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`text-sm font-semibold tabular-nums ${totalThisMonth < 0 ? 'text-rose-600' : 'text-slate-800'}`}>{fmt(totalThisMonth)}</span>
-          {expanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
-        </div>
-      </button>
-      {displayItems.length > 0 && (
-        <div className="border-t border-slate-100">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-slate-400 uppercase tracking-wider">
-                <SortHeader label="Description" column="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-5" />
-                <SortHeader label="This Month" column="this_month" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-5" />
-                <SortHeader label="YTD" column="ytd_through" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-5 hidden sm:table-cell" />
-              </tr>
-            </thead>
-            <tbody>
-              {displayItems.map((item, i) => (
-                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-5 py-2">
-                    <div className="text-slate-700 text-xs">{item.description}</div>
-                    <div className="text-[10px] text-slate-400">{item.group_name}</div>
-                  </td>
-                  <td className={`text-right px-5 py-2 tabular-nums font-medium ${item.this_month < 0 ? 'text-rose-600' : 'text-slate-700'}`}>
-                    {fmt(item.this_month)}
-                  </td>
-                  <td className={`text-right px-5 py-2 tabular-nums hidden sm:table-cell ${item.ytd_through < 0 ? 'text-rose-500' : 'text-slate-400'}`}>
-                    {fmt(item.ytd_through)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!expanded && items.length > displayItems.length && (
-            <button
-              onClick={() => setExpanded(true)}
-              className="w-full py-2 text-[11px] text-indigo-500 hover:text-indigo-600 border-t border-slate-100 font-medium"
-            >
-              View all {items.length} line items
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// TransactionTable removed — replaced by drill-through buttons + modal (FN-6)
 
 function pct(value: number): string {
   return `${value >= 0 ? '' : '-'}${Math.abs(value).toFixed(2)}%`;
@@ -254,6 +192,9 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
   const [propCount, setPropCount] = useState(0);
   const [revOptOpen, setRevOptOpen] = useState(false);
   const [payMethodsOpen, setPayMethodsOpen] = useState(false);
+  const [txnDrillOpen, setTxnDrillOpen] = useState(false);
+  const [txnDrillTitle, setTxnDrillTitle] = useState('');
+  const [txnDrillItems, setTxnDrillItems] = useState<TransactionItem[]>([]);
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
   const isMulti = effectiveIds.length > 1;
@@ -451,10 +392,45 @@ export default function FinancialsSection({ propertyId, propertyIds }: Props) {
         </div>
       )}
 
-      {/* Transaction Detail */}
-      <TransactionTable items={data.charges} title="Revenue & Charges" />
-      <TransactionTable items={data.losses} title="Losses & Concessions" />
-      <TransactionTable items={data.payments} title="Payments Received" />
+      {/* Transaction Detail — drill-through buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {[
+          { items: data.charges, title: 'Revenue & Charges', color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200 hover:bg-indigo-100' },
+          { items: data.losses, title: 'Losses & Concessions', color: 'text-rose-700', bg: 'bg-rose-50 border-rose-200 hover:bg-rose-100' },
+          { items: data.payments, title: 'Payments Received', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' },
+        ].map(({ items, title, color, bg }) => {
+          const total = items.reduce((s, i) => s + i.this_month, 0);
+          return (
+            <button
+              key={title}
+              onClick={() => { setTxnDrillTitle(title); setTxnDrillItems(items); setTxnDrillOpen(true); }}
+              className={`flex items-center justify-between rounded-xl border px-4 py-3 transition-colors cursor-pointer ${bg}`}
+            >
+              <div className="text-left">
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{title}</div>
+                <div className={`text-lg font-bold tabular-nums ${color}`}>{fmt(total)}</div>
+                <div className="text-[10px] text-slate-400">{items.length} line items</div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-slate-400" />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Transaction drill-through modal */}
+      <DrillThroughModal
+        isOpen={txnDrillOpen}
+        onClose={() => setTxnDrillOpen(false)}
+        title={txnDrillTitle}
+        data={txnDrillItems}
+        columns={[
+          { key: 'description', label: 'Description' },
+          { key: 'group_name', label: 'Category' },
+          { key: 'code', label: 'Code' },
+          { key: 'this_month', label: 'This Month', format: (v: unknown) => fmt(Number(v) || 0) },
+          { key: 'ytd_through', label: 'YTD', format: (v: unknown) => fmt(Number(v) || 0) },
+        ]}
+      />
     </div>
   );
 }

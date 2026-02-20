@@ -37,6 +37,7 @@ AVAILABLE_METRICS = {
     "atr_pct": {"label": "ATR %", "unit": "%", "direction": "lower_better"},
     "aged_vacancy_90": {"label": "Aged Vacancy 90+ Days", "unit": "units", "direction": "lower_better"},
     "response_rate": {"label": "Review Response Rate %", "unit": "%", "direction": "higher_better"},
+    "overall_rating": {"label": "Overall Rating", "unit": "stars", "direction": "higher_better"},
     "google_rating": {"label": "Google Rating", "unit": "stars", "direction": "higher_better"},
     "on_notice_units": {"label": "Units on Notice", "unit": "units", "direction": "lower_better"},
     "lead_to_lease": {"label": "Lead-to-Lease %", "unit": "%", "direction": "higher_better"},

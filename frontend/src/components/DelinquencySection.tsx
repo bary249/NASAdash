@@ -376,31 +376,47 @@ export function DelinquencySection({ propertyId, propertyIds }: Props) {
           </div>
         </div>
 
-        {/* Total Prepaid */}
-        <div className="bg-green-50 border border-green-100 rounded-xl p-4">
+        {/* Active Evictions — moved next to Total Delinquent per DQ-2 */}
+        <div className={`${evictions.unit_count > 0 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'} border rounded-xl p-4`}>
           <div className="flex items-center gap-2 mb-2">
-            <DollarSign className="w-4 h-4 text-green-500" />
-            <span className="text-xs font-medium text-green-600 uppercase">Total Prepaid</span>
+            <AlertTriangle className={`w-4 h-4 ${evictions.unit_count > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+            <span className={`text-xs font-medium uppercase ${evictions.unit_count > 0 ? 'text-red-600' : 'text-slate-500'}`}>Active Evictions</span>
           </div>
-          <div className="text-2xl font-bold text-green-700">
-            {formatCurrency(Math.abs(data.total_prepaid))}
+          <div className={`text-2xl font-bold ${evictions.unit_count > 0 ? 'text-red-700' : 'text-slate-400'}`}>
+            {evictions.unit_count > 0 ? `${evictions.unit_count} units` : 'None'}
           </div>
-          <div className="text-xs text-green-500 mt-1">
-            Credits on accounts
-          </div>
+          {evictions.unit_count > 0 && (
+            <div className="text-xs text-red-500 mt-1">
+              {formatCurrency(evictions.total_balance)} owed
+            </div>
+          )}
         </div>
 
-        {/* Collections */}
+        {/* Former Residents Balance */}
         <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-medium text-amber-600 uppercase">Former Residents Balance</span>
+            <span className="text-xs font-medium text-amber-600 uppercase">Former Residents</span>
           </div>
           <div className="text-2xl font-bold text-amber-700">
             {formatCurrency(collections.total)}
           </div>
           <div className="text-xs text-amber-500 mt-1">
-            Former residents owed
+            {formerResidents.length} former residents owed
+          </div>
+        </div>
+
+        {/* Total Prepaid — de-emphasized per DQ-2 */}
+        <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-4 h-4 text-slate-400" />
+            <span className="text-xs font-medium text-slate-500 uppercase">Prepaid</span>
+          </div>
+          <div className="text-2xl font-bold text-slate-600">
+            {formatCurrency(Math.abs(data.total_prepaid))}
+          </div>
+          <div className="text-xs text-slate-400 mt-1">
+            Credits on accounts
           </div>
         </div>
       </div>

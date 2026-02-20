@@ -210,6 +210,45 @@ class ChatService:
                 mo_lines += f"- {r['category']}: {r['count']} residents\n"
             sections.append(f"TOP MOVE-OUT REASONS:\n{mo_lines}")
         
+        # Lead sources (AI-1/AI-2)
+        lead_sources = property_data.get("lead_sources", {})
+        if lead_sources:
+            ls_lines = ""
+            for tf_key, tf_label in [("ytd", "Year-to-Date"), ("mtd", "Month-to-Date")]:
+                sources = lead_sources.get(tf_key, [])
+                date_range = lead_sources.get(f"{tf_key}_date_range", "")
+                if sources:
+                    ls_lines += f"\n{tf_label} ({date_range}):\n"
+                    for s in sources[:10]:
+                        ls_lines += f"  - {s['source']}: {s['prospects']} prospects, {s['visits']} visits, {s['leases']} leases ({s['conversion']:.1f}% conv)\n"
+                    total_p = sum(s['prospects'] for s in sources)
+                    total_l = sum(s['leases'] for s in sources)
+                    ls_lines += f"  TOTAL: {total_p} prospects, {total_l} leases\n"
+            if ls_lines:
+                sections.append(f"LEAD SOURCES:{ls_lines}")
+        
+        # Occupancy forecast (AI-4)
+        forecast = property_data.get("forecast", [])
+        if forecast:
+            fc_lines = ""
+            for f in forecast:
+                fc_lines += f"- Week ending {f['week_ending']}: {f['occupied_begin']}→{f['occupied_end']} occupied ({f['occ_pct_begin']:.1f}%→{f['occ_pct_end']:.1f}%), +{f['move_ins']} in, -{f['move_outs']} out\n"
+            sections.append(f"OCCUPANCY FORECAST (12-week projection):\n{fc_lines}")
+        
+        # Unit breakdown by bedroom type (AI-5)
+        unit_breakdown = property_data.get("unit_breakdown", [])
+        if unit_breakdown:
+            ub_lines = ""
+            for ub in unit_breakdown:
+                vac_pct = round(ub['vacant'] / ub['total'] * 100, 1) if ub['total'] > 0 else 0
+                ub_lines += f"- {ub['type']}: {ub['total']} total, {ub['vacant']} vacant ({vac_pct}%), {ub['preleased']} preleased"
+                if ub.get('avg_market_rent'):
+                    ub_lines += f", asking ${ub['avg_market_rent']:,.0f}"
+                if ub.get('avg_in_place_rent'):
+                    ub_lines += f", in-place ${ub['avg_in_place_rent']:,.0f}"
+                ub_lines += "\n"
+            sections.append(f"UNIT MIX BY BEDROOM TYPE:\n{ub_lines}")
+        
         # Units and residents
         if len(units) > 0:
             sections.append(f"UNITS DATA:\n{len(units)} units loaded with details including floorplan, bedrooms, bathrooms, square feet, market rent, status, and days vacant.")
@@ -224,15 +263,27 @@ PROPERTY: {property_name} ({property_id})
 
 {data_context}
 
+RESPONSE FORMAT:
+When answering analytical questions, structure your response using this framework:
+1. **Observation** — State what the data shows (specific numbers)
+2. **Diagnosis** — Explain why this matters or what's driving it
+3. **Financial Impact** — Quantify the dollar impact where possible (monthly/annual)
+4. **Action** — Recommend specific next steps
+
+For simple factual questions, answer directly without the full framework.
+
 GUIDELINES:
-1. Only analyze the data provided above - do not mention missing data.
+1. Only analyze the data provided above — do not invent or assume data that isn't shown.
 2. Provide actionable insights based on what IS available.
 3. Use specific numbers from the data when answering.
 4. Highlight concerns (e.g., high vacancy, low conversion rates) proactively.
 5. Keep responses focused and concise.
 6. For complex analysis, break down your reasoning.
+7. When asked about lead sources (e.g., Apartments.com, Zillow), reference the LEAD SOURCES section.
+8. When asked about projections or forecasts, reference the OCCUPANCY FORECAST section.
+9. When asked about unit types or bedroom demand, reference the UNIT MIX BY BEDROOM TYPE section.
 
-You can help with occupancy analysis, pricing insights, leasing funnel efficiency, identifying risks and opportunities, and suggesting improvements based on the available data."""
+You can help with: occupancy analysis, lead source performance, pricing insights, leasing funnel efficiency, occupancy projections, unit type demand, identifying risks and opportunities, and suggesting improvements."""
 
     async def chat(
         self,

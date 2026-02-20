@@ -25,6 +25,41 @@ interface Props {
   propertyIds?: string[];
 }
 
+/** Pick the latest snapshot + the closest snapshot to 7, 14, 21, 28 days ago.
+ *  Only includes a target if a snapshot exists within ±2 days of it. */
+function pickWeeklySnapshots(allSnaps: Snapshot[]): Snapshot[] {
+  if (allSnaps.length === 0) return [];
+  // allSnaps is sorted ASC by date
+  const sorted = [...allSnaps].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = sorted[sorted.length - 1];
+  const latestMs = new Date(latest.date + 'T00:00:00').getTime();
+  const DAY = 86400000;
+  const TOLERANCE = 2 * DAY;
+  const targets = [7, 14, 21, 28];
+  const picked: Snapshot[] = [latest];
+  const usedDates = new Set([latest.date]);
+
+  for (const offset of targets) {
+    const targetMs = latestMs - offset * DAY;
+    let best: Snapshot | null = null;
+    let bestDist = Infinity;
+    for (const s of sorted) {
+      const sMs = new Date(s.date + 'T00:00:00').getTime();
+      const dist = Math.abs(sMs - targetMs);
+      if (dist <= TOLERANCE && dist < bestDist) {
+        best = s;
+        bestDist = dist;
+      }
+    }
+    if (best && !usedDates.has(best.date)) {
+      picked.push(best);
+      usedDates.add(best.date);
+    }
+  }
+  // Return sorted oldest→newest
+  return picked.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 function OccupancyTrendTable({ snaps, sortNewest }: { snaps: Snapshot[]; sortNewest: boolean }) {
   const { sorted, sortKey, sortDir, toggleSort } = useSortable(snaps);
   // When no explicit sort is active, use the original display order
@@ -99,7 +134,7 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
         if (effectiveIds.length === 1) {
           // Single property: filter out bad snapshots (partial imports)
           const snaps = (results[0]?.snapshots || []).filter((s: Snapshot) => s.total_units >= 10);
-          setSnapshots(snaps);
+          setSnapshots(pickWeeklySnapshots(snaps));
         } else {
           // Multi-property: only show dates where ALL properties have a real snapshot.
           // No carry-forward — every number is actual captured data.
@@ -143,7 +178,7 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
               merged.push(agg);
             }
           }
-          setSnapshots(merged);
+          setSnapshots(pickWeeklySnapshots(merged));
         }
       })
       .finally(() => setLoading(false));
@@ -159,7 +194,7 @@ export function OccupancyTrendSection({ propertyId, propertyIds }: Props) {
     );
   }
 
-  if (snapshots.length < 3) return null;
+  if (snapshots.length < 2) return null;
 
   // Show newest first
   const sorted = [...snapshots].reverse();

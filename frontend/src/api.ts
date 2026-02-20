@@ -420,7 +420,7 @@ export const api = {
     occupied_units: number; total_units: number; data_available: boolean;
   }> => fetchJson(`${API_BASE}/properties/${propertyId}/loss-to-lease`),
 
-  getConsolidatedByBedroom: (propertyId: string): Promise<{
+  getConsolidatedByBedroom: (propertyId: string, groupBy: 'bedroom' | 'floorplan' = 'bedroom'): Promise<{
     bedrooms: {
       bedroom_type: string; bedrooms: number; floorplan_count: number; floorplans: string[];
       total_units: number; occupied: number; vacant: number; vacant_leased: number; vacant_not_leased: number; on_notice: number;
@@ -431,7 +431,7 @@ export const api = {
       total_units: number; occupied: number; vacant: number; vacant_leased: number; on_notice: number;
       occupancy_pct: number; expiring_90d: number; renewed_90d: number; renewal_pct_90d: number | null;
     };
-  }> => fetchJson(`${API_BASE}/properties/${propertyId}/consolidated-by-bedroom`),
+  }> => fetchJson(`${API_BASE}/properties/${propertyId}/consolidated-by-bedroom?group_by=${groupBy}`),
 
   getReputation: (propertyId: string): Promise<{
     property_id: string; overall_rating: number;

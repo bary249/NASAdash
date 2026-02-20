@@ -486,10 +486,13 @@ class TestDelinquency:
         assert d["resident_count"] >= 0
 
     def test_delinquent_detail_sum(self, first_property):
+        """Detail sum should equal current_resident_total + former_resident_total.
+        Note: total_delinquent is current-only; details include both current & former."""
         d = _get(f"{API}/{first_property}/delinquency")
         detail_sum = sum(r.get("total_delinquent", 0) or 0 for r in d["resident_details"])
-        assert abs(detail_sum - (d["total_delinquent"] or 0)) < 1.0, \
-            f"Detail delinquent sum {detail_sum} != reported {d['total_delinquent']}"
+        combined_total = (d.get("current_resident_total", 0) or 0) + (d.get("former_resident_total", 0) or 0)
+        assert abs(detail_sum - combined_total) < 1.0, \
+            f"Detail delinquent sum {detail_sum} != current+former {combined_total}"
 
     def test_delinquency_aging_sums(self, first_property):
         """For delinquent residents, aging buckets should sum ≈ total_delinquent.
@@ -2894,6 +2897,142 @@ class TestUnitStatusDrillThrough:
             if actual != expected:
                 errors.append(f"{pid}: ATR subtotal={expected} but drill returned {actual}")
         assert not errors, "ATR drill-through mismatch:\n" + "\n".join(errors)
+
+
+# ===================================================================
+# FEEDBACK VALIDATION — Tests added from colleague dashboard review
+# (Source: Comments on Dashboard.docx, 2026-02-20)
+# ===================================================================
+
+class TestDelinquencyAgingConsistency:
+    """DQ-1: Aging bucket summary must be consistent with resident AR table."""
+
+    def test_aging_summary_vs_detail_sum(self, first_property):
+        """Top-level aging buckets must equal sum of per-resident aging (current residents only)."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        aging = d["delinquency_aging"]
+        # Sum aging buckets from individual current-resident details
+        current_residents = [r for r in d["resident_details"]
+                            if not r.get("is_former") and (r.get("total_delinquent") or 0) > 0]
+        detail_current = sum(max(0, r.get("current", 0) or 0) for r in current_residents)
+        detail_30 = sum(max(0, r.get("days_30", 0) or 0) for r in current_residents)
+        detail_60 = sum(max(0, r.get("days_60", 0) or 0) for r in current_residents)
+        detail_90 = sum(max(0, r.get("days_90_plus", 0) or 0) for r in current_residents)
+        detail_total = detail_current + detail_30 + detail_60 + detail_90
+
+        # The summary aging total should match the sum of detail aging
+        assert abs(aging["total"] - detail_total) < 2.0, \
+            f"Aging summary total ${aging['total']:.2f} != detail aging sum ${detail_total:.2f}"
+
+    def test_aging_total_vs_total_delinquent(self, first_property):
+        """Aging total should approximate total_delinquent for current residents.
+        Known gap: late fees/utility charges may not be broken into aging buckets."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        aging_total = d["delinquency_aging"]["total"]
+        current_delinquent = d["current_resident_total"]
+        if current_delinquent > 0:
+            pct_diff = abs(aging_total - current_delinquent) / current_delinquent * 100
+            # Allow up to 25% discrepancy (late fees, utility charges)
+            assert pct_diff < 25, \
+                f"Aging total ${aging_total:.2f} is {pct_diff:.0f}% off from current_resident_total ${current_delinquent:.2f}"
+
+    def test_aging_buckets_sum_to_aging_total(self, first_property):
+        """Individual aging buckets (current+0-30+31-60+61-90+90+) must sum to aging total."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        a = d["delinquency_aging"]
+        bucket_sum = (a.get("current", 0) + a.get("days_0_30", 0) +
+                      a.get("days_31_60", 0) + a.get("days_61_90", 0) +
+                      a.get("days_90_plus", 0))
+        assert abs(bucket_sum - a["total"]) < 1.0, \
+            f"Aging bucket sum ${bucket_sum:.2f} != aging total ${a['total']:.2f}"
+
+    def test_delinquency_all_properties_aging_consistency(self, property_ids):
+        """DQ-1: Across ALL properties, aging total should not wildly diverge from total_delinquent."""
+        errors = []
+        for pid in property_ids:
+            r = requests.get(f"{API}/{pid}/delinquency", timeout=30)
+            if r.status_code != 200:
+                continue
+            d = r.json()
+            aging_total = d["delinquency_aging"]["total"]
+            current_total = d.get("current_resident_total", 0)
+            if current_total > 100:
+                pct_diff = abs(aging_total - current_total) / current_total * 100
+                if pct_diff > 30:
+                    errors.append(f"{pid}: aging=${aging_total:.0f} vs current_delinquent=${current_total:.0f} ({pct_diff:.0f}% off)")
+        if errors:
+            pytest.fail(f"Aging vs total mismatch in {len(errors)} properties:\n" + "\n".join(errors))
+
+
+class TestEvictionDataSanity:
+    """DQ-4: Eviction records should make sense — residents under eviction typically owe money."""
+
+    def test_eviction_residents_have_meaningful_balance(self, first_property):
+        """Flag eviction records with $0 balance — may indicate non-payment eviction or data issue."""
+        d = _get(f"{API}/{first_property}/delinquency")
+        eviction_details = [r for r in d["resident_details"] if r.get("is_eviction")]
+        if not eviction_details:
+            pytest.skip("No eviction records")
+        zero_balance = [r["unit"] for r in eviction_details if (r.get("total_delinquent") or 0) <= 0]
+        # Allow some $0 evictions (lease violations, not non-payment)
+        # but flag if ALL evictions have $0 (likely a data issue)
+        if len(eviction_details) > 1:
+            assert len(zero_balance) < len(eviction_details), \
+                f"ALL {len(eviction_details)} eviction residents have $0 balance — possible data issue. Units: {zero_balance}"
+
+
+class TestForecastProjNtvDrillThrough:
+    """LS-5c: Proj. NTV must be linked to drill-through unit list."""
+
+    def test_forecast_projected_notice_units_present(self, first_property):
+        """When proj NTV > 0 in any week, projected_notice_units list must exist."""
+        fc = _get(f"{API}/{first_property}/occupancy-forecast")
+        if not fc.get("forecast"):
+            pytest.skip("No forecast data")
+        weekly_pn = sum(w.get("projected_notices", 0) or 0 for w in fc["forecast"])
+        pn_units = fc.get("projected_notice_units", [])
+        if weekly_pn > 0:
+            assert len(pn_units) > 0, \
+                f"Weekly proj notices sum={weekly_pn} but projected_notice_units is empty"
+
+    def test_forecast_proj_ntv_count_gte_weekly_sum(self, first_property):
+        """projected_notice_units list should have at least as many records as weekly totals."""
+        fc = _get(f"{API}/{first_property}/occupancy-forecast")
+        if not fc.get("forecast"):
+            pytest.skip("No forecast data")
+        weekly_pn = sum(w.get("projected_notices", 0) or 0 for w in fc["forecast"])
+        pn_units = fc.get("projected_notice_units", [])
+        if weekly_pn > 0:
+            assert len(pn_units) >= weekly_pn, \
+                f"projected_notice_units({len(pn_units)}) < weekly projected notices sum({weekly_pn})"
+
+
+class TestLeadSourcesPeriodDates:
+    """LS-3b: 'Previous month' must show correct date range, not bleed into current month."""
+
+    def test_lead_sources_previous_month_dates(self, first_property):
+        """When timeframe=pm, period dates must be within the prior calendar month only."""
+        from datetime import datetime
+        r = requests.get(f"{API}/{first_property}/marketing?timeframe=pm", timeout=30)
+        if r.status_code != 200:
+            pytest.skip("Marketing endpoint not available")
+        mkt = r.json()
+        start = mkt.get("period_start", "")
+        end = mkt.get("period_end", "")
+        if not start or not end:
+            pytest.skip("No period dates in marketing response")
+        now = datetime.now()
+        # Prior month should not include any day in the current month
+        if now.month == 1:
+            expected_month = 12
+        else:
+            expected_month = now.month - 1
+        start_month = int(start.split("-")[1]) if "-" in start else 0
+        end_month = int(end.split("-")[1]) if "-" in end else 0
+        assert start_month == expected_month, \
+            f"PM start month={start_month}, expected={expected_month} (start={start})"
+        assert end_month == expected_month, \
+            f"PM end month={end_month}, expected={expected_month} (end={end})"
 
 
 # ===================================================================

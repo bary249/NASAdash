@@ -4,7 +4,7 @@
  * Per WS5 design partner feedback.
  */
 import { useState, useEffect } from 'react';
-import { ChevronDown, Home } from 'lucide-react';
+import { ChevronDown, Home, LayoutGrid, List } from 'lucide-react';
 import { useSortable } from '../hooks/useSortable';
 import { SortHeader } from './SortHeader';
 import { InfoTooltip } from './InfoTooltip';
@@ -70,13 +70,14 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
   const [data, setData] = useState<{ bedrooms: BedroomRow[]; totals: Totals } | null>(null);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [groupBy, setGroupBy] = useState<'bedroom' | 'floorplan'>('bedroom');
 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   useEffect(() => {
     if (!effectiveIds.length || !effectiveIds[0]) return;
     setLoading(true);
-    Promise.all(effectiveIds.map(id => api.getConsolidatedByBedroom(id).catch(() => null)))
+    Promise.all(effectiveIds.map(id => api.getConsolidatedByBedroom(id, groupBy).catch(() => null)))
       .then(results => {
         const valid = results.filter(r => r && r.bedrooms?.length > 0) as { bedrooms: BedroomRow[]; totals: Totals }[];
         if (valid.length === 0) { setData(null); return; }
@@ -127,7 +128,7 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveIds.join(',')]);
+  }, [effectiveIds.join(','), groupBy]);
 
   const { sorted: sortedBedrooms, sortKey, sortDir, toggleSort } = useSortable(data?.bedrooms ?? []);
 
@@ -148,24 +149,52 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <button
-        onClick={() => setCollapsed(c => !c)}
-        className="w-full px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between hover:bg-slate-100 transition-colors"
-      >
-        <h3 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
-          <Home className="w-4 h-4 text-indigo-500" />
-          Consolidated by Bedroom Type
-          <InfoTooltip text="Aggregates all floorplans by bedroom count, showing occupancy, pricing, availability, and renewal metrics in one view. Source: RealPage Box Score + Leases." />
-        </h3>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
-      </button>
+      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+        >
+          <h3 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
+            <Home className="w-4 h-4 text-indigo-500" />
+            {groupBy === 'bedroom' ? 'Consolidated by Bedroom Type' : 'Consolidated by Floorplan'}
+            <InfoTooltip text={groupBy === 'bedroom' ? 'Aggregates all floorplans by bedroom count. Source: RealPage Box Score + Leases.' : 'Shows each floorplan individually with occupancy, pricing, and renewal metrics.'} />
+          </h3>
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+        </button>
+        <div className="inline-flex rounded-lg shadow-sm" onClick={e => e.stopPropagation()}>
+          <button
+            onClick={() => setGroupBy('bedroom')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-l-lg border transition-all ${
+              groupBy === 'bedroom'
+                ? 'bg-indigo-500 text-white border-indigo-500'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="Group by bedroom type (Studio, 1BR, 2BR, 3BR)"
+          >
+            <LayoutGrid className="w-3 h-3 inline mr-1" />
+            Bedroom
+          </button>
+          <button
+            onClick={() => setGroupBy('floorplan')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-r-lg border-t border-b border-r transition-all ${
+              groupBy === 'floorplan'
+                ? 'bg-indigo-500 text-white border-indigo-500'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+            title="Show each floorplan individually"
+          >
+            <List className="w-3 h-3 inline mr-1" />
+            Floorplan
+          </button>
+        </div>
+      </div>
 
       {!collapsed && (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
-                <SortHeader label="Type" column="bedroom_type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-4" />
+                <SortHeader label={groupBy === 'bedroom' ? 'Type' : 'Floorplan'} column="bedroom_type" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-4" />
                 <SortHeader label="Units" column="total_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Occ%" column="occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Vacant" column="vacant" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
@@ -175,8 +204,8 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                 <th className="px-3 py-2 text-right">
                   <span className="inline-flex items-center gap-0.5">NTV <InfoTooltip text="On Notice to Vacate" /></span>
                 </th>
-                <SortHeader label="Market" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="In-Place" column="avg_in_place_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+                <SortHeader label="Asking" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Delta" column="rent_delta" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Exp 90d" column="expiring_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
                 <SortHeader label="Rnw% 90d" column="renewal_pct_90d" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
@@ -186,8 +215,17 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
               {sortedBedrooms.map(bed => (
                 <tr key={bed.bedroom_type} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-2.5">
-                    <div className="font-medium text-slate-800">{bed.bedroom_type}</div>
-                    <div className="text-xs text-slate-400">{bed.floorplan_count} floorplan{bed.floorplan_count !== 1 ? 's' : ''}</div>
+                    {groupBy === 'floorplan' ? (
+                      <>
+                        <div className="font-medium text-slate-800">{bed.floorplans?.[0] || bed.bedroom_type}</div>
+                        <div className="text-xs text-slate-400">{bed.bedrooms === 0 ? 'Studio' : `${bed.bedrooms}BR`} · {bed.total_units} unit{bed.total_units !== 1 ? 's' : ''}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="font-medium text-slate-800">{bed.bedroom_type}</div>
+                        <div className="text-xs text-slate-400">{bed.floorplan_count} floorplan{bed.floorplan_count !== 1 ? 's' : ''}</div>
+                      </>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right text-slate-700">{bed.total_units}</td>
                   <td className="px-3 py-2.5">
@@ -202,8 +240,8 @@ export function BedroomConsolidatedView({ propertyId, propertyIds }: Props) {
                   <td className={`px-3 py-2.5 text-right ${bed.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>
                     {bed.on_notice || '—'}
                   </td>
-                  <td className="px-3 py-2.5 text-right text-slate-700">{fmt(bed.avg_market_rent)}</td>
                   <td className="px-3 py-2.5 text-right text-slate-700">{fmt(bed.avg_in_place_rent)}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-700">{fmt(bed.avg_market_rent)}</td>
                   <td className={`px-3 py-2.5 text-right font-medium ${
                     bed.rent_delta > 0 ? 'text-emerald-600' : bed.rent_delta < 0 ? 'text-red-600' : 'text-slate-500'
                   }`}>

@@ -4,7 +4,7 @@ READ-ONLY endpoints. All operations are GET-only.
 """
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.db.schema import UNIFIED_DB_PATH
 from app.services.occupancy_service import OccupancyService
@@ -804,15 +804,42 @@ def get_availability(property_id: str):
         avail_30_60 = (urow[6] or 0) if urow else 0
         avail_60_plus = (urow[7] or 0) if urow else 0
         
-        # --- 7-week availability trend from unified_projected_occupancy ---
-        # Uses ATR formula: projected_unoccupied - down_units
-        # projected_unoccupied = total_units - occupied_end (from RealPage Projected Occupancy report)
-        # down_units assumed stable across projection window
+        # Helper: parse move-in dates that may be concatenated or in different formats
+        def _parse_best_future_date(move_in_raw, lease_start_raw, ref_date):
+            """Parse the best future date from move_in_date and lease_start fields.
+            Handles: MM/DD/YYYY, YYYY-MM-DD, and newline-concatenated values."""
+            candidates = []
+            for raw in [move_in_raw, lease_start_raw]:
+                if not raw:
+                    continue
+                # Split on newlines for concatenated values
+                for part in str(raw).split('\n'):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    dt = None
+                    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+                        try:
+                            dt = datetime.strptime(part, fmt)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+                    if dt:
+                        candidates.append(dt)
+            # Prefer the closest future date; fall back to closest past date
+            future = [d for d in candidates if d >= ref_date]
+            if future:
+                return min(future)
+            return max(candidates) if candidates else None
+        
+        # --- 7-week availability trend from unit-level data ---
+        # Every projected number maps to actual units (notice move-outs, preleased move-ins, projected notices)
         trend_weeks = []
         trend_direction = "flat"
         
         # Insert "Today" row with actual formula components
         today_str = datetime.now().strftime("%m/%d/%Y")
+        today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         trend_weeks.append({
             "week_ending": today_str,
             "atr": atr,
@@ -832,75 +859,112 @@ def get_availability(property_id: str):
         try:
             pc = sqlite3.connect(str(UNIFIED_DB_PATH))
             pcc = pc.cursor()
+            
+            # Notice units with expected move-out dates (ALL notice, including preleased-notice)
             pcc.execute("""
-                SELECT week_ending, MAX(total_units), MAX(occupied_end), MAX(pct_occupied_end),
-                       MAX(scheduled_move_ins), MAX(scheduled_move_outs)
-                FROM unified_projected_occupancy
-                WHERE unified_property_id = ? OR unified_property_id = ?
-                GROUP BY week_ending
-                ORDER BY week_ending ASC
-                LIMIT 7
+                SELECT unit_number, lease_end
+                FROM unified_units
+                WHERE (unified_property_id = ? OR unified_property_id = ?)
+                  AND occupancy_status = 'notice'
+                  AND lease_end IS NOT NULL AND lease_end != ''
             """, (property_id, normalized_id))
-            proj_rows = pcc.fetchall()
-            
-            # Pre-query projected notices (Unknown + MTM lease expirations) per week
-            # These are leases expiring where the resident hasn't decided — projected as future ATR
-            le_date_expr = "date(substr(lease_end_date,7,4)||'-'||substr(lease_end_date,1,2)||'-'||substr(lease_end_date,4,2))"
-            projected_notices_by_week = []
-            for row in proj_rows:
-                week_end_str = row[0]  # MM/DD/YYYY
+            notice_out_list = []
+            for unit_num, date_str in pcc.fetchall():
                 try:
-                    we_iso = f"{week_end_str[6:10]}-{week_end_str[0:2]}-{week_end_str[3:5]}"
-                    pcc.execute(f"""
-                        SELECT COUNT(*) FROM unified_lease_expirations
-                        WHERE (unified_property_id = ? OR unified_property_id = ?)
-                          AND decision IN ('Unknown', 'MTM')
-                          AND lease_end_date IS NOT NULL AND lease_end_date != ''
-                          AND {le_date_expr} BETWEEN date('now') AND date(?)
-                    """, (property_id, normalized_id, we_iso))
-                    projected_notices_by_week.append(pcc.fetchone()[0] or 0)
-                except Exception:
-                    projected_notices_by_week.append(0)
+                    dt = datetime.strptime(date_str, "%m/%d/%Y")
+                    notice_out_list.append({"unit": unit_num, "date": dt})
+                except (ValueError, TypeError):
+                    pass
             
-            cumulative_move_outs = 0
-            cumulative_move_ins = 0
+            # Preleased units with move-in dates
+            pcc.execute("""
+                SELECT unit_number, move_in_date, lease_start
+                FROM unified_units
+                WHERE (unified_property_id = ? OR unified_property_id = ?)
+                  AND is_preleased = 1
+                  AND occupancy_status != 'occupied'
+            """, (property_id, normalized_id))
+            move_in_list = []
+            for unit_num, mid_raw, ls_raw in pcc.fetchall():
+                dt = _parse_best_future_date(mid_raw, ls_raw, today_dt)
+                if dt:
+                    move_in_list.append({"unit": unit_num, "date": dt})
             
-            for i, row in enumerate(proj_rows):
-                week_end, t_units, occ_end, occ_pct, mi, mo = row
-                t_units = t_units or total_units
-                mi = mi or 0
-                mo = mo or 0
-                cumulative_move_outs += mo
-                cumulative_move_ins += mi
+            # Projected notices (Unknown + MTM lease expirations — residents who haven't decided)
+            pcc.execute("""
+                SELECT unit_number, lease_end_date
+                FROM unified_lease_expirations
+                WHERE (unified_property_id = ? OR unified_property_id = ?)
+                  AND decision IN ('Unknown', 'MTM')
+                  AND lease_end_date IS NOT NULL AND lease_end_date != ''
+            """, (property_id, normalized_id))
+            proj_notice_list = []
+            for unit_num, date_str in pcc.fetchall():
+                try:
+                    dt = datetime.strptime(date_str, "%m/%d/%Y")
+                    if dt > today_dt:
+                        proj_notice_list.append({"unit": unit_num, "date": dt})
+                except (ValueError, TypeError):
+                    pass
+            
+            pc.close()
+            
+            # Generate 7 weekly periods with running ATR state
+            running_vacant = vacant
+            running_notice = on_notice
+            running_preleased = preleased
+            cumulative_proj_notices = 0
+            
+            for w in range(7):
+                ws = today_dt + timedelta(days=w * 7 + 1)
+                we = today_dt + timedelta(days=(w + 1) * 7)
                 
-                projected_unoccupied = max(0, (t_units or 0) - (occ_end or 0))
-                # Blended ATR: add back notice units not yet moved out,
-                # subtract preleased units not yet moved in
-                remaining_notice = max(0, on_notice - cumulative_move_outs)
-                remaining_preleased = max(0, preleased - cumulative_move_ins)
-                # Add projected notices: undecided lease expirations up to this week
-                week_projected_notices = projected_notices_by_week[i] if i < len(projected_notices_by_week) else 0
-                week_atr = max(0, projected_unoccupied - down_units + remaining_notice - remaining_preleased + week_projected_notices)
-                week_atr_pct = round(week_atr / t_units * 100, 1) if t_units > 0 else 0
+                # Count units transitioning this week
+                # First week: include past-due notice units (should have moved out already)
+                if w == 0:
+                    week_outs = [u for u in notice_out_list if u["date"] <= we]
+                else:
+                    week_outs = [u for u in notice_out_list if ws <= u["date"] <= we]
+                week_ins = [u for u in move_in_list if ws <= u["date"] <= we]
+                week_pn = [u for u in proj_notice_list if ws <= u["date"] <= we]
+                
+                n_outs = len(week_outs)
+                n_ins = len(week_ins)
+                n_pn = len(week_pn)
+                
+                # Update running state
+                # Notice out → unit becomes vacant (vacant++, notice--)
+                # Preleased in → unit becomes occupied (vacant--, preleased--)
+                # Projected notice → undecided lease expires, might vacate (added to ATR)
+                running_vacant = running_vacant + n_outs - n_ins
+                running_notice = max(0, running_notice - n_outs)
+                running_preleased = max(0, running_preleased - n_ins)
+                cumulative_proj_notices += n_pn
+                
+                week_atr = max(0, running_vacant + running_notice - running_preleased - down_units + cumulative_proj_notices)
+                week_atr_pct = round(week_atr / total_units * 100, 1) if total_units > 0 else 0
+                occ_proj = max(0, total_units - running_vacant - down_units)
+                occ_pct = round(occ_proj / total_units * 100, 1) if total_units > 0 else 0
+                
                 trend_weeks.append({
-                    "week_ending": week_end,
+                    "week_ending": we.strftime("%m/%d/%Y"),
                     "atr": week_atr,
                     "atr_pct": week_atr_pct,
-                    "occupancy_pct": occ_pct or 0,
-                    "move_ins": mi,
-                    "move_outs": mo,
+                    "occupancy_pct": occ_pct,
+                    "move_ins": n_ins,
+                    "move_outs": n_outs,
                     "is_current": False,
                     "formula": {
-                        "unoccupied": projected_unoccupied,
+                        "unoccupied": running_vacant,
                         "down": down_units,
-                        "remaining_notice": remaining_notice,
-                        "remaining_preleased": remaining_preleased,
-                        "projected_notices": week_projected_notices,
-                        "scheduled_move_ins": mi,
-                        "scheduled_move_outs": mo,
+                        "remaining_notice": running_notice,
+                        "remaining_preleased": running_preleased,
+                        "projected_notices": cumulative_proj_notices,
+                        "notice_out_units": [u["unit"] for u in week_outs],
+                        "move_in_units": [u["unit"] for u in week_ins],
+                        "proj_notice_units": [u["unit"] for u in week_pn],
                     },
                 })
-            pc.close()
             
             if len(trend_weeks) >= 3:
                 first_atr = trend_weeks[1]["atr_pct"]
@@ -1747,11 +1811,20 @@ def get_delinquency(property_id: str):
                 if report_total_delinquent > 0 and pos_aging == 0:
                     collections["current"] += report_total_delinquent
                 else:
-                    collections["current"] += max(0, current_bal)
-                    collections["0_30"] += max(0, bal_0_30)
-                    collections["31_60"] += max(0, bal_31_60)
-                    collections["61_90"] += max(0, bal_61_90)
-                    collections["90_plus"] += max(0, bal_90_plus)
+                    c_cur = max(0, current_bal)
+                    c_30 = max(0, bal_0_30)
+                    c_60 = max(0, bal_31_60)
+                    c_90 = max(0, bal_61_90)
+                    c_90p = max(0, bal_90_plus)
+                    bucket_sum = c_cur + c_30 + c_60 + c_90 + c_90p
+                    # Put unaccounted remainder in current so bars match total
+                    if report_total_delinquent > bucket_sum + 0.005:
+                        c_cur += report_total_delinquent - bucket_sum
+                    collections["current"] += c_cur
+                    collections["0_30"] += c_30
+                    collections["31_60"] += c_60
+                    collections["61_90"] += c_90
+                    collections["90_plus"] += c_90p
                 if unit_delinquent > 0:
                     total_collections += unit_delinquent
             else:
@@ -1759,11 +1832,20 @@ def get_delinquency(property_id: str):
                 if report_total_delinquent > 0 and pos_aging == 0:
                     aging["current"] += report_total_delinquent
                 else:
-                    aging["current"] += max(0, current_bal)
-                    aging["0_30"] += max(0, bal_0_30)
-                    aging["31_60"] += max(0, bal_31_60)
-                    aging["61_90"] += max(0, bal_61_90)
-                    aging["90_plus"] += max(0, bal_90_plus)
+                    a_cur = max(0, current_bal)
+                    a_30 = max(0, bal_0_30)
+                    a_60 = max(0, bal_31_60)
+                    a_90 = max(0, bal_61_90)
+                    a_90p = max(0, bal_90_plus)
+                    bucket_sum = a_cur + a_30 + a_60 + a_90 + a_90p
+                    # Put unaccounted remainder in current so bars match total
+                    if report_total_delinquent > bucket_sum + 0.005:
+                        a_cur += report_total_delinquent - bucket_sum
+                    aging["current"] += a_cur
+                    aging["0_30"] += a_30
+                    aging["31_60"] += a_60
+                    aging["61_90"] += a_90
+                    aging["90_plus"] += a_90p
                 if unit_delinquent > 0:
                     total_delinquent += unit_delinquent
             
@@ -1954,6 +2036,7 @@ def get_availability_by_floorplan(property_id: str):
             SELECT floorplan,
                    '' as floorplan_group,
                    COUNT(*) as total_units,
+                   COALESCE(bedrooms, -1) as bedrooms,
                    SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') THEN 1 ELSE 0 END) as vacant_units,
                    SUM(CASE WHEN occupancy_status IN ('vacant', 'vacant_ready', 'vacant_not_ready') AND (is_preleased = 0 OR is_preleased IS NULL) THEN 1 ELSE 0 END) as vacant_not_leased,
                    SUM(CASE WHEN is_preleased = 1 AND occupancy_status != 'occupied' THEN 1 ELSE 0 END) as vacant_leased,
@@ -1962,6 +2045,7 @@ def get_availability_by_floorplan(property_id: str):
                    SUM(CASE WHEN status = 'model' THEN 1 ELSE 0 END) as model_units,
                    SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_units,
                    ROUND(AVG(market_rent), 0) as avg_market_rent,
+                   ROUND(AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END), 0) as avg_in_place_rent,
                    ROUND(SUM(CASE WHEN occupancy_status = 'occupied' THEN 1.0 ELSE 0 END) / COUNT(*) * 100, 1) as occupancy_pct,
                    ROUND((SUM(CASE WHEN occupancy_status = 'occupied' THEN 1.0 ELSE 0 END) + SUM(CASE WHEN is_preleased = 1 THEN 1.0 ELSE 0 END)) / COUNT(*) * 100, 1) as leased_pct
             FROM unified_units
@@ -1980,16 +2064,18 @@ def get_availability_by_floorplan(property_id: str):
                 "floorplan": row[0],
                 "group": row[1],
                 "total_units": row[2] or 0,
-                "vacant_units": row[3] or 0,
-                "vacant_not_leased": row[4] or 0,
-                "vacant_leased": row[5] or 0,
-                "occupied_units": row[6] or 0,
-                "on_notice": row[7] or 0,
-                "model_units": row[8] or 0,
-                "down_units": row[9] or 0,
-                "avg_market_rent": row[10] or 0,
-                "occupancy_pct": row[11] or 0,
-                "leased_pct": row[12] or 0,
+                "bedrooms": row[3] if row[3] is not None and row[3] >= 0 else None,
+                "vacant_units": row[4] or 0,
+                "vacant_not_leased": row[5] or 0,
+                "vacant_leased": row[6] or 0,
+                "occupied_units": row[7] or 0,
+                "on_notice": row[8] or 0,
+                "model_units": row[9] or 0,
+                "down_units": row[10] or 0,
+                "avg_market_rent": row[11] or 0,
+                "avg_in_place_rent": row[12] or 0,
+                "occupancy_pct": row[13] or 0,
+                "leased_pct": row[14] or 0,
             }
             floorplans.append(fp)
             totals["total"] += fp["total_units"]
@@ -2009,13 +2095,16 @@ def get_availability_by_floorplan(property_id: str):
 
 
 @router.get("/properties/{property_id}/consolidated-by-bedroom")
-def get_consolidated_by_bedroom(property_id: str):
+def get_consolidated_by_bedroom(property_id: str, group_by: str = "bedroom"):
     """
     GET: Dashboard Consolidation — aggregates occupancy, pricing, and availability
-    by bedroom type (Studio, 1BR, 2BR, 3BR+).
+    by bedroom type (Studio, 1BR, 2BR, 3BR+) or by individual floorplan.
+    
+    Query params:
+    - group_by: "bedroom" (default) or "floorplan"
     
     Combines unified_units (occupancy/availability) with rent data
-    into a single consolidated view per bedroom count.
+    into a single consolidated view per bedroom count or per floorplan.
     """
     import sqlite3
     
@@ -2061,6 +2150,8 @@ def get_consolidated_by_bedroom(property_id: str):
                 if first == 'D': return 4
             return 0
         
+        by_floorplan = group_by == "floorplan"
+        
         bedroom_data = {}
         for row in cursor.fetchall():
             fg = row[0] or ""
@@ -2069,9 +2160,12 @@ def get_consolidated_by_bedroom(property_id: str):
             
             bed_label = "Other" if beds == -1 else ("Studio" if beds == 0 else f"{beds}BR")
             
-            if bed_label not in bedroom_data:
-                bedroom_data[bed_label] = {
-                    "bedroom_type": bed_label,
+            # When grouping by floorplan, each floorplan is its own row
+            group_key = fp if by_floorplan else bed_label
+            
+            if group_key not in bedroom_data:
+                bedroom_data[group_key] = {
+                    "bedroom_type": f"{fp} ({bed_label})" if by_floorplan else bed_label,
                     "bedrooms": beds,
                     "floorplans": [],
                     "total_units": 0,
@@ -2087,7 +2181,7 @@ def get_consolidated_by_bedroom(property_id: str):
                     "_rent_count": 0,
                 }
             
-            bd = bedroom_data[bed_label]
+            bd = bedroom_data[group_key]
             bd["floorplans"].append(row[1])
             bd["total_units"] += row[2] or 0
             bd["occupied"] += row[3] or 0
@@ -2571,9 +2665,32 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
             })
         
         # Pre-leased / move-in units
+        # Fetch raw columns to handle concatenated dates and mixed formats
+        def _parse_best_future_date_fc(move_in_raw, lease_start_raw, ref_date):
+            candidates = []
+            for raw in [move_in_raw, lease_start_raw]:
+                if not raw:
+                    continue
+                for part in str(raw).split('\n'):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    dt = None
+                    for fmt in ("%m/%d/%Y", "%Y-%m-%d"):
+                        try:
+                            dt = datetime.strptime(part, fmt)
+                            break
+                        except (ValueError, TypeError):
+                            pass
+                    if dt:
+                        candidates.append(dt)
+            future = [d for d in candidates if d >= ref_date]
+            if future:
+                return min(future)
+            return max(candidates) if candidates else None
+        
         cursor.execute("""
-            SELECT DISTINCT unit_number,
-                   COALESCE(move_in_date, lease_start) AS best_date,
+            SELECT DISTINCT unit_number, move_in_date, lease_start,
                    floorplan, market_rent
             FROM unified_units
             WHERE unified_property_id = ? AND is_preleased = 1
@@ -2582,15 +2699,17 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
         move_in_units = []
         undated_move_ins = 0
         seen_units = set()
-        for unit_num, date_str, fp, rent in cursor.fetchall():
+        for unit_num, mid_raw, ls_raw, fp, rent in cursor.fetchall():
             if unit_num in seen_units:
                 continue
             seen_units.add(unit_num)
+            best_dt = _parse_best_future_date_fc(mid_raw, ls_raw, today)
+            best_str = best_dt.strftime("%m/%d/%Y") if best_dt else None
             move_in_units.append({
-                "unit": unit_num, "date": date_str, "floorplan": fp,
-                "rent": rent, "type": "scheduled_move_in" if date_str else "scheduled_move_in_undated"
+                "unit": unit_num, "date": best_str, "floorplan": fp,
+                "rent": rent, "type": "scheduled_move_in" if best_str else "scheduled_move_in_undated"
             })
-            if not date_str:
+            if not best_str:
                 undated_move_ins += 1
         
         # Lease expirations from unified_leases
@@ -2639,160 +2758,54 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
         except Exception:
             pass
         
-        # ---- Try unified_projected_occupancy first ----
-        has_projected = False
-        try:
-            cursor.execute("""
-                SELECT week_ending, MAX(total_units), MAX(occupied_begin), MAX(pct_occupied_begin),
-                       MAX(scheduled_move_ins), MAX(scheduled_move_outs), MAX(occupied_end), MAX(pct_occupied_end)
-                FROM unified_projected_occupancy
-                WHERE unified_property_id = ?
-                GROUP BY week_ending
-                ORDER BY week_ending
-            """, (property_id,))
-            proj_rows = cursor.fetchall()
-            if proj_rows:
-                has_projected = True
-        except Exception:
-            proj_rows = []
+        # ---- Unit-level weekly forecast ----
+        # Every number traces to actual units — no report 3842 aggregates.
+        # Bucket notice move-outs, preleased move-ins, projected notices, and
+        # lease expirations into weekly periods.
         
-        if has_projected and proj_rows:
-            # Use the real RealPage Projected Occupancy data for projections,
-            # but derive clickable column counts from rent_roll unit data
-            # so drill-through record counts match exactly.
-            forecast = []
-            # Use total_units from report if box_score didn't have it
-            report_total = proj_rows[0][1] or total_units
-            if report_total > 0:
-                total_units = report_total
-            
-            # Build date ranges for each projected week
-            week_ranges = []
-            for prow in proj_rows[:weeks]:
-                try:
-                    we_dt = datetime.strptime(prow[0], "%m/%d/%Y")
-                    ws_dt = we_dt - timedelta(days=6)
-                    week_ranges.append((ws_dt, we_dt))
-                except (ValueError, TypeError):
-                    week_ranges.append((None, None))
-            
-            # Count rent_roll units per week (same filter as drill-through)
-            def count_units_in_week(units, ws_dt, we_dt):
-                if not ws_dt or not we_dt:
-                    return 0
-                count = 0
-                for u in units:
-                    if not u.get("date"):
-                        continue
-                    try:
-                        dt = datetime.strptime(u["date"], "%m/%d/%Y")
-                        if ws_dt <= dt <= we_dt:
-                            count += 1
-                    except (ValueError, TypeError):
-                        pass
-                return count
-            
-            cumulative_proj_notices = 0
-            for w, prow in enumerate(proj_rows[:weeks]):
-                week_ending = prow[0]
-                report_move_ins = prow[4] or 0   # from Projected Occupancy report
-                report_move_outs = prow[5] or 0  # from Projected Occupancy report
-                occupied_end = prow[6] or 0
-                pct_end = prow[7] or 0.0
-                
-                ws_dt, we_dt = week_ranges[w]
-                week_start_str = ws_dt.strftime("%Y-%m-%d") if ws_dt else week_ending
-                week_end_str = we_dt.strftime("%Y-%m-%d") if we_dt else week_ending
-                
-                # Expirations from leases (have dates, match drill-through)
-                expiry_count = count_units_in_week(expiration_units, ws_dt, we_dt)
-                # Renewals = expiration units that are 'Current - Future' (already renewed)
-                renewal_units = [u for u in expiration_units if u.get("type") == "lease_expiration_renewed"]
-                renewal_count = count_units_in_week(renewal_units, ws_dt, we_dt)
-                # Notice count from rent_roll for drill-through
-                notice_count = count_units_in_week(notice_units, ws_dt, we_dt)
-                # Projected notices: undecided lease expirations (Unknown + MTM) in this week
-                proj_notice_count = count_units_in_week(projected_notice_units, ws_dt, we_dt)
-                cumulative_proj_notices += proj_notice_count
-                # Move-ins & move-outs from report (matches projected occ progression)
-                rr_movein_count = count_units_in_week(move_in_units, ws_dt, we_dt)
-                movein_count = rr_movein_count if rr_movein_count > 0 else report_move_ins
-                # Net = move_ins - (confirmed notice outs + projected notice outs)
-                total_outs = notice_count + proj_notice_count
-                net_change = movein_count - total_outs
-                
-                # Adjust projected_occupied: subtract cumulative projected notices
-                # RealPage doesn't know about undecided expirations — we project them as move-outs
-                adjusted_occupied = max(0, occupied_end - cumulative_proj_notices)
-                adjusted_pct = round(adjusted_occupied / total_units * 100, 1) if total_units > 0 else 0
-                
-                forecast.append({
-                    "week": w + 1,
-                    "week_start": week_start_str,
-                    "week_end": week_end_str,
-                    "projected_occupied": adjusted_occupied,
-                    "projected_occupancy_pct": adjusted_pct,
-                    "scheduled_move_ins": movein_count,
-                    "scheduled_move_outs": report_move_outs,
-                    "notice_move_outs": notice_count,
-                    "projected_notices": proj_notice_count,
-                    "lease_expirations": expiry_count,
-                    "renewals": renewal_count,
-                    "net_expirations": expiry_count - renewal_count,
-                    "net_change": net_change,
-                })
-            
-            conn.close()
-            return {
-                "forecast": forecast,
-                "current_occupied": current_occupied,
-                "total_units": total_units,
-                "current_notice": len(notice_units),
-                "vacant_leased": len(move_in_units),
-                "undated_move_ins": undated_move_ins,
-                "notice_units": notice_units,
-                "move_in_units": move_in_units,
-                "expiration_units": expiration_units,
-                "projected_notice_units": projected_notice_units,
-                "data_source": "projected_occupancy_report",
-            }
+        def _parse_date(date_str):
+            try:
+                return datetime.strptime(date_str, "%m/%d/%Y")
+            except (ValueError, TypeError):
+                return None
         
-        # ---- Fallback: rent_roll-based estimation ----
         notice_outs_by_week = {}
         for nu in notice_units:
-            try:
-                dt = datetime.strptime(nu["date"], "%m/%d/%Y")
-                if dt >= today:
-                    week_num = (dt - today).days // 7
-                    if 0 <= week_num < weeks:
-                        notice_outs_by_week[week_num] = notice_outs_by_week.get(week_num, 0) + 1
-            except (ValueError, TypeError):
-                pass
+            dt = _parse_date(nu.get("date"))
+            if dt and dt >= today:
+                week_num = (dt - today).days // 7
+                if 0 <= week_num < weeks:
+                    notice_outs_by_week[week_num] = notice_outs_by_week.get(week_num, 0) + 1
+            elif dt and dt < today:
+                # Past-due notice units counted in week 0
+                notice_outs_by_week[0] = notice_outs_by_week.get(0, 0) + 1
         
         move_ins_by_week = {}
         for mu in move_in_units:
-            if mu.get("date"):
-                try:
-                    dt = datetime.strptime(mu["date"], "%m/%d/%Y")
-                    if dt >= today:
-                        week_num = (dt - today).days // 7
-                        if 0 <= week_num < weeks:
-                            move_ins_by_week[week_num] = move_ins_by_week.get(week_num, 0) + 1
-                except (ValueError, TypeError):
-                    pass
+            dt = _parse_date(mu.get("date"))
+            if dt and dt >= today:
+                week_num = (dt - today).days // 7
+                if 0 <= week_num < weeks:
+                    move_ins_by_week[week_num] = move_ins_by_week.get(week_num, 0) + 1
+        
+        proj_notices_by_week = {}
+        for pn in projected_notice_units:
+            dt = _parse_date(pn.get("date"))
+            if dt and dt >= today:
+                week_num = (dt - today).days // 7
+                if 0 <= week_num < weeks:
+                    proj_notices_by_week[week_num] = proj_notices_by_week.get(week_num, 0) + 1
         
         expirations_by_week = {}
         renewals_by_week = {}
         for eu in expiration_units:
-            try:
-                dt = datetime.strptime(eu["date"], "%m/%d/%Y")
+            dt = _parse_date(eu.get("date"))
+            if dt:
                 week_num = (dt - today).days // 7
                 if 0 <= week_num < weeks:
                     expirations_by_week[week_num] = expirations_by_week.get(week_num, 0) + 1
                     if eu.get("type") == "lease_expiration_renewed":
                         renewals_by_week[week_num] = renewals_by_week.get(week_num, 0) + 1
-            except (ValueError, TypeError):
-                pass
         
         conn.close()
         
@@ -2806,10 +2819,12 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
             
             scheduled_ins = move_ins_by_week.get(w, 0)
             notice_outs = notice_outs_by_week.get(w, 0)
+            proj_notices = proj_notices_by_week.get(w, 0)
             lease_expirations = expirations_by_week.get(w, 0)
             renewals = renewals_by_week.get(w, 0)
             
-            net_change = scheduled_ins - notice_outs
+            # Net = move_ins - notice_outs - projected_notices
+            net_change = scheduled_ins - notice_outs - proj_notices
             running_occupied = max(0, min(total_units, running_occupied + net_change))
             
             forecast.append({
@@ -2820,6 +2835,7 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
                 "projected_occupancy_pct": round(running_occupied / total_units * 100, 1) if total_units > 0 else 0,
                 "scheduled_move_ins": scheduled_ins,
                 "notice_move_outs": notice_outs,
+                "projected_notices": proj_notices,
                 "lease_expirations": lease_expirations,
                 "renewals": renewals,
                 "net_expirations": lease_expirations - renewals,
@@ -2836,7 +2852,8 @@ def get_occupancy_forecast(property_id: str, weeks: int = 12):
             "notice_units": notice_units,
             "move_in_units": move_in_units,
             "expiration_units": expiration_units,
-            "data_source": "rent_roll_estimated",
+            "projected_notice_units": projected_notice_units,
+            "data_source": "unit_level",
         }
         
     except Exception as e:
@@ -3427,6 +3444,96 @@ async def chat_with_ai(
         except Exception:
             pass
         
+        # AI-1/AI-2: Lead sources from marketing endpoint (YTD + MTD for MoM)
+        try:
+            import sqlite3 as _sqlite3ls
+            _connls = _sqlite3ls.connect(str(UNIFIED_DB_PATH))
+            _connls.row_factory = _sqlite3ls.Row
+            _curls = _connls.cursor()
+            lead_sources = {}
+            for tf in ['ytd', 'mtd']:
+                _curls.execute("""
+                    SELECT source_name, new_prospects, visits, leases, net_leases,
+                           prospect_to_lease_pct, date_range
+                    FROM unified_advertising_sources
+                    WHERE unified_property_id = ? AND timeframe_tag = ?
+                    ORDER BY new_prospects DESC
+                """, (property_id, tf))
+                _ls_rows = _curls.fetchall()
+                if _ls_rows:
+                    lead_sources[tf] = [
+                        {"source": r["source_name"], "prospects": r["new_prospects"] or 0,
+                         "visits": r["visits"] or 0, "leases": r["leases"] or 0,
+                         "net_leases": r["net_leases"] or 0,
+                         "conversion": r["prospect_to_lease_pct"] or 0}
+                        for r in _ls_rows
+                    ]
+                    lead_sources[f"{tf}_date_range"] = _ls_rows[0]["date_range"] if _ls_rows else ""
+            _connls.close()
+            if lead_sources:
+                property_data["lead_sources"] = lead_sources
+        except Exception:
+            pass
+        
+        # AI-4: Occupancy forecast (12-week projection)
+        try:
+            import sqlite3 as _sqlite3fc
+            _connfc = _sqlite3fc.connect(str(UNIFIED_DB_PATH))
+            _curfc = _connfc.cursor()
+            _normfc = property_id.replace("kairoi-", "").replace("-", "_")
+            _curfc.execute("""
+                SELECT week_ending, occupied_begin, pct_occupied_begin,
+                       scheduled_move_ins, scheduled_move_outs,
+                       occupied_end, pct_occupied_end
+                FROM unified_projected_occupancy
+                WHERE unified_property_id = ? OR unified_property_id = ?
+                ORDER BY week_ending ASC LIMIT 12
+            """, (property_id, _normfc))
+            _fc_rows = _curfc.fetchall()
+            _connfc.close()
+            if _fc_rows:
+                property_data["forecast"] = [
+                    {"week_ending": r[0], "occupied_begin": r[1], "occ_pct_begin": r[2],
+                     "move_ins": r[3], "move_outs": r[4],
+                     "occupied_end": r[5], "occ_pct_end": r[6]}
+                    for r in _fc_rows
+                ]
+        except Exception:
+            pass
+        
+        # AI-5: Unit breakdown by bedroom type (vacancy/demand analysis)
+        try:
+            import sqlite3 as _sqlite3ub
+            _connub = _sqlite3ub.connect(str(UNIFIED_DB_PATH))
+            _curub = _connub.cursor()
+            _normub = property_id.replace("kairoi-", "").replace("-", "_")
+            _curub.execute("""
+                SELECT
+                    CASE WHEN bedrooms IS NULL THEN 'Unknown'
+                         WHEN bedrooms = 0 THEN 'Studio'
+                         ELSE bedrooms || ' BR' END as bed_type,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END) as vacant,
+                    SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied,
+                    SUM(CASE WHEN is_preleased = 1 THEN 1 ELSE 0 END) as preleased,
+                    ROUND(AVG(CASE WHEN market_rent > 0 THEN market_rent END), 0) as avg_market,
+                    ROUND(AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END), 0) as avg_in_place
+                FROM unified_units
+                WHERE unified_property_id = ? OR unified_property_id = ?
+                GROUP BY bed_type
+                ORDER BY bedrooms ASC
+            """, (property_id, _normub))
+            _ub_rows = _curub.fetchall()
+            _connub.close()
+            if _ub_rows:
+                property_data["unit_breakdown"] = [
+                    {"type": r[0], "total": r[1], "vacant": r[2], "occupied": r[3],
+                     "preleased": r[4], "avg_market_rent": r[5], "avg_in_place_rent": r[6]}
+                    for r in _ub_rows
+                ]
+        except Exception:
+            pass
+        
         response = await chat_service.chat(message, property_data, history)
         return {"response": response}
     except Exception as e:
@@ -3589,8 +3696,29 @@ def _gather_current_metrics(property_id: str) -> dict:
     except Exception:
         pass
     
-    # Google reviews skipped here — get_property_reviews is async and this
-    # function is sync (runs in thread pool). Rating data is not critical for watchpoints.
+    # Reviews: read from caches synchronously (Google + Apartments.com)
+    try:
+        ratings = []
+        # Google reviews cache
+        from app.services.google_reviews_service import _load_reviews_cache
+        g_cache = _load_reviews_cache()
+        g_entry = g_cache.get(property_id, {}).get("data", {})
+        g_rating = g_entry.get("rating")
+        if g_rating and g_rating > 0:
+            metrics["google_rating"] = round(g_rating, 1)
+            ratings.append(g_rating)
+        # Apartments.com cache
+        from app.services.apartments_reviews_service import get_apartments_reviews
+        apt_data = get_apartments_reviews(property_id)
+        if apt_data:
+            apt_rating = apt_data.get("rating")
+            if apt_rating and apt_rating > 0:
+                ratings.append(apt_rating)
+        # Overall = average of available sources
+        if ratings:
+            metrics["overall_rating"] = round(sum(ratings) / len(ratings), 1)
+    except Exception:
+        pass
     
     return metrics
 
@@ -3833,7 +3961,8 @@ async def get_marketing(property_id: str, timeframe: str = "ytd"):
     import sqlite3
     from datetime import datetime, timedelta
     
-    tf_tag = timeframe
+    # Map 'pm' (previous month) → 'mtd' since we don't store separate pm data yet
+    tf_tag = 'mtd' if timeframe == 'pm' else timeframe
     
     try:
         conn = sqlite3.connect(str(UNIFIED_DB_PATH))

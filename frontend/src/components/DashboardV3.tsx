@@ -570,46 +570,75 @@ const RENEWAL_DRILL_COLUMNS = [
   { key: 'move_in', label: 'Move In' },
 ];
 
-interface AvailFp { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; avg_market_rent: number; occupancy_pct: number }
+interface AvailFp { floorplan: string; group: string; total_units: number; vacant_units: number; on_notice: number; vacant_leased: number; vacant_not_leased: number; occupied_units: number; avg_market_rent: number; avg_in_place_rent?: number; occupancy_pct: number; bedrooms?: number | null }
 
-function AvailByFloorplanTable({ floorplans, onRowClick }: { floorplans: AvailFp[]; onRowClick: (fp: string) => void }) {
+function AvailByFloorplanTable({ floorplans, onRowClick, totals, onTotalDrill }: { floorplans: AvailFp[]; onRowClick: (fp: string) => void; totals?: { total: number; vacant: number; notice: number; vacant_leased: number; occupied: number }; onTotalDrill?: (status: string) => void }) {
   const { sorted, sortKey, sortDir, toggleSort } = useSortable(floorplans);
+  const gt = totals;
+  const gtAvail = gt ? gt.vacant + gt.notice : 0;
+  const gtAvailPct = gt && gt.total > 0 ? Math.round(gtAvail / gt.total * 100) : 0;
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase bg-slate-50/50">
           <SortHeader label="Floorplan" column="floorplan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="px-3" />
           <SortHeader label="Units" column="total_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
-          <SortHeader label="Occ%" column="occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Avail <InfoTooltip text="Available = Vacant + On Notice. Units that need to be filled." /></span></th>
           <SortHeader label="Vacant" column="vacant_units" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
-          <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">V-Leased <InfoTooltip text="Vacant units with a signed lease (pending move-in). Source: RealPage Box Score." /></span></th>
+          <th className="px-3 py-2 text-right"><span className="inline-flex items-center gap-0.5">Pre-leased <InfoTooltip text="Vacant units with a signed lease (pending move-in)." /></span></th>
           <SortHeader label="NTV" column="on_notice" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
-          <SortHeader label="Market" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <SortHeader label="In-Place" column="avg_in_place_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
+          <SortHeader label="Asking" column="avg_market_rent" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="px-3" />
         </tr>
       </thead>
       <tbody>
-        {sorted.map((fp) => (
-          <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onRowClick(fp.floorplan)}>
-            <td className="px-3 py-2.5">
-              <div className="font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</div>
-              <div className="text-xs text-slate-400">{fp.group}</div>
-            </td>
-            <td className="px-3 py-2.5 text-right text-slate-700">{fp.total_units}</td>
-            <td className="px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
-                  <div className={`h-full rounded-full transition-all duration-500 ${fp.occupancy_pct >= 95 ? 'bg-emerald-400' : fp.occupancy_pct >= 90 ? 'bg-blue-400' : fp.occupancy_pct >= 80 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${fp.occupancy_pct}%` }} />
+        {sorted.map((fp) => {
+          const avail = fp.vacant_units + fp.on_notice;
+          const availPct = fp.total_units > 0 ? Math.round(avail / fp.total_units * 100) : 0;
+          return (
+            <tr key={fp.floorplan} className="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onClick={() => onRowClick(fp.floorplan)}>
+              <td className="px-3 py-2.5">
+                <div className="font-medium text-indigo-600 underline decoration-dotted">{fp.floorplan}</div>
+              </td>
+              <td className="px-3 py-2.5 text-right text-slate-700">{fp.total_units}</td>
+              <td className="px-3 py-2.5 text-right">
+                <div className="flex items-center justify-end gap-2">
+                  <div className="h-1.5 w-12 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${availPct > 15 ? 'bg-red-400' : availPct > 5 ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${Math.min(availPct, 100)}%` }} />
+                  </div>
+                  <span className={`font-medium ${avail > 0 ? 'text-red-600' : 'text-slate-500'}`}>{avail}</span>
                 </div>
-                <span className="text-xs font-medium text-slate-600 w-12 text-right">{fp.occupancy_pct.toFixed(1)}%</span>
+              </td>
+              <td className={`px-3 py-2.5 text-right ${fp.vacant_units > 0 ? 'text-red-600' : 'text-slate-500'}`}>{fp.vacant_units || '—'}</td>
+              <td className={`px-3 py-2.5 text-right ${fp.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>{fp.vacant_leased || '—'}</td>
+              <td className={`px-3 py-2.5 text-right ${fp.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>{fp.on_notice || '—'}</td>
+              <td className="px-3 py-2.5 text-right text-slate-700">{(fp.avg_in_place_rent || 0) > 0 ? `$${fp.avg_in_place_rent!.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}</td>
+              <td className="px-3 py-2.5 text-right text-slate-700">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+      {gt && (
+        <tfoot>
+          <tr className="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
+            <td className="px-3 py-2.5">Total</td>
+            <td className="px-3 py-2.5 text-right">{gt.total}</td>
+            <td className="px-3 py-2.5 text-right">
+              <div className="flex items-center justify-end gap-2">
+                <div className="h-1.5 w-12 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full ${gtAvailPct > 15 ? 'bg-red-400' : gtAvailPct > 5 ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${Math.min(gtAvailPct, 100)}%` }} />
+                </div>
+                <span className={`font-medium ${gtAvail > 0 ? 'text-red-600' : 'text-slate-500'}`}>{gtAvail}</span>
               </div>
             </td>
-            <td className={`px-3 py-2.5 text-right font-medium ${fp.vacant_units > 0 ? 'text-red-600' : 'text-slate-500'}`}>{fp.vacant_units}</td>
-            <td className={`px-3 py-2.5 text-right ${fp.vacant_leased > 0 ? 'text-emerald-600 font-medium' : 'text-slate-500'}`}>{fp.vacant_leased || '—'}</td>
-            <td className={`px-3 py-2.5 text-right ${fp.on_notice > 0 ? 'text-amber-600 font-medium' : 'text-slate-500'}`}>{fp.on_notice || '—'}</td>
-            <td className="px-3 py-2.5 text-right text-slate-700">${fp.avg_market_rent.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+            <td className="px-3 py-2.5 text-right text-red-600 cursor-pointer underline decoration-dotted" onClick={() => onTotalDrill?.('vacant')}>{gt.vacant}</td>
+            <td className="px-3 py-2.5 text-right text-emerald-600">{gt.vacant_leased || '—'}</td>
+            <td className="px-3 py-2.5 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => onTotalDrill?.('notice')}>{gt.notice || '—'}</td>
+            <td className="px-3 py-2.5 text-right"></td>
+            <td className="px-3 py-2.5 text-right"></td>
           </tr>
-        ))}
-      </tbody>
+        </tfoot>
+      )}
     </table>
   );
 }
@@ -621,15 +650,20 @@ function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (ty
   return (
     <table className="w-full text-sm">
       <thead>
+        <tr className="text-[10px] text-slate-400 uppercase">
+          <th colSpan={3}></th>
+          <th colSpan={4} className="pb-0.5 text-center border-b border-slate-200">Net Move In</th>
+          <th colSpan={4} className="pb-0.5 text-center border-b border-slate-200">Expirations & Renewals</th>
+        </tr>
         <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
           <SortHeader label="Week" column="week" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="pr-4" />
           <SortHeader label="Projected Occ" column="projected_occupied" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Occ%" column="projected_occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Move Ins" column="scheduled_move_ins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
-          <SortHeader label="Notice Outs" column="notice_move_outs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Move Outs" column="notice_move_outs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Proj. NTV <InfoTooltip text="Projected Notices: lease expirations where the resident hasn't renewed or given notice yet. Projected as future move-outs." /></span></th>
           <SortHeader label="Net" column="net_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
-          <SortHeader label="Expirations" column="lease_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <SortHeader label="Exp." column="lease_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Renewals" column="renewals" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
           <SortHeader label="Net Exp" column="net_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
@@ -680,6 +714,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [boxScoreOcc, setBoxScoreOcc] = useState<any>(null);
   const [availCollapsed, setAvailCollapsed] = useState(false);
+  const [availGroupBy, setAvailGroupBy] = useState<'floorplan' | 'bedroom'>('floorplan');
   const [forecastCollapsed, setForecastCollapsed] = useState(false);
   const [renewalViewMode, setRenewalViewMode] = useState<'rolling' | 'monthly'>('rolling');
 
@@ -853,6 +888,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           notice_units: valid.flatMap((r: any) => r.notice_units || []),
           move_in_units: valid.flatMap((r: any) => r.move_in_units || []),
           expiration_units: valid.flatMap((r: any) => r.expiration_units || []),
+          projected_notice_units: valid.flatMap((r: any) => r.projected_notice_units || []),
         });
       }).catch(() => {}).finally(settle);
 
@@ -872,6 +908,10 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           vacant_ready: valid.reduce((s: number, r: any) => s + (r.vacant_ready || 0), 0),
           vacant_not_ready: valid.reduce((s: number, r: any) => s + (r.vacant_not_ready || 0), 0),
           aged_vacancy_90_plus: valid.reduce((s: number, r: any) => s + (r.aged_vacancy_90_plus || 0), 0),
+          leased_units: valid.reduce((s: number, r: any) => s + (r.leased_units || 0), 0),
+          leased_percentage: valid.length === 1
+            ? (valid[0] as any).leased_percentage
+            : (() => { const t = valid.reduce((s: number, r: any) => s + (r.total_units || 0), 0); const l = valid.reduce((s: number, r: any) => s + (r.leased_units || 0), 0); return t > 0 ? Math.round(l / t * 1000) / 10 : 0; })(),
         });
       }).catch(() => {}).finally(settle);
 
@@ -1217,7 +1257,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
     const labels: Record<string, string> = {
       renewed: 'Renewed Leases',
       expiring: 'Expiring (not renewed)',
-      vacating: 'Vacating Leases',
+      vacating: 'NTV (Notice to Vacate)',
       pending: 'Pending Decision',
       mtm: 'Month-to-Month Leases',
       moved_out: 'Moved Out',
@@ -1282,12 +1322,6 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
   const exp90 = expirations?.periods?.find(p => p.label === '90d');
   const renewalTrend = exp90?.renewal_pct ?? 0;
   
-  // Monthly renewal rates for next 3 months (#11)
-  const monthlyRenewals = (expirations?.periods || [])
-    .filter(p => !p.label.endsWith('d'))
-    .slice(0, 3)
-    .map(p => ({ label: p.label, pct: p.renewal_pct ?? 0, exp: p.expirations ?? 0, rnw: p.renewals ?? 0 }));
-  
   // Calculate lease trade-out values (use real data if available)
   const tradeoutSummary = tradeoutData?.summary;
   const avgTradeOut = tradeoutSummary?.count ? tradeoutSummary.avg_new_rent : 0;
@@ -1325,7 +1359,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         <div className="col-span-12 lg:col-span-10">
           <div className="flex flex-col gap-4 h-full">
             {/* Row 1: Status / Snapshot metrics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 flex-1">
               <div role="button" tabIndex={0} onClick={() => openKpiDrill('occupancy')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('occupancy')} className="text-left w-full h-full">
                 <KPICard
                   title="Occupancy"
@@ -1336,6 +1370,16 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   refreshing={isRefreshing}
                 />
               </div>
+
+              <KPICard
+                title="Leased"
+                value={`${boxScoreOcc?.leased_percentage ?? 0}%`}
+                subtitle={boxScoreOcc ? `${boxScoreOcc.leased_units ?? 0} of ${boxScoreOcc.total_units ?? 0} units` : ''}
+                timeLabel={asOfLabel}
+                icon={<Home className="w-4 h-4" />}
+                tooltip="Leased % = (Occupied + Pre-leased) ÷ Total Units × 100. Includes units with signed leases not yet moved in. Source: RealPage Box Score."
+                refreshing={isRefreshing}
+              />
               
               <div role="button" tabIndex={0} onClick={() => openKpiDrill('vacant')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('vacant')} className="text-left w-full h-full">
                 <VacantKPICard
@@ -1401,41 +1445,104 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('tradeouts')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')} className="text-left w-full h-full">
-                <KPICard
-                  title={`Trade Outs${tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}`}
-                  value={avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}
-                  subtitle={tradeoutSummary?.count ? `Prior $${Math.round(prevTradeOut).toLocaleString()} (${tradeoutPct >= 0 ? '+' : ''}${tradeoutPct.toFixed(1)}%)` : 'No trade-out data this period'}
-                  timeLabel={periodLabel}
-                  icon={<DollarSign className="w-4 h-4" />}
-                  tooltip="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll."
-                  refreshing={isRefreshing}
-                />
-              </div>
-
-              <div role="button" tabIndex={0} onClick={() => openKpiDrill('renewals')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')} className="text-left w-full h-full">
-                <KPICard
-                  title={`Renewals${renewalCount ? ` (${renewalCount})` : ''}`}
-                  value={avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}
-                  subtitle={renewalCount ? `vs Prior ${renewalVsPriorPct >= 0 ? '+' : ''}${renewalVsPriorPct.toFixed(1)}%` : 'No data'}
-                  timeLabel={periodLabel}
-                  icon={<TrendingUp className="w-4 h-4" />}
-                  tooltip={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Renewal Rate = ${renewalTrend}% (${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} expiring leases renewed within 90d). Source: RealPage Leases.`}
-                  refreshing={isRefreshing}
-                >
-                  {monthlyRenewals.length > 0 && (
-                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100">
-                      {monthlyRenewals.map(mr => (
-                        <div key={mr.label} className="flex items-center gap-1" title={`${mr.label}: ${mr.rnw} of ${mr.exp} renewed`}>
-                          <span className="text-[10px] text-slate-400">{mr.label}</span>
-                          <span className={`text-[10px] font-semibold ${mr.pct >= 50 ? 'text-emerald-600' : mr.pct >= 25 ? 'text-amber-500' : mr.exp > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
-                            {mr.exp > 0 ? `${mr.pct}%` : '—'}
-                          </span>
-                        </div>
-                      ))}
+              {/* Trade Outs + Renewals + Blended — compact stacked layout */}
+              <div className="md:col-span-2 flex flex-col gap-2 h-full">
+                {/* Top row: compact Trade Outs | Renewals */}
+                <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+                  <div
+                    role="button" tabIndex={0}
+                    onClick={() => openKpiDrill('tradeouts')}
+                    onKeyDown={e => e.key === 'Enter' && openKpiDrill('tradeouts')}
+                    className={`rounded-xl border border-slate-200 bg-white px-3 py-2 flex flex-col justify-center cursor-pointer hover:shadow-md hover:border-slate-300 transition-all text-left ${isRefreshing ? 'animate-pulse' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Trade Outs{tradeoutSummary?.count ? ` (${tradeoutSummary.count})` : ''}</span>
+                      <div className="flex items-center gap-1">
+                        <DollarSign className="w-3 h-3 text-slate-400" />
+                        <InfoTooltip text="Avg new rent for recent move-ins vs prior tenant's rent on the same unit. % Change = (New − Prior) ÷ Prior × 100. Source: RealPage Rent Roll." />
+                      </div>
                     </div>
-                  )}
-                </KPICard>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-lg font-bold text-slate-900">{avgTradeOut ? `$${Math.round(avgTradeOut).toLocaleString()}` : '—'}</span>
+                      {tradeoutSummary?.count > 0 && (
+                        <span className={`text-[10px] font-semibold ${tradeoutPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {tradeoutPct >= 0 ? '+' : ''}{tradeoutPct.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    {tradeoutSummary?.count > 0 && (
+                      <span className="text-[10px] text-slate-400">Prior ${Math.round(prevTradeOut).toLocaleString()}</span>
+                    )}
+                  </div>
+
+                  <div
+                    role="button" tabIndex={0}
+                    onClick={() => openKpiDrill('renewals')}
+                    onKeyDown={e => e.key === 'Enter' && openKpiDrill('renewals')}
+                    className={`rounded-xl border border-slate-200 bg-white px-3 py-2 flex flex-col justify-center cursor-pointer hover:shadow-md hover:border-slate-300 transition-all text-left ${isRefreshing ? 'animate-pulse' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wide">Renewals{renewalCount ? ` (${renewalCount})` : ''}</span>
+                      <div className="flex items-center gap-1">
+                        <TrendingUp className="w-3 h-3 text-slate-400" />
+                        <InfoTooltip text={`Renewal leases: avg rent $${Math.round(avgRenewalRent).toLocaleString()} vs prior rent $${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}. ${renewalCount} total renewals. Renewal Rate = ${renewalTrend}% (${exp90?.renewals ?? 0} of ${exp90?.expirations ?? 0} expiring leases renewed within 90d). Source: RealPage Leases.`} />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline gap-1.5 mt-0.5">
+                      <span className="text-lg font-bold text-slate-900">{avgRenewalRent ? `$${Math.round(avgRenewalRent).toLocaleString()}` : '—'}</span>
+                      {renewalCount > 0 && (
+                        <span className={`text-[10px] font-semibold ${renewalVsPriorPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {renewalVsPriorPct >= 0 ? '+' : ''}{renewalVsPriorPct.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    {renewalCount > 0 && (
+                      <span className="text-[10px] text-slate-400">Prior ${Math.round(renewalSummary?.avg_prior_rent || 0).toLocaleString()}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Bottom row: Blended summary */}
+                {(() => {
+                  const tCount = tradeoutSummary?.count || 0;
+                  const rCount = renewalCount || 0;
+                  const totalLeases = tCount + rCount;
+                  const totalPriorRent = (tradeoutSummary?.avg_prior_rent || 0) * tCount + (renewalSummary?.avg_prior_rent || 0) * rCount;
+                  const totalNewRent = (tradeoutSummary?.avg_new_rent || 0) * tCount + (renewalSummary?.avg_renewal_rent || 0) * rCount;
+                  const blendedPrior = totalLeases > 0 ? Math.round(totalPriorRent / totalLeases) : 0;
+                  const blendedNew = totalLeases > 0 ? Math.round(totalNewRent / totalLeases) : 0;
+                  const blendedPct = totalPriorRent > 0 ? Math.round((totalNewRent - totalPriorRent) / totalPriorRent * 1000) / 10 : 0;
+                  return (
+                    <div className={`rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white px-3 py-2 flex-1 min-h-0 flex items-center ${isRefreshing ? 'animate-pulse' : ''}`}>
+                      <div className="flex items-center justify-between w-full gap-3">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Blended</span>
+                            <span className="text-xs text-slate-400">{totalLeases} leases</span>
+                            <InfoTooltip text="Weighted average across all new move-ins (trade-outs) and renewal leases. Shows the blended rent growth for the period." />
+                          </div>
+                          <span className="text-xs text-slate-400">(Renewals + Trade Outs)</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <div className="text-xs text-slate-400 uppercase">Prior</div>
+                            <div className="text-base font-semibold text-slate-600">{blendedPrior ? `$${blendedPrior.toLocaleString()}` : '—'}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-slate-400 uppercase">New/Renewal</div>
+                            <div className="text-base font-bold text-slate-900">{blendedNew ? `$${blendedNew.toLocaleString()}` : '—'}</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-slate-400 uppercase">Change</div>
+                            <div className={`text-base font-bold ${blendedPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {totalLeases > 0 ? `${blendedPct >= 0 ? '+' : ''}${blendedPct.toFixed(1)}%` : '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -1486,6 +1593,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
           <div className={`grid gap-4 mb-6 ${renewalViewMode === 'monthly' ? 'grid-cols-4' : 'grid-cols-3'}`}>
             {expirations?.periods
               ?.filter(p => renewalViewMode === 'rolling' ? p.label.endsWith('d') : !p.label.endsWith('d'))
+              .slice(0, renewalViewMode === 'monthly' ? 4 : undefined)
               .map(p => {
               const isRolling = p.label.endsWith('d');
               const days = p.label === '30d' ? 30 : p.label === '60d' ? 60 : 90;
@@ -1522,7 +1630,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   {(p.vacating ?? 0) > 0 && (
                     <button onClick={() => drill('vacating')} className="flex items-baseline gap-2 mb-1 hover:opacity-70 transition-opacity cursor-pointer">
                       <span className="text-lg font-bold text-rose-500">{p.vacating}</span>
-                      <span className="text-xs text-slate-400 underline decoration-dotted">vacating</span>
+                      <span className="text-xs text-slate-400 underline decoration-dotted">NTV</span>
                       {p.expirations > 0 && <span className="text-xs text-rose-400 font-medium">({Math.round((p.vacating ?? 0) / p.expirations * 100)}%)</span>}
                       <InfoTooltip text="Resident has given notice to vacate. Unit will need to be turned and re-leased." />
                     </button>
@@ -1617,7 +1725,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                         <div className="w-full flex flex-col-reverse rounded-t overflow-hidden" style={{ height: barH }}>
                           {renewedH > 0 && <div className="w-full bg-emerald-400" style={{ height: renewedH }} title={`${renewed} renewed`} />}
                           {pendingH > 0 && <div className="w-full bg-amber-300" style={{ height: pendingH }} title={`${pending > 0 ? pending : 0} pending`} />}
-                          {vacatingH > 0 && <div className="w-full bg-rose-400" style={{ height: vacatingH }} title={`${vacating} vacating`} />}
+                          {vacatingH > 0 && <div className="w-full bg-rose-400" style={{ height: vacatingH }} title={`${vacating} NTV`} />}
                           {mtmH > 0 && <div className="w-full bg-slate-300" style={{ height: mtmH }} title={`${mtm} MTM`} />}
                           {movedOutH > 0 && <div className="w-full bg-slate-400" style={{ height: movedOutH }} title={`${movedOut} moved out`} />}
                           {total === 0 && <div className="w-full bg-slate-100" style={{ height: 4 }} />}
@@ -1630,7 +1738,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 <div className="flex items-center justify-center gap-4 mt-3 text-[10px] text-slate-500">
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400 inline-block" /> Renewed</span>
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-amber-300 inline-block" /> Pending</span>
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400 inline-block" /> Vacating</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400 inline-block" /> NTV</span>
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 inline-block" /> MTM</span>
                 </div>
               </div>
@@ -1727,18 +1835,22 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                   ))}
                 </div>
                 {/* Secondary metrics row */}
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100">
+                <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-slate-100">
                   <div className="text-center">
-                    <div className="text-lg font-bold text-sky-700">{leads > 0 ? (leases / leads * 100).toFixed(1) : 0}%</div>
-                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Lead → Lease <InfoTooltip text="Conversion Rate = Leases Signed ÷ Total Leads × 100." /></div>
+                    <div className="text-lg font-bold text-sky-700">{leads > 0 ? Math.round(tours / leads * 100) : 0}%</div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Lead → Tour <InfoTooltip text="Tours ÷ Leads × 100." /></div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-bold text-amber-700">{funnel?.tourToApp || 0} <span className="text-xs font-normal text-slate-400">({tours > 0 ? Math.round((funnel?.tourToApp || 0) / tours * 100) : 0}%)</span></div>
-                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Tour → App <InfoTooltip text="Prospects who toured AND applied. % of total tours." /></div>
+                    <div className="text-lg font-bold text-amber-700">{tours > 0 ? Math.round(apps / tours * 100) : 0}%</div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Tour → App <InfoTooltip text="Applications ÷ Tours × 100." /></div>
                   </div>
                   <div className="text-center">
-                    <div className="text-lg font-bold text-violet-700">{funnel?.sightUnseen || 0} <span className="text-xs font-normal text-slate-400">({apps > 0 ? Math.round((funnel?.sightUnseen || 0) / apps * 100) : 0}%)</span></div>
-                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Apps w/o Tour <InfoTooltip text="Prospects who applied without touring in person. % of total applications." /></div>
+                    <div className="text-lg font-bold text-violet-700">{apps > 0 ? Math.round(leases / apps * 100) : 0}%</div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">App → Lease <InfoTooltip text="Leases Signed ÷ Applications × 100." /></div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-emerald-700">{leads > 0 ? (leases / leads * 100).toFixed(1) : 0}%</div>
+                    <div className="text-[10px] text-slate-500 inline-flex items-center gap-0.5">Lead → Lease <InfoTooltip text="Leases Signed ÷ Total Leads × 100. End-to-end conversion." /></div>
                   </div>
                 </div>
               </div>
@@ -1752,32 +1864,55 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
         {/* Availability by Floorplan (moved from overview) */}
         {availByFp && availByFp.floorplans.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <button onClick={() => setAvailCollapsed(c => !c)} className="flex items-center gap-2 w-full text-left">
-              <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${availCollapsed ? '-rotate-90' : ''}`} />
-              <h3 className="text-lg font-semibold text-slate-800">Available Units by Floorplan</h3>
-            </button>
+            <div className="flex items-center justify-between">
+              <button onClick={() => setAvailCollapsed(c => !c)} className="flex items-center gap-2 text-left">
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${availCollapsed ? '-rotate-90' : ''}`} />
+                <h3 className="text-lg font-semibold text-slate-800">Available Units by {availGroupBy === 'bedroom' ? 'Bedroom' : 'Floorplan'}</h3>
+              </button>
+              {!availCollapsed && (
+                <div className="flex items-center bg-slate-100 rounded-lg p-0.5 text-xs">
+                  <button onClick={() => setAvailGroupBy('floorplan')} className={`px-3 py-1 rounded-md transition ${availGroupBy === 'floorplan' ? 'bg-white shadow text-indigo-700 font-semibold' : 'text-slate-500 hover:text-slate-700'}`}>Floorplan</button>
+                  <button onClick={() => setAvailGroupBy('bedroom')} className={`px-3 py-1 rounded-md transition ${availGroupBy === 'bedroom' ? 'bg-white shadow text-indigo-700 font-semibold' : 'text-slate-500 hover:text-slate-700'}`}>Bedroom</button>
+                </div>
+              )}
+            </div>
             {!availCollapsed && <div className="overflow-x-auto mt-4">
-              <AvailByFloorplanTable floorplans={availByFp.floorplans} onRowClick={(fp) => openKpiDrill('availability', fp)} />
-              <table className="w-full text-sm">
-                <tfoot>
-                  <tr className="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
-                    <td className="px-3 py-2.5">Total</td>
-                    <td className="px-3 py-2.5 text-right">{availByFp.totals.total}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 flex-1 bg-slate-200 rounded-full overflow-hidden min-w-[60px]">
-                          <div className={`h-full rounded-full transition-all duration-500 ${availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100 >= 95 ? 'bg-emerald-400' : 'bg-blue-400') : 'bg-slate-300'}`} style={{ width: `${availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100) : 0}%` }} />
-                        </div>
-                        <span className="text-xs font-medium text-slate-600 w-12 text-right">{availByFp.totals.total > 0 ? ((availByFp.totals.total - availByFp.totals.vacant) / availByFp.totals.total * 100).toFixed(1) : 0}%</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-red-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'vacant')}>{availByFp.totals.vacant}</td>
-                    <td className="px-3 py-2.5 text-right" colSpan={1}></td>
-                    <td className="px-3 py-2.5 text-right text-amber-600 cursor-pointer underline decoration-dotted" onClick={() => openKpiDrill('availability_status', 'notice')}>{availByFp.totals.notice}</td>
-                    <td className="px-3 py-2.5 text-right"></td>
-                  </tr>
-                </tfoot>
-              </table>
+              {(() => {
+                if (availGroupBy === 'floorplan') {
+                  return <AvailByFloorplanTable floorplans={availByFp.floorplans} onRowClick={(fp) => openKpiDrill('availability', fp)} totals={availByFp.totals} onTotalDrill={(status) => openKpiDrill('availability_status', status)} />;
+                }
+                const bedroomLabel = (b: number | null | undefined) => b == null ? 'Unknown' : b === 0 ? 'Studio' : `${b} BR`;
+                const grouped = new Map<string, AvailFp>();
+                for (const fp of availByFp.floorplans as AvailFp[]) {
+                  const key = bedroomLabel(fp.bedrooms);
+                  const existing = grouped.get(key);
+                  if (!existing) {
+                    grouped.set(key, { ...fp, floorplan: key });
+                  } else {
+                    const totalOcc = (existing.occupied_units ?? 0) + (fp.occupied_units ?? 0);
+                    existing.total_units += fp.total_units;
+                    existing.vacant_units += fp.vacant_units;
+                    existing.on_notice += fp.on_notice;
+                    existing.vacant_leased += fp.vacant_leased;
+                    existing.vacant_not_leased += fp.vacant_not_leased;
+                    existing.occupied_units = totalOcc;
+                    const existingIpTotal = (existing.avg_in_place_rent || 0) * ((existing as any)._ip_count || 1);
+                    const fpIpTotal = (fp.avg_in_place_rent || 0) * (fp.occupied_units ?? 0 > 0 ? 1 : 0);
+                    const ipCount = ((existing as any)._ip_count || 1) + (fp.occupied_units ?? 0 > 0 ? 1 : 0);
+                    existing.avg_in_place_rent = ipCount > 0 ? Math.round((existingIpTotal + fpIpTotal) / ipCount) : 0;
+                    (existing as any)._ip_count = ipCount;
+                    const existingMrTotal = existing.avg_market_rent * ((existing as any)._mr_count || 1);
+                    const mrCount = ((existing as any)._mr_count || 1) + 1;
+                    existing.avg_market_rent = Math.round((existingMrTotal + fp.avg_market_rent) / mrCount);
+                    (existing as any)._mr_count = mrCount;
+                  }
+                }
+                const bedroomRows = Array.from(grouped.values()).sort((a, b) => {
+                  const order = ['Studio', '1 BR', '2 BR', '3 BR', '4 BR', 'Unknown'];
+                  return order.indexOf(a.floorplan) - order.indexOf(b.floorplan);
+                });
+                return <AvailByFloorplanTable floorplans={bedroomRows} onRowClick={(fp) => openKpiDrill('availability', fp)} totals={availByFp.totals} onTotalDrill={(status) => openKpiDrill('availability_status', status)} />;
+              })()}
             </div>}
           </div>
         )}
@@ -1794,12 +1929,12 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
               {(forecast.vacant_leased > 0 || forecast.current_notice > 0) && (
                 <div className="flex gap-3">
                   {forecast.vacant_leased > 0 && (
-                    <button onClick={() => openKpiDrill('forecast_moveins')} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition">
+                    <button onClick={() => openKpiDrill('forecast_moveins')} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition" title="Vacant units with a signed lease — click to see unit details and scheduled move-in dates">
                       {forecast.vacant_leased} pre-leased{forecast.undated_move_ins > 0 ? ' (dates TBD)' : ''}
                     </button>
                   )}
                   {forecast.current_notice > 0 && (
-                    <button onClick={() => openKpiDrill('forecast_notice')} className="text-xs bg-rose-50 text-rose-600 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition">
+                    <button onClick={() => openKpiDrill('forecast_notice')} className="text-xs bg-rose-50 text-rose-600 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition" title="Residents who have given notice to vacate — click to see unit details and move-out dates">
                       {forecast.current_notice} on notice
                     </button>
                   )}

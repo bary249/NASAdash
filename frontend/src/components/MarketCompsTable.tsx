@@ -257,6 +257,7 @@ export function MarketCompsTable({ comps: initialComps, subjectProperty, propert
             className="flex items-center gap-2"
           >
             <h3 className="text-sm font-semibold text-slate-700">Market Comps</h3>
+            <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-400 text-amber-900 rounded-full animate-pulse">Mock</span>
             {isExpanded ? (
               <ChevronUp className="w-4 h-4 text-slate-400" />
             ) : (

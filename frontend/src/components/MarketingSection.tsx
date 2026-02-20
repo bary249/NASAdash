@@ -66,7 +66,8 @@ export default function MarketingSection({ propertyId, propertyIds, timeRange = 
   const effectiveIds = propertyIds && propertyIds.length > 0 ? propertyIds : [propertyId];
 
   // Map timeRange to API timeframe param
-  const timeframe = timeRange === 'l30' ? 'l30' : timeRange === 'l7' ? 'l7' : timeRange === 'mtd' ? 'mtd' : 'ytd';
+  const tfMap: Record<string, string> = { ytd: 'ytd', mtd: 'mtd', pm: 'pm', l30: 'l30', l7: 'l7' };
+  const timeframe = tfMap[timeRange] || 'ytd';
 
   useEffect(() => {
     if (!effectiveIds.length || !effectiveIds[0]) return;
@@ -250,6 +251,17 @@ export default function MarketingSection({ propertyId, propertyIds, timeRange = 
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="bg-slate-50 border-t border-slate-300 font-semibold text-slate-800">
+                  <td className="px-4 py-2">Total</td>
+                  <td className="px-3 py-2 text-right">{data.totals.total_prospects}</td>
+                  <td className="px-3 py-2 text-right">{data.totals.total_calls}</td>
+                  <td className="px-3 py-2 text-right">{data.totals.total_visits}</td>
+                  <td className="px-3 py-2 text-right">{data.totals.total_leases}</td>
+                  <td className="px-3 py-2 text-right text-emerald-600">{data.totals.total_net_leases}</td>
+                  <td className="px-3 py-2 text-right">{data.totals.overall_prospect_to_lease > 0 ? `${data.totals.overall_prospect_to_lease}%` : '—'}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
           {sortedSources.length > 10 && (

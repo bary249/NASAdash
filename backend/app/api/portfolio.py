@@ -375,7 +375,7 @@ async def list_owner_groups():
 @router.get("/watchlist")
 async def get_watchlist(
     owner_group: Optional[str] = Query(None, description="Filter by owner group"),
-    occ_threshold: float = Query(85.0, description="Occupancy % below which property is flagged"),
+    occ_threshold: float = Query(90.0, description="Occupancy % below which property is flagged"),
     delinq_threshold: float = Query(25000.0, description="Total delinquent $ above which property is flagged"),
     renewal_threshold: float = Query(30.0, description="Renewal rate % below which property is flagged"),
     review_threshold: float = Query(3.5, description="Google rating below which property is flagged"),

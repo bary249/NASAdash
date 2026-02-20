@@ -35,7 +35,7 @@ interface TabNavigationProps {
 
 export function TabNavigation({ activeTab, onTabChange, ownerGroup }: TabNavigationProps) {
   const visibleTabs = ownerGroup === 'PHH'
-    ? tabs.filter(t => t.id !== 'risk')
+    ? tabs.filter(t => t.id !== 'risk' && t.id !== 'maintenance')
     : tabs;
 
   return (

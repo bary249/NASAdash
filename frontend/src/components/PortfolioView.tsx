@@ -397,7 +397,7 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
                 title="Calculate per-property metrics, then weighted average by unit count"
               >
                 <Calculator className="w-3 h-3 inline mr-1" />
-                Weighted Avg
+                Wtd. Avg
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); setAggregationMode('row_metrics'); }}
@@ -426,9 +426,9 @@ export function PortfolioView({ onSelectProperty, selectedPropertyId, selectedPr
       {/* Mode Info Tooltip */}
       {expanded && showModeInfo && (
         <div className="px-6 py-3 bg-venn-amber/10 border-b border-venn-amber/20 text-sm text-slate-700">
-          <strong>Weighted Average:</strong> Calculate metrics for each property, then average weighted by unit count.
+          <strong>Wtd. Avg (Weighted Average):</strong> Calculate metrics for each property individually, then average them — larger properties (more units) have proportionally more influence on the total.
           <br />
-          <strong>Row Metrics:</strong> Combine all raw data from selected properties, then calculate metrics from the combined dataset.
+          <strong>Row Metrics (Combined):</strong> Pool all units from selected properties into one dataset, then calculate metrics from the combined totals. Example: total occupied ÷ total units = occupancy.
         </div>
       )}
 

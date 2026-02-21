@@ -370,6 +370,35 @@ def test_report_data_freshness(res: SmokeResult, base: str, pid: str):
     )
 
 
+def test_no_sde_reports(res: SmokeResult):
+    """Ensure no SDE (Scheduled Data Export) reports are in our pipeline.
+    SDE reports (Prospect Survey, Allocation and Distribution, AP Invoices,
+    GL Journal, etc.) clog the RealPage queue and are not ours."""
+    BLOCKED_NAMES = [
+        "prospect survey", "allocation and distribution",
+        "ap invoices", "gl journal", "sde export",
+    ]
+    defs_path = Path(__file__).parent / "report_definitions.json"
+    if not defs_path.exists():
+        res.add("No SDE reports", False, "report_definitions.json not found")
+        return
+    try:
+        with open(defs_path) as f:
+            defs = json.load(f)
+        violations = []
+        for key, rpt in defs.get("reports", {}).items():
+            name = (rpt.get("name") or "").lower()
+            if any(blocked in name for blocked in BLOCKED_NAMES):
+                violations.append(f"{key}: {rpt.get('name')}")
+        if violations:
+            res.add("No SDE reports", False, f"BLOCKED reports found: {', '.join(violations)}")
+        else:
+            count = len(defs.get("reports", {}))
+            res.add("No SDE reports", True, f"{count} reports checked, none are SDE")
+    except Exception as e:
+        res.add("No SDE reports", False, f"Error: {e}")
+
+
 def test_frontend_html(res: SmokeResult, frontend: str):
     """Check frontend serves HTML with JS bundle."""
     status, body, ms = get(frontend)
@@ -449,6 +478,7 @@ def run_smoke_test(backend: str, frontend: str) -> SmokeResult:
     test_db_status(res, backend)
     test_auth_login(res, backend)
     test_chat_status(res, backend)
+    test_no_sde_reports(res)
 
     # 2. Portfolio-level
     print("\n── Portfolio Endpoints ──")

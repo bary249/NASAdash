@@ -12,7 +12,7 @@ type CardVariant = 'default' | 'highlight' | 'warning' | 'success';
 interface KPICardProps {
   title: string;
   value: string | number;
-  subtitle?: string;
+  subtitle?: ReactNode;
   timeLabel?: string;
   comparison?: {
     label: string;
@@ -153,24 +153,8 @@ interface FunnelKPICardProps {
   refreshing?: boolean;
 }
 
-function PeriodDelta({ current, prior, noData }: { current: number; prior?: number; noData?: boolean }) {
-  if (prior == null || prior === 0) return null;
-  // Don't show misleading delta when current period has no data at all
-  if (noData) return <div className="text-[10px] text-slate-400 mt-0.5">prev: {prior}</div>;
-  const diff = current - prior;
-  const pct = Math.round((diff / prior) * 100);
-  if (pct === 0) return (
-    <div className="text-[10px] text-slate-400 mt-0.5">vs {prior}</div>
-  );
-  return (
-    <div className={`text-[10px] font-medium mt-0.5 ${pct > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-      {pct > 0 ? '▲' : '▼'} {Math.abs(pct)}% <span className="font-normal text-slate-400">vs {prior}</span>
-    </div>
-  );
-}
 
-export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick, priorLeads, priorTours, priorApplications, priorLeasesSigned, priorPeriodLabel, refreshing = false }: FunnelKPICardProps) {
-  const noCurrentData = leads === 0 && tours === 0 && applications === 0 && leasesSigned === 0;
+export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightUnseen: _sightUnseen = 0, tourToApp: _tourToApp = 0, timeLabel, onClick, priorLeads, priorTours, priorApplications, priorLeasesSigned, priorPeriodLabel: _priorPeriodLabel, refreshing = false }: FunnelKPICardProps) {
   const stages = [
     { label: 'Leads', value: leads, prior: priorLeads },
     { label: 'Tours', value: tours, prior: priorTours },
@@ -200,7 +184,6 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
           <div key={stage.label} className="text-center">
             <div className="text-2xl font-bold text-slate-900">{stage.value}</div>
             <div className="text-[11px] text-slate-500 mt-0.5">{stage.label}</div>
-            <PeriodDelta current={stage.value} prior={stage.prior} noData={noCurrentData} />
           </div>
         ))}
       </div>
@@ -219,23 +202,11 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
           return <span className={`text-[9px] font-medium ml-0.5 ${pts > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pts > 0 ? '▲' : '▼'}{Math.abs(pts)}%</span>;
         };
         return (
-        <div className="mt-3 pt-2 border-t border-slate-100 grid grid-cols-3 gap-x-3 gap-y-1">
-          {leads > 0 && tours > 0 && (
+        <div className="mt-3 pt-2 border-t border-slate-100 grid grid-cols-2 gap-x-3 gap-y-1">
+          {leads > 0 && leasesSigned > 0 && (
             <div className="text-center">
-              <div className="text-[10px] text-slate-400">Lead→Tour</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(tours / leads * 100)}%{rateDelta(Math.round(tours / leads * 100), pL > 0 && pT > 0 ? Math.round(pT / pL * 100) : 0)}</div>
-            </div>
-          )}
-          {tours > 0 && applications > 0 && (
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">Tour→App</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(applications / tours * 100)}%{rateDelta(Math.round(applications / tours * 100), pT > 0 && pA > 0 ? Math.round(pA / pT * 100) : 0)}</div>
-            </div>
-          )}
-          {applications > 0 && leasesSigned > 0 && (
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">App→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / applications * 100)}%{rateDelta(Math.round(leasesSigned / applications * 100), pA > 0 && pS > 0 ? Math.round(pS / pA * 100) : 0)}</div>
+              <div className="text-[10px] text-slate-400">Lead→Lease</div>
+              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / leads * 100)}%{rateDelta(Math.round(leasesSigned / leads * 100), pL > 0 && pS > 0 ? Math.round(pS / pL * 100) : 0)}</div>
             </div>
           )}
           {leads > 0 && applications > 0 && (
@@ -244,24 +215,9 @@ export function FunnelKPICard({ leads, tours, applications, leasesSigned, sightU
               <div className="text-xs font-semibold text-slate-700">{Math.round(applications / leads * 100)}%{rateDelta(Math.round(applications / leads * 100), pL > 0 && pA > 0 ? Math.round(pA / pL * 100) : 0)}</div>
             </div>
           )}
-          {tours > 0 && leasesSigned > 0 && (
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">Tour→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / tours * 100)}%{rateDelta(Math.round(leasesSigned / tours * 100), pT > 0 && pS > 0 ? Math.round(pS / pT * 100) : 0)}</div>
-            </div>
-          )}
-          {leads > 0 && leasesSigned > 0 && (
-            <div className="text-center">
-              <div className="text-[10px] text-slate-400">Lead→Lease</div>
-              <div className="text-xs font-semibold text-slate-700">{Math.round(leasesSigned / leads * 100)}%{rateDelta(Math.round(leasesSigned / leads * 100), pL > 0 && pS > 0 ? Math.round(pS / pL * 100) : 0)}</div>
-            </div>
-          )}
         </div>
         );
       })()}
-      {priorPeriodLabel && (priorLeads != null || priorTours != null) && (
-        <div className="text-[10px] text-slate-400 text-right mt-2">vs {priorPeriodLabel}</div>
-      )}
     </div>
   );
 }
@@ -309,7 +265,7 @@ export function VacantKPICard({ total, ready, totalUnits, agedCount, timeLabel, 
         <span className="text-3xl font-bold text-slate-900">{total}</span>
         {vacancyPct !== null && (
           <span className={`text-sm font-semibold ${vacancyPct > 10 ? 'text-rose-600' : vacancyPct > 5 ? 'text-amber-600' : 'text-slate-500'}`}>
-            ({vacancyPct}% vacancy rate)
+            ({vacancyPct}%)
           </span>
         )}
       </div>

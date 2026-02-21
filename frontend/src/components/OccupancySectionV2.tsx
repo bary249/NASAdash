@@ -755,15 +755,6 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
                 )}
               </div>
             )}
-            {funnel?.leadToTourRate != null && funnel.leadToTourRate > 0 && (
-              <MetricCard
-                title="Lead/Tour Conv."
-                value={`${funnel.leadToTourRate}%`}
-                definition={DEFINITIONS.leadToTour}
-                threshold={THRESHOLDS.leadToTour}
-                rawValue={funnel.leadToTourRate}
-              />
-            )}
             {funnel?.applications != null && funnel.applications > 0 && (
               <div>
                 <MetricCard
@@ -781,15 +772,6 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
                   />
                 )}
               </div>
-            )}
-            {funnel?.tourToAppRate != null && funnel.tourToAppRate > 0 && (
-              <MetricCard
-                title="Tour/App Conv."
-                value={`${funnel.tourToAppRate}%`}
-                definition={DEFINITIONS.tourToApp}
-                threshold={THRESHOLDS.tourToApp}
-                rawValue={funnel.tourToAppRate}
-              />
             )}
             {funnel?.leaseSigns != null && funnel.leaseSigns > 0 && (
               <div>
@@ -817,11 +799,11 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
         {/* ═══════════════════════════════════════════════════════════════════════════ */}
         <div>
           <h3 className="text-sm font-bold text-slate-700 mb-4 uppercase tracking-wider">Conversion Rates</h3>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             {funnel?.leadToLeaseRate != null && funnel.leadToLeaseRate > 0 && (
               <div>
                 <MetricCard
-                  title="Lease/Lead Conversion"
+                  title="Lead → Lease"
                   value={`${funnel.leadToLeaseRate}%`}
                   definition={DEFINITIONS.leadToLease}
                   threshold={THRESHOLDS.leadToLease}
@@ -838,35 +820,17 @@ export function OccupancySectionV2({ propertyId }: OccupancySectionV2Props) {
                 )}
               </div>
             )}
-            {funnel?.leadToTourRate != null && funnel.leadToTourRate > 0 && (
+            {funnel?.leads != null && funnel.leads > 0 && funnel?.applications != null && funnel.applications > 0 && (
               <div>
                 <MetricCard
-                  title="Lease/Tour Conversion"
-                  value={`${funnel?.tours && funnel?.leaseSigns ? ((funnel.leaseSigns / funnel.tours) * 100).toFixed(1) : 0}%`}
-                  definition="Percentage of tours that convert to signed leases."
+                  title="Lead → App"
+                  value={`${Math.round(funnel.applications / funnel.leads * 100)}%`}
+                  definition="Percentage of leads that submit an application."
                 />
                 {trends && !trendsLoading && (
                   <TrendBadge
-                    currentValue={funnel?.tours && funnel?.leaseSigns ? (funnel.leaseSigns / funnel.tours) * 100 : 0}
-                    priorValue={trends.funnel.prior.tour_to_app_rate}
-                    higherIsBetter={true}
-                    suffix="%"
-                    priorLabel={`prior ${trends.period_days}d`}
-                  />
-                )}
-              </div>
-            )}
-            {funnel?.appToLeaseRate != null && funnel.appToLeaseRate > 0 && (
-              <div>
-                <MetricCard
-                  title="Lease/Application Conv."
-                  value={`${funnel.appToLeaseRate}%`}
-                  definition="Percentage of applications that convert to signed leases."
-                />
-                {trends && !trendsLoading && (
-                  <TrendBadge
-                    currentValue={funnel.appToLeaseRate}
-                    priorValue={trends.funnel.prior.tour_to_app_rate}
+                    currentValue={funnel.leads > 0 ? (funnel.applications / funnel.leads) * 100 : 0}
+                    priorValue={trends.funnel.prior.leads > 0 ? (trends.funnel.prior.applications / trends.funnel.prior.leads) * 100 : 0}
                     higherIsBetter={true}
                     suffix="%"
                     priorLabel={`prior ${trends.period_days}d`}

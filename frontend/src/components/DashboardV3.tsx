@@ -652,8 +652,8 @@ function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (ty
       <thead>
         <tr className="text-[10px] text-slate-400 uppercase">
           <th colSpan={3}></th>
-          <th colSpan={4} className="pb-0.5 text-center border-b border-slate-200">Net Move In</th>
-          <th colSpan={4} className="pb-0.5 text-center border-b border-slate-200">Expirations & Renewals</th>
+          <th colSpan={4} className="pb-0.5 text-center border-b-2 border-blue-200 text-blue-400">Net Move In</th>
+          <th colSpan={4} className="pb-0.5 text-center border-b-2 border-amber-200 text-amber-400">Expirations & Renewals</th>
         </tr>
         <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500 uppercase">
           <SortHeader label="Week" column="week" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} className="pr-4" />
@@ -661,11 +661,11 @@ function ForecastTable({ weeks, onDrill }: { weeks: ForecastWeek[]; onDrill: (ty
           <SortHeader label="Occ%" column="projected_occupancy_pct" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Move Ins" column="scheduled_move_ins" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Move Outs" column="notice_move_outs" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
-          <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Proj. NTV <InfoTooltip text="Projected Notices: lease expirations where the resident hasn't renewed or given notice yet. Projected as future move-outs." /></span></th>
-          <SortHeader label="Net" column="net_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
+          <th className="pb-2 pr-4 text-right text-xs font-medium text-slate-500 uppercase"><span className="inline-flex items-center gap-0.5">Proj. NTV <InfoTooltip text="Projected Notices: lease expirations where the resident hasn't renewed or given notice yet. Projected as future move-outs." /></span></th>
+          <SortHeader label="Net" column="net_change" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4 border-r border-slate-200" />
           <SortHeader label="Exp." column="lease_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
           <SortHeader label="Renewals" column="renewals" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" className="pr-4" />
-          <th className="pb-2 pr-4 text-right"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
+          <th className="pb-2 pr-4 text-right text-xs font-medium text-slate-500 uppercase"><span className="inline-flex items-center gap-0.5">Rnw% <InfoTooltip text="Renewal Rate = Renewals ÷ Expirations × 100." /></span></th>
           <SortHeader label="Net Exp" column="net_expirations" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
         </tr>
       </thead>
@@ -1404,6 +1404,29 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
+              {/* ATR Composition Bar */}
+              {atrData && atrData.atr > 0 && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col justify-center">
+                  <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-2">ATR Breakdown</div>
+                  <div className="flex h-4 rounded-full overflow-hidden bg-slate-100">
+                    {(boxScoreOcc?.vacant_units ?? 0) > 0 && (
+                      <div className="bg-rose-400 transition-all" style={{ width: `${(boxScoreOcc?.vacant_units ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Vacant: ${boxScoreOcc?.vacant_units ?? 0}`} />
+                    )}
+                    {(boxScoreOcc?.on_notice ?? 0) > 0 && (
+                      <div className="bg-amber-400 transition-all" style={{ width: `${(boxScoreOcc?.on_notice ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Notice: ${boxScoreOcc?.on_notice ?? 0}`} />
+                    )}
+                    {(boxScoreOcc?.preleased ?? 0) > 0 && (
+                      <div className="bg-emerald-400 transition-all" style={{ width: `${(boxScoreOcc?.preleased ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Pre-leased: ${boxScoreOcc?.preleased ?? 0}`} />
+                    )}
+                  </div>
+                  <div className="flex justify-between mt-1.5 text-[9px] text-slate-500">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" />{boxScoreOcc?.vacant_units ?? 0} Vacant</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />{boxScoreOcc?.on_notice ?? 0} Notice</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" />{boxScoreOcc?.preleased ?? 0} Pre-leased</span>
+                  </div>
+                </div>
+              )}
+
               <div role="button" tabIndex={0} onClick={() => openKpiDrill('in_place')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('in_place')} className="text-left w-full h-full">
                 <KPICard
                   title="In-Place"
@@ -1413,9 +1436,9 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                     const inp = pricing?.total_in_place_rent;
                     const delta = ask && inp && inp > 0 ? Math.round((ask - inp) / inp * 1000) / 10 : null;
                     const askStr = ask ? `$${ask.toLocaleString()}` : '—';
-                    return delta !== null
-                      ? `Asking ${askStr} (${delta >= 0 ? '+' : ''}${delta}%)`
-                      : `Asking ${askStr}`;
+                    if (delta === null) return `Asking ${askStr}`;
+                    const color = delta > 0 ? 'text-emerald-600' : delta < 0 ? 'text-rose-600' : 'text-slate-500';
+                    return <span>Asking {askStr} <span className={`font-semibold ${color}`}>({delta >= 0 ? '+' : ''}{delta}%)</span></span>;
                   })()}
                   timeLabel={asOfLabel}
                   icon={<DollarSign className="w-4 h-4" />}
@@ -1926,20 +1949,7 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
             </button>
             {!forecastCollapsed && <><div className="flex items-center gap-4 mb-4 mt-1">
               <p className="text-xs text-slate-500">{forecast.current_occupied}/{forecast.total_units} currently occupied · 12-week projection</p>
-              {(forecast.vacant_leased > 0 || forecast.current_notice > 0) && (
-                <div className="flex gap-3">
-                  {forecast.vacant_leased > 0 && (
-                    <button onClick={() => openKpiDrill('forecast_moveins')} className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition" title="Vacant units with a signed lease — click to see unit details and scheduled move-in dates">
-                      {forecast.vacant_leased} pre-leased{forecast.undated_move_ins > 0 ? ' (dates TBD)' : ''}
-                    </button>
-                  )}
-                  {forecast.current_notice > 0 && (
-                    <button onClick={() => openKpiDrill('forecast_notice')} className="text-xs bg-rose-50 text-rose-600 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition" title="Residents who have given notice to vacate — click to see unit details and move-out dates">
-                      {forecast.current_notice} on notice
-                    </button>
-                  )}
-                </div>
-              )}
+              
             </div>
             <div className="overflow-x-auto">
               <ForecastTable weeks={forecast.forecast as ForecastWeek[]} onDrill={(type, param, start, end) => openKpiDrill(type, param, start, end)} />

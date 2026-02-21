@@ -214,8 +214,8 @@ export default function MarketingSection({ propertyId, propertyIds, timeRange = 
                   <th className="px-4 py-2 text-slate-500 font-medium cursor-pointer hover:text-slate-700 select-none" onClick={() => toggleSort('source')}>
                     Source <SortIcon column="source" sortKey={sortKey} sortDir={sortDir} />
                   </th>
-                  <th className={thClass} onClick={() => toggleSort('new_prospects')}>
-                    Prospects <SortIcon column="new_prospects" sortKey={sortKey} sortDir={sortDir} />
+                  <th className={thClass} onClick={() => toggleSort('new_prospects')} title="New prospects attributed to this advertising channel (subset of total leads)">
+                    New Prospects <SortIcon column="new_prospects" sortKey={sortKey} sortDir={sortDir} />
                   </th>
                   <th className={thClass} onClick={() => toggleSort('phone_calls')}>
                     Calls <SortIcon column="phone_calls" sortKey={sortKey} sortDir={sortDir} />
@@ -238,7 +238,7 @@ export default function MarketingSection({ propertyId, propertyIds, timeRange = 
                 {topSources.map((src, i) => {
                   return (
                     <tr key={i} className="border-t border-slate-50 hover:bg-slate-50/50">
-                      <td className="px-4 py-2 text-slate-800 font-medium truncate max-w-[200px]" title={src.source}>{src.source}</td>
+                      <td className="px-4 py-2 text-slate-800 font-medium truncate max-w-[200px]" title={src.source}>{src.source.toLowerCase() === 'costar' ? 'Apt.com' : src.source}</td>
                       <td className="px-3 py-2 text-right text-slate-700">{src.new_prospects}</td>
                       <td className="px-3 py-2 text-right text-slate-500">{src.phone_calls}</td>
                       <td className="px-3 py-2 text-right text-slate-700">{src.visits}</td>

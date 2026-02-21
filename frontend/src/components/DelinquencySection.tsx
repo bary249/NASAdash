@@ -152,15 +152,15 @@ function EvictionTable({ units }: { units: ResidentDelinquency[] }) {
 function DelinquentTable({ residents, variant, totalLabel, total }: { residents: ResidentDelinquency[]; variant: 'current' | 'former'; totalLabel: string; total: number }) {
   const { sorted, sortKey, sortDir, toggleSort } = useSortable(residents, 'total_delinquent');
   const isCurrent = variant === 'current';
-  const headBg = isCurrent ? 'bg-slate-100' : 'bg-amber-100';
-  const headText = isCurrent ? 'text-slate-500' : 'text-amber-700';
+  const headBg = isCurrent ? 'bg-red-50' : 'bg-amber-100';
+  const headText = isCurrent ? 'text-red-600' : 'text-amber-700';
   const rowBg = isCurrent ? '' : 'bg-amber-50';
-  const rowHover = isCurrent ? 'hover:bg-slate-50' : 'hover:bg-amber-100';
+  const rowHover = isCurrent ? 'hover:bg-red-50/50' : 'hover:bg-amber-100';
   const amtText = isCurrent ? 'text-red-600' : 'text-amber-700';
   const bucketText = isCurrent ? 'text-slate-600' : 'text-amber-600';
-  const footBorder = isCurrent ? 'border-slate-300' : 'border-amber-300';
-  const footBg = isCurrent ? 'bg-slate-50' : 'bg-amber-50';
-  const footText = isCurrent ? 'text-slate-800' : 'text-amber-800';
+  const footBorder = isCurrent ? 'border-red-200' : 'border-amber-300';
+  const footBg = isCurrent ? 'bg-red-50' : 'bg-amber-50';
+  const footText = isCurrent ? 'text-red-800' : 'text-amber-800';
   const totalAmtText = isCurrent ? 'text-red-700' : 'text-amber-700';
   return (
     <div className="overflow-x-auto">

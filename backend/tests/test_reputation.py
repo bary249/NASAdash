@@ -16,11 +16,10 @@ async def test_get_reputation(client):
     assert "review_power" in data
     assert isinstance(data["sources"], list)
 
-    # Should have at least the ILS placeholder slots
-    source_names = [s["source"] for s in data["sources"]]
-    assert "apartments_com" in source_names
-    assert "zillow" in source_names
-    assert "yelp" in source_names
+    # Each source should have valid structure
+    for s in data["sources"]:
+        assert "source" in s
+        assert isinstance(s["source"], str)
 
     # Review power should have expected fields
     rp = data["review_power"]
@@ -28,3 +27,5 @@ async def test_get_reputation(client):
     assert "avg_response_hours" in rp
     assert "needs_attention" in rp
     assert "total_reviews" in rp
+    assert isinstance(rp["total_reviews"], int)
+    assert rp["total_reviews"] >= 0

@@ -1404,29 +1404,6 @@ function PropertyDashboard({ propertyId, propertyIds, propertyName, originalProp
                 />
               </div>
 
-              {/* ATR Composition Bar */}
-              {atrData && atrData.atr > 0 && (
-                <div className="rounded-xl border border-slate-200 bg-white p-4 h-full flex flex-col justify-center">
-                  <div className="text-[10px] font-medium text-slate-500 uppercase tracking-wide mb-2">ATR Breakdown</div>
-                  <div className="flex h-4 rounded-full overflow-hidden bg-slate-100">
-                    {(boxScoreOcc?.vacant_units ?? 0) > 0 && (
-                      <div className="bg-rose-400 transition-all" style={{ width: `${(boxScoreOcc?.vacant_units ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Vacant: ${boxScoreOcc?.vacant_units ?? 0}`} />
-                    )}
-                    {(boxScoreOcc?.on_notice ?? 0) > 0 && (
-                      <div className="bg-amber-400 transition-all" style={{ width: `${(boxScoreOcc?.on_notice ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Notice: ${boxScoreOcc?.on_notice ?? 0}`} />
-                    )}
-                    {(boxScoreOcc?.preleased ?? 0) > 0 && (
-                      <div className="bg-emerald-400 transition-all" style={{ width: `${(boxScoreOcc?.preleased ?? 0) / (boxScoreOcc?.total_units ?? 1) * 100}%` }} title={`Pre-leased: ${boxScoreOcc?.preleased ?? 0}`} />
-                    )}
-                  </div>
-                  <div className="flex justify-between mt-1.5 text-[9px] text-slate-500">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-400" />{boxScoreOcc?.vacant_units ?? 0} Vacant</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" />{boxScoreOcc?.on_notice ?? 0} Notice</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" />{boxScoreOcc?.preleased ?? 0} Pre-leased</span>
-                  </div>
-                </div>
-              )}
-
               <div role="button" tabIndex={0} onClick={() => openKpiDrill('in_place')} onKeyDown={e => e.key === 'Enter' && openKpiDrill('in_place')} className="text-left w-full h-full">
                 <KPICard
                   title="In-Place"

@@ -1013,6 +1013,80 @@ async def portfolio_chat(request: dict, authorization: Optional[str] = Header(No
                         }
                 except Exception:
                     pass
+
+                # Unit mix by bedroom type (AI-5: unit type vacancy/demand)
+                try:
+                    conn_bd = sqlite3.connect(UNIFIED_DB_PATH)
+                    cur_bd = conn_bd.cursor()
+                    cur_bd.execute("""
+                        SELECT
+                            COALESCE(bedrooms, -1) as beds,
+                            COUNT(*) as total,
+                            SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied,
+                            SUM(CASE WHEN status IN ('vacant','vacant_ready','vacant_not_ready') THEN 1 ELSE 0 END) as vacant,
+                            ROUND(AVG(CASE WHEN market_rent > 0 THEN market_rent END), 0) as avg_market,
+                            ROUND(AVG(CASE WHEN in_place_rent > 0 THEN in_place_rent END), 0) as avg_in_place
+                        FROM unified_units
+                        WHERE unified_property_id = ?
+                        GROUP BY bedrooms
+                        ORDER BY beds
+                    """, (prop_id,))
+                    bd_rows = cur_bd.fetchall()
+                    conn_bd.close()
+                    if bd_rows:
+                        prop_entry["unit_breakdown"] = [
+                            {
+                                "bedrooms": r[0] if r[0] >= 0 else None,
+                                "total_units": r[1],
+                                "occupied": r[2] or 0,
+                                "vacant": r[3] or 0,
+                                "occupancy_pct": round((r[2] or 0) / r[1] * 100, 1) if r[1] > 0 else 0,
+                                "avg_market_rent": r[4] or 0,
+                                "avg_in_place_rent": r[5] or 0,
+                            }
+                            for r in bd_rows
+                        ]
+                except Exception:
+                    pass
+
+                # Lead sources (AI source-level marketing context)
+                try:
+                    conn_ls = sqlite3.connect(UNIFIED_DB_PATH)
+                    conn_ls.row_factory = sqlite3.Row
+                    cur_ls = conn_ls.cursor()
+                    lead_sources = {}
+                    norm_prop_id = prop_id.replace("kairoi-", "").replace("-", "_")
+                    for tf in ["ytd", "mtd", "l30", "l7"]:
+                        cur_ls.execute(
+                            """
+                            SELECT source_name, new_prospects, visits, leases, net_leases,
+                                   prospect_to_lease_pct, date_range
+                            FROM unified_advertising_sources
+                            WHERE (unified_property_id = ? OR unified_property_id = ?)
+                              AND timeframe_tag = ?
+                            ORDER BY new_prospects DESC
+                            """,
+                            (prop_id, norm_prop_id, tf),
+                        )
+                        ls_rows = cur_ls.fetchall()
+                        if ls_rows:
+                            lead_sources[tf] = [
+                                {
+                                    "source": r["source_name"],
+                                    "prospects": r["new_prospects"] or 0,
+                                    "visits": r["visits"] or 0,
+                                    "leases": r["leases"] or 0,
+                                    "net_leases": r["net_leases"] or 0,
+                                    "conversion": r["prospect_to_lease_pct"] or 0,
+                                }
+                                for r in ls_rows
+                            ]
+                            lead_sources[f"{tf}_date_range"] = ls_rows[0]["date_range"] if ls_rows else ""
+                    conn_ls.close()
+                    if lead_sources:
+                        prop_entry["lead_sources"] = lead_sources
+                except Exception:
+                    pass
                 
                 properties_data.append(prop_entry)
                 

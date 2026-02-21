@@ -226,6 +226,8 @@ class ChatService:
                     ls_lines += f"  TOTAL: {total_p} prospects, {total_l} leases\n"
             if ls_lines:
                 sections.append(f"LEAD SOURCES:{ls_lines}")
+        else:
+            sections.append("LEAD SOURCES:\nLead source data is not available. The advertising source report (Report 4158) needs to be downloaded and synced to provide lead source breakdown by platform (Apartments.com, Zillow, etc.).")
         
         # Occupancy forecast (AI-4)
         forecast = property_data.get("forecast", [])
@@ -279,9 +281,11 @@ GUIDELINES:
 4. Highlight concerns (e.g., high vacancy, low conversion rates) proactively.
 5. Keep responses focused and concise.
 6. For complex analysis, break down your reasoning.
-7. When asked about lead sources (e.g., Apartments.com, Zillow), reference the LEAD SOURCES section.
-8. When asked about projections or forecasts, reference the OCCUPANCY FORECAST section.
-9. When asked about unit types or bedroom demand, reference the UNIT MIX BY BEDROOM TYPE section.
+7. When asked about lead sources (e.g., Apartments.com, Zillow), reference the LEAD SOURCES section. If the section says data is not available, clearly state that lead source data is missing and not make up any numbers.
+8. Treat lead-source aliases as the same channel. Key aliases: "CoStar" in the data = "Apt.com" / "Apartments.com" (CoStar owns Apartments.com). Also treat "Apt.com", "Apartments.com", "Apts.com" as the same. When the user asks about Apartments.com or Apt.com, look for "CoStar" in the data. If variants appear, combine them in your answer.
+9. For time-window questions (e.g., "last 60 days"), derive from available windows (L7/L30/MTD/YTD) and date ranges. If exact 60-day data isn't present, state that the result is an approximation and explain the basis.
+10. When asked about projections or forecasts, reference the OCCUPANCY FORECAST section.
+11. When asked about unit types or bedroom demand, reference the UNIT MIX BY BEDROOM TYPE section.
 
 You can help with: occupancy analysis, lead source performance, pricing insights, leasing funnel efficiency, occupancy projections, unit type demand, identifying risks and opportunities, and suggesting improvements."""
 
@@ -344,6 +348,7 @@ You can help with: occupancy analysis, lead source performance, pricing insights
             occ = prop.get("occupancy", {})
             pricing = prop.get("pricing", {})
             funnel = prop.get("funnel", {})
+            lead_sources = prop.get("lead_sources", {})
             exposure = prop.get("exposure", {})
             delinq = prop.get("delinquency", {})
             renewals = prop.get("renewals", {})
@@ -385,6 +390,25 @@ You can help with: occupancy analysis, lead source performance, pricing insights
             lines.append(f"  Funnel MTD: {leads} leads → {tours} tours → {apps} apps → {leases} leases ({l2l_rate:.1f}% conv)")
             if sight_unseen or tour_to_app:
                 lines.append(f"  Funnel Detail: {tour_to_app} tour-to-app, {sight_unseen} applied w/o tour")
+
+            # Lead sources (by source/channel)
+            if lead_sources:
+                for tf_key, tf_label in [("l30", "Lead Sources L30"), ("mtd", "Lead Sources MTD"), ("ytd", "Lead Sources YTD")]:
+                    sources = lead_sources.get(tf_key, [])
+                    if not sources:
+                        continue
+                    date_range = lead_sources.get(f"{tf_key}_date_range", "")
+                    top_sources = ", ".join(
+                        [
+                            f"{s.get('source', 'Unknown')}: {s.get('prospects', 0)} prospects, {s.get('leases', 0)} leases"
+                            for s in sources[:5]
+                        ]
+                    )
+                    if top_sources:
+                        if date_range:
+                            lines.append(f"  {tf_label} ({date_range}): {top_sources}")
+                        else:
+                            lines.append(f"  {tf_label}: {top_sources}")
             
             # Exposure
             if exposure:
@@ -449,6 +473,20 @@ You can help with: occupancy analysis, lead source performance, pricing insights
                 if longest:
                     top_units = [f"Unit {u['unit']} ({u['days_vacant']}d)" for u in longest[:3]]
                     lines.append(f"  Longest Vacant: {', '.join(top_units)}")
+
+            # Unit mix by bedroom type
+            unit_breakdown = prop.get("unit_breakdown", [])
+            if unit_breakdown:
+                bd_parts = []
+                for ub in unit_breakdown:
+                    beds = ub.get("bedrooms")
+                    label = "Studio" if beds == 0 else f"{beds}BR" if beds else "Unknown"
+                    total = ub.get("total_units", 0)
+                    vacant = ub.get("vacant", 0)
+                    occ_pct = ub.get("occupancy_pct", 0)
+                    avg_mkt = ub.get("avg_market_rent", 0)
+                    bd_parts.append(f"{label}: {total} units, {vacant} vacant ({occ_pct:.0f}% occ), ${avg_mkt:,.0f} avg market")
+                lines.append(f"  Unit Mix: {' | '.join(bd_parts)}")
 
             # Move-out reasons
             if move_out:
@@ -538,6 +576,12 @@ When providing portfolio highlights:
 - Provide ACTIONABLE recommendations
 - Compare properties to identify PATTERNS
 - Quantify the FINANCIAL IMPACT when possible
+
+Lead-source question rules:
+- Treat lead-source aliases as the same channel. Key aliases: "CoStar" in the data = "Apt.com" / "Apartments.com" (CoStar owns Apartments.com). Also treat "Apt.com", "Apartments.com", "Apts.com" as the same. When the user asks about Apartments.com or Apt.com, look for "CoStar" in the data.
+- For "last 60 days" (or similar), use available windows and their date ranges (L30/MTD/YTD) to provide the best-supported estimate.
+- If exact coverage is unavailable, explicitly label the value as an approximation and cite the window used.
+- Never claim a source is missing unless no matching alias appears in the provided lead-source sections.
 
 Keep responses strategic and executive-level. Focus on what an owner or asset manager NEEDS to know to make decisions."""
 

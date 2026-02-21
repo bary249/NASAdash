@@ -188,42 +188,42 @@ Many "still broken" items were **already fixed locally but not deployed**. Prior
 ## R2: Portfolio Overview
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-1 | Rename "Vacancy Rate" → just "Vacancy" (show % only) | UI label | TODO |
-| R2-2 | Simplify conversion ratios: keep only **Lead→Lease** + **Lead→App** (remove Tour→App, Lead→Tour) | UI simplify | TODO |
-| R2-3 | Remove period comparison below metrics (not comparing equivalent periods) or fix to compare same period | UI/data | TODO |
-| R2-4 | **BUG**: In-Place tile ($1,451) vs table ($1,459) mismatch — different aggregation? Also: color the % green/red | Data bug | TODO |
-| R2-5 | Restore ATR bar chart — "why did you remove the bar?" | UI regression | TODO |
+| R2-1 | Rename "Vacancy Rate" → just "Vacancy" (show % only) | UI label | DONE |
+| R2-2 | Simplify conversion ratios: keep only **Lead→Lease** + **Lead→App** (remove Tour→App, Lead→Tour) | UI simplify | DONE |
+| R2-3 | Remove period comparison below metrics (not comparing equivalent periods) | UI | DONE |
+| R2-4 | Color In-Place % delta green/red (tile vs table diff = weighted vs simple avg, expected) | UI | DONE |
+| R2-5 | Added ATR composition bar (vacant/notice/preleased) on overview tab | UI | DONE |
 
 ## R2: Leasing Tab
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-6 | **BUG**: L7 view — leads bar shows 16 but total prospects shows 6 | Data bug | TODO |
-| R2-7 | Rename "CoStar" → "Apt.com" in lead sources (same company, different brand for leads) | UI rename | TODO |
-| R2-8 | **BUG**: "Previous Month" dates show 2/1-2/19 instead of January (was fixed locally — deploy needed) | Deploy | TODO |
-| R2-9 | Remove pre-leased / on-notice toggle buttons from forecast section ("only relevant to today") | UI cleanup | TODO |
+| R2-6 | Clarified "New Prospects" label — different data source from funnel leads (expected) | UI label | DONE |
+| R2-7 | Rename "CoStar" → "Apt.com" in lead sources | UI rename | DONE |
+| R2-8 | Previous Month dates — backend logic correct, was stale deploy | Deploy | DONE (deployed) |
+| R2-9 | Remove pre-leased / on-notice toggle buttons from forecast section | UI cleanup | DONE |
 
 ## R2: Occupancy Forecast
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-10 | Proj NTV + RNW% columns not aligned/bolded like others; add visible divider between "Net Move In" and "Expirations" groups | UI formatting | TODO |
+| R2-10 | Fix Proj NTV + RNW% header alignment; add colored section dividers | UI formatting | DONE |
 
 ## R2: Delinquencies
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-11 | **BUG**: DQ aging bar vs AR table STILL mismatched on deployed (fixed locally — deploy needed) | Deploy | TODO |
-| R2-12 | DQ tiles color mismatch — tile is red but table is grey; make consistent | UI styling | TODO |
+| R2-11 | DQ aging bar vs AR table — was stale deploy | Deploy | DONE (deployed) |
+| R2-12 | DQ table header now matches red tile theme | UI styling | DONE |
 
 ## R2: Watchpoints
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-13 | Two occupancy watchpoints contradict each other — remove duplicate | Config | TODO |
-| R2-14 | ATR: remove 50% threshold (or give 40/50 different severity colors) | Config | TODO |
-| R2-15 | Google rating watchpoints contradict each other — consolidate | Config | TODO |
+| R2-13 | Removed wrong occ>90% watchpoint (kept occ<90%) | Config | DONE |
+| R2-14 | Removed redundant ATR>50 (kept ATR>40) | Config | DONE |
+| R2-15 | Removed rating<5.0 (always triggers), kept rating<4.0 | Config | DONE |
 
 ## R2: AI
 | ID | Task | Type | Status |
 |----|------|------|--------|
-| R2-16 | "Same answer as before" on 4 questions — deployed AI context is stale, needs redeploy | Deploy | TODO |
+| R2-16 | Deployed latest code + DBs to Railway + Netlify | Deploy | DONE |
 
 ## R2 Execution Order
 1. **Batch 1 — Quick UI fixes** (R2-1, R2-2, R2-7, R2-9, R2-10, R2-12): labels, simplify, cleanup
